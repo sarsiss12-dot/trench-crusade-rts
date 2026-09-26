@@ -1,0 +1,143 @@
+// Versioned save codec (pure, platform-independent). GameState -> JSON string and back.
+// Typed arrays are encoded as { $ta: <type>, b64: <base64> }. Renderer/UI state never enters
+// a save. Migrations upgrade older save versions step by step.
+import { STATE_VERSION } from '../sim/constants.js';
+
+export const SAVE_FORMAT = 'trench-crusade-rts-save';
+export const SAVE_VERSION = STATE_VERSION;
+
+const TYPED = {
+  Uint8Array, Int8Array, Uint16Array, Int16Array, Uint32Array, Int32Array, Float32Array, Float64Array,
+};
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const B64_INV = (() => {
+  const t = new Int16Array(128).fill(-1);
+  for (let i = 0; i < B64.length; i++) t[B64.charCodeAt(i)] = i;
+  return t;
+})();
+
+export function bytesToBase64(u8) {
+  let out = '';
+  let i = 0;
+  for (; i + 2 < u8.length; i += 3) {
+    const n = (u8[i] << 16) | (u8[i + 1] << 8) | u8[i + 2];
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + B64[(n >> 6) & 63] + B64[n & 63];
+  }
+  const rem = u8.length - i;
+  if (rem === 1) {
+    const n = u8[i] << 16;
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + '==';
+  } else if (rem === 2) {
+    const n = (u8[i] << 16) | (u8[i + 1] << 8);
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + B64[(n >> 6) & 63] + '=';
+  }
+  return out;
+}
+
+export function base64ToBytes(str) {
+  let len = str.length;
+  while (len > 0 && str[len - 1] === '=') len--;
+  const out = new Uint8Array(Math.floor((len * 3) / 4));
+  let o = 0, buf = 0, bits = 0;
+  for (let i = 0; i < len; i++) {
+    const v = B64_INV[str.charCodeAt(i)];
+    if (v < 0) throw new Error('save.corrupt');
+    buf = (buf << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out[o++] = (buf >> bits) & 255;
+    }
+  }
+  return out;
+}
+
+function replacer(key, value) {
+  if (value && ArrayBuffer.isView(value) && !(value instanceof DataView)) {
+    const u8 = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    return { $ta: value.constructor.name, b64: bytesToBase64(u8) };
+  }
+  return value;
+}
+
+function reviver(key, value) {
+  if (value && typeof value === 'object' && typeof value.$ta === 'string' && typeof value.b64 === 'string') {
+    const Ctor = TYPED[value.$ta];
+    if (!Ctor) throw new Error('save.corrupt');
+    const bytes = base64ToBytes(value.b64);
+    const copy = new Uint8Array(bytes.length);
+    copy.set(bytes);
+    return new Ctor(copy.buffer, 0, bytes.length / Ctor.BYTES_PER_ELEMENT);
+  }
+  return value;
+}
+
+export function encodeState(state) {
+  return JSON.stringify(state, replacer);
+}
+
+export function decodeState(json) {
+  return JSON.parse(json, reviver);
+}
+
+/** Deep clone of GameState through the codec (used by tests and save snapshots). */
+export function cloneState(state) {
+  return decodeState(encodeState(state));
+}
+
+export function hashString32(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+export function hashState(state) {
+  return hashString32(encodeState(state));
+}
+
+// ------------------------------------------------------------------ migrations
+// MIGRATIONS[n] upgrades a save object from version n to n+1.
+// Version 0 = pre-release prototype layout (kept as the reference example of the pattern).
+export const MIGRATIONS = {
+  0: (save) => {
+    const s = save.state;
+    s.effects = s.effects || [];
+    s.pending = s.pending || [];
+    s.commandSeq = s.commandSeq || 0;
+    s.objectives = s.objectives || [];
+    for (const sq of s.squads || []) {
+      if (sq.hordeBonus === undefined) sq.hordeBonus = 0;
+      if (sq.debuffUntil === undefined) sq.debuffUntil = 0;
+      for (const m of sq.members) if (m.killer === undefined) m.killer = '';
+    }
+    s.version = 1;
+    return { ...save, version: 1 };
+  },
+};
+
+export function migrateSave(save) {
+  if (!save || save.format !== SAVE_FORMAT) throw new Error('save.invalid_format');
+  let cur = save;
+  if (typeof cur.version !== 'number') throw new Error('save.invalid_format');
+  if (cur.version > SAVE_VERSION) throw new Error('save.too_new');
+  while (cur.version < SAVE_VERSION) {
+    const fn = MIGRATIONS[cur.version];
+    if (!fn) throw new Error('save.no_migration');
+    cur = fn(cur);
+  }
+  return cur;
+}
+
+export function serializeSave(state, meta = {}) {
+  return JSON.stringify({ format: SAVE_FORMAT, version: SAVE_VERSION, meta, state }, replacer);
+}
+
+export function deserializeSave(str) {
+  const raw = JSON.parse(str, reviver);
+  const save = migrateSave(raw);
+  return { meta: save.meta || {}, state: save.state };
+}
