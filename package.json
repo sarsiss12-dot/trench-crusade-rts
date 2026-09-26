@@ -1,0 +1,17 @@
+{
+  "name": "trench-crusade-rts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mobile-first 3D asymmetric siege RTS inspired by the Trench Crusade setting (unofficial fan project). Zero runtime dependencies.",
+  "scripts": {
+    "serve": "node tools/serve.js",
+    "test": "node tests/run.js",
+    "build": "node tools/build.js",
+    "test:browser": "node tools/browser_smoke.js",
+    "balance": "node tools/balance.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
