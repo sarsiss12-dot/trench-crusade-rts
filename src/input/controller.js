@@ -1,0 +1,540 @@
+// Input controller: binds DOM pointer / wheel / keyboard events to the gesture recognizer and maps
+// gestures to camera moves, selection and player actions. Touch-first: every action is reachable
+// with taps (no right-click assumption); mouse + keyboard add shortcuts on desktop.
+// Interaction modes: normal | place (construction) | ability | rally | repair | gather | attackMove.
+import { createGestures } from './gestures.js';
+import { pickSquad, pickStructure, pickNode, boxSelect, squadsOfTypeOnScreen } from './pick.js';
+import { allCombatSquadIds, squadIdsWithRole } from './selection.js';
+import { pickGround, panCamera, zoomAt, cameraPitch, worldPerPixel } from '../render/camera.js';
+import { STRUCTURES } from '../data/structures.js';
+import { ABILITIES } from '../data/abilities.js';
+import { unitDef } from '../data/units.js';
+import { PLAYER_FORMATIONS } from '../units/formation.js';
+import { snapToTrenchEndpoint } from '../construction/trench.js';
+
+const TAP_RADIUS_CSS = 26;
+const G = [0, 0, 0];
+
+export function createInputController(canvas, game) {
+  const cam = game.camera;
+  const sim = game.session.sim;
+  const viewer = game.session.viewer;
+  const keys = new Set();
+  const ui = game.ui; // shared UI toggles { boxMode, multi, attackMove }
+  let pxScale = 1; // device px per CSS px
+  const groups = new Map(); // control groups (desktop)
+
+  const ground = (x, z) => game.renderer.groundAt(x, z);
+  const known = () => game.renderer.knownStructures();
+
+  function groundAt(sx, sy) {
+    return pickGround(cam, sx, sy, G) ? G : null;
+  }
+
+  function hasCapability(role) {
+    return game.selection.ownSquads(sim, viewer).some((sq) => unitDef(sq.type).roles.indexOf(role) >= 0);
+  }
+
+  // ------------------------------------------------------------------ modes
+  function setMode(m) {
+    game.mode = m || { kind: 'normal' };
+    game.frame.placement = null;
+    game.frame.abilityTarget = null;
+    if (game.hud) game.hud.onModeChanged();
+  }
+
+  function startPlacement(stype) {
+    const def = STRUCTURES[stype];
+    if (!def || !def.buildable || def.builder !== viewer) return;
+    const linear = def.kind === 'linear';
+    setMode({
+      kind: 'place', stype, linear, p1: null, p2: null,
+      x: cam.tx, z: cam.tz, rot: game.session.sim.state.factions[viewer].role === 'defender' ? Math.PI : 0,
+      pinned: false, valid: false, reason: '', drawing: false,
+    });
+    if (!linear) updatePlacement();
+  }
+
+  function clampLinear(def, p1, x, z, out) {
+    const dx = x - p1[0], dz = z - p1[1];
+    const len = Math.hypot(dx, dz);
+    if (len > def.maxLen) { out[0] = p1[0] + (dx / len) * def.maxLen; out[1] = p1[1] + (dz / len) * def.maxLen; }
+    else { out[0] = x; out[1] = z; }
+    return out;
+  }
+
+  function updatePlacement() {
+    const m = game.mode;
+    if (m.kind !== 'place') return;
+    const def = STRUCTURES[m.stype];
+    if (m.linear) {
+      if (!m.p1) { game.frame.placement = null; return; }
+      const p2 = m.p2 || m.hover;
+      if (!p2) {
+        game.frame.placement = null;
+        return;
+      }
+      const raw = { x1: m.p1[0], z1: m.p1[1], x2: p2[0], z2: p2[1] };
+      const v = game.actions.validate(m.stype, raw);
+      m.valid = v.ok;
+      m.reason = v.ok ? '' : v.reason;
+      m.cost = v.cost || null;
+      m.len = Math.hypot(raw.x2 - raw.x1, raw.z2 - raw.z1);
+      game.frame.placement = { stype: m.stype, valid: v.ok, params: v.ok ? v.params : { ...raw, front: 1 } };
+    } else {
+      const raw = { x: m.x, z: m.z, rot: m.rot };
+      const v = game.actions.validate(m.stype, raw);
+      m.valid = v.ok;
+      m.reason = v.ok ? '' : v.reason;
+      m.cost = v.cost || def.cost;
+      game.frame.placement = { stype: m.stype, valid: v.ok, params: raw };
+    }
+    if (game.hud) game.hud.onModeChanged();
+  }
+
+  function placementPoint(sx, sy, isEnd) {
+    const m = game.mode;
+    const g = groundAt(sx, sy);
+    if (!g) return;
+    const def = STRUCTURES[m.stype];
+    if (m.linear) {
+      // tapping far from the pending start point restarts the line there
+      const restart = m.p1 && !m.p2 && Math.hypot(g[0] - m.p1[0], g[2] - m.p1[1]) > def.maxLen * 1.6;
+      if (!m.p1 || !isEnd || restart) {
+        const s = m.stype === 'trench' ? snapToTrenchEndpoint(sim.state.structures, viewer, g[0], g[2], 2.5) : null;
+        m.p1 = s ? [s[0], s[1]] : [g[0], g[2]];
+        m.p2 = null;
+      } else {
+        m.p2 = clampLinear(def, m.p1, g[0], g[2], [0, 0]);
+      }
+    } else {
+      m.x = g[0]; m.z = g[2];
+      m.pinned = true;
+    }
+    updatePlacement();
+  }
+
+  function confirmPlacement() {
+    const m = game.mode;
+    if (m.kind !== 'place') return false;
+    if (m.linear && (!m.p1 || !m.p2)) return false;
+    const params = m.linear ? { x1: m.p1[0], z1: m.p1[1], x2: m.p2[0], z2: m.p2[1] } : { x: m.x, z: m.z, rot: m.rot };
+    const ok = game.actions.build(m.stype, params);
+    if (!ok) return false;
+    if (m.linear) {
+      // chain: the next segment starts where this one ended
+      m.p1 = [m.p2[0], m.p2[1]];
+      m.p2 = null;
+      m.hover = null;
+      updatePlacement();
+    } else setMode(null);
+    return true;
+  }
+
+  function rotatePlacement() {
+    const m = game.mode;
+    if (m.kind !== 'place' || m.linear) return;
+    m.rot = (m.rot + Math.PI / 4) % (Math.PI * 2);
+    updatePlacement();
+  }
+
+  function startAbility(id) {
+    const def = ABILITIES[id];
+    if (!def) return;
+    setMode({ kind: 'ability', id, radius: def.radius });
+  }
+
+  function updateAbilityTarget(sx, sy) {
+    const m = game.mode;
+    const g = groundAt(sx, sy);
+    if (!g) return;
+    const why = game.actions.abilityCheck(m.id, g[0], g[2]);
+    game.frame.abilityTarget = { x: g[0], z: g[2], radius: m.radius, valid: !why };
+  }
+
+  // ------------------------------------------------------------------ taps
+  function radiusPx() {
+    return TAP_RADIUS_CSS * pxScale * (game.settings.touchAssist ? 1.3 : 1);
+  }
+
+  function selectSquads(ids, additive) {
+    if (additive) game.selection.add(ids);
+    else game.selection.set(ids);
+    if (game.audio) game.audio.ui('select');
+  }
+
+  function normalTap(sx, sy, info) {
+    const own = game.selection.ownSquads(sim, viewer);
+    const additive = info.shift || info.ctrl || ui.multi;
+    const hit = pickSquad(sim, viewer, cam, ground, sx, sy, radiusPx());
+    if (hit) {
+      const sq = hit.sq;
+      if (sq.faction === viewer) {
+        if (additive) { game.selection.toggle(sq.id); if (game.audio) game.audio.ui('select'); }
+        else selectSquads([sq.id], false);
+      } else if (own.length && !ui.inspect) {
+        game.actions.attack('squad', sq.id, sq.cx, sq.cz);
+        ui.attackMove = false;
+      } else selectSquads([sq.id], false);
+      return;
+    }
+    const g = groundAt(sx, sy);
+    if (!g) return;
+    const gx = g[0], gz = g[2];
+    const st = pickStructure(sim, viewer, gx, gz, 0.8, null, known());
+    if (st) {
+      const def = STRUCTURES[st.type];
+      if (st.faction === viewer) {
+        if (own.length) {
+          const needsWork = !st.built || st.hp < st.maxHp;
+          if (needsWork && (hasCapability('builder') || hasCapability('repairer')) && game.actions.assist(st)) return;
+          if (st.type === 'trench' && game.actions.enterTrench(st.id, gx, gz)) return;
+          if (def.kind === 'linear') { game.actions.moveTo(gx, gz, ui.attackMove); ui.attackMove = false; return; }
+        }
+        game.selection.setStruct(st.id);
+        if (game.audio) game.audio.ui('select');
+        return;
+      }
+      if (st.faction === 'neutral') {
+        if (own.length) {
+          if (st.type === 'trench' && game.actions.enterTrench(st.id, gx, gz)) return;
+          game.actions.moveTo(gx, gz, ui.attackMove);
+          ui.attackMove = false;
+          return;
+        }
+        game.selection.setStruct(st.id);
+        return;
+      }
+      if (own.length) {
+        // out of sight: advance on the remembered spot — the same whether or not it still stands,
+        // so a tap can never test the fog; in sight: attack it
+        if (st.memory) game.actions.moveTo(st.x, st.z, true);
+        else game.actions.attack('struct', st.id, st.x, st.z);
+        return;
+      }
+      game.selection.setStruct(st.id);
+      if (game.audio) game.audio.ui('select');
+      return;
+    }
+    const node = pickNode(sim, viewer, gx, gz);
+    if (node && own.length && hasCapability('gatherer')) { game.actions.gather(node); return; }
+    if (own.length) {
+      game.actions.moveTo(gx, gz, ui.attackMove);
+      ui.attackMove = false;
+      if (game.hud) game.hud.onModeChanged();
+      return;
+    }
+    if (!additive) game.selection.clear();
+  }
+
+  function modeTap(sx, sy, info) {
+    const m = game.mode;
+    switch (m.kind) {
+      case 'place':
+        placementPoint(sx, sy, !!m.p1);
+        return;
+      case 'ability': {
+        const g = groundAt(sx, sy);
+        if (!g) return;
+        // touch has no hover preview: the first tap shows the area, a tap inside it confirms
+        const prev = game.frame.abilityTarget;
+        const confirming = prev && Math.hypot(prev.x - g[0], prev.z - g[2]) < Math.max(3, m.radius * 0.6);
+        if (info.type !== 'mouse' && !confirming) { updateAbilityTarget(sx, sy); return; }
+        if (game.actions.ability(m.id, g[0], g[2])) setMode(null);
+        return;
+      }
+      case 'rally': {
+        const g = groundAt(sx, sy);
+        const st = sim.rt.structById.get(m.sid);
+        if (g && st) game.actions.setRally(st, g[0], g[2]);
+        setMode(null);
+        return;
+      }
+      case 'repair': {
+        const g = groundAt(sx, sy);
+        const st = g ? pickStructure(sim, viewer, g[0], g[2], 1, (s) => s.faction === viewer, known()) : null;
+        if (st && game.actions.assist(st)) setMode(null);
+        return;
+      }
+      case 'gather': {
+        const g = groundAt(sx, sy);
+        const n = g ? pickNode(sim, viewer, g[0], g[2], 6) : null;
+        if (n && game.actions.gather(n)) setMode(null);
+        return;
+      }
+      default:
+        normalTap(sx, sy, info);
+    }
+  }
+
+  // ------------------------------------------------------------------ gestures
+  let drawDrag = false, moveDrag = false;
+  const handlers = {
+    wantsBox(info) {
+      return game.mode.kind === 'normal' && (ui.boxMode || (info.type === 'mouse' && info.shift));
+    },
+    onTap(x, y, info) {
+      if (info.button === 2) {
+        // desktop convenience: right click = context command for the selection, cancel modes
+        if (game.mode.kind !== 'normal') { setMode(null); return; }
+        const own = game.selection.ownSquads(sim, viewer);
+        if (own.length) { const saved = ui.inspect; ui.inspect = false; normalTapCommandOnly(x, y); ui.inspect = saved; }
+        return;
+      }
+      modeTap(x, y, info);
+    },
+    onDoubleTap(x, y, info) {
+      if (game.mode.kind !== 'normal') { modeTap(x, y, info); return; }
+      const hit = pickSquad(sim, viewer, cam, ground, x, y, radiusPx(), (sq) => sq.faction === viewer);
+      if (hit) selectSquads(squadsOfTypeOnScreen(sim, viewer, cam, ground, hit.sq.type), info.shift);
+      else normalTap(x, y, info);
+    },
+    onLongPress(x, y) {
+      // long press = attack-move for a selection in normal mode; anything else lets the press
+      // continue as a drag (pan, trench drawing, ghost move, box) or a slow tap
+      if (game.mode.kind !== 'normal' || ui.boxMode) return false;
+      const own = game.selection.ownSquads(sim, viewer);
+      const g = groundAt(x, y);
+      if (!own.length || !g) return false;
+      game.actions.moveTo(g[0], g[2], true);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(18);
+      return true;
+    },
+    onDragStart(x, y, info) {
+      cam.vx = 0; cam.vz = 0;
+      drawDrag = false; moveDrag = false;
+      if (info.pan) return; // finger left after a pinch: camera only
+      const m = game.mode;
+      if (m.kind === 'place' && info.button === 0) {
+        if (m.linear) {
+          drawDrag = true;
+          m.drawing = true;
+          const g = groundAt(x, y);
+          if (g) {
+            const s = m.stype === 'trench' ? snapToTrenchEndpoint(sim.state.structures, viewer, g[0], g[2], 2.5) : null;
+            m.p1 = s ? [s[0], s[1]] : [g[0], g[2]];
+            m.p2 = null;
+          }
+        } else {
+          // drag the building ghost only when the drag starts on it
+          const g = groundAt(x, y);
+          const def = STRUCTURES[m.stype];
+          if (g && Math.hypot(g[0] - m.x, g[2] - m.z) < Math.max(def.footprint.w, def.footprint.d) * 0.8 + 2) { moveDrag = true; m.pinned = true; }
+        }
+      }
+    },
+    onDrag(dx, dy, x, y) {
+      const m = game.mode;
+      if (drawDrag && m.kind === 'place') {
+        const g = groundAt(x, y);
+        if (g && m.p1) { m.p2 = clampLinear(STRUCTURES[m.stype], m.p1, g[0], g[2], [0, 0]); updatePlacement(); }
+        return;
+      }
+      if (moveDrag && m.kind === 'place') {
+        const g = groundAt(x, y);
+        if (g) { m.x = g[0]; m.z = g[2]; updatePlacement(); }
+        return;
+      }
+      panCamera(cam, dx, dy);
+    },
+    onDragEnd(vx, vy) {
+      if (drawDrag) { drawDrag = false; if (game.mode.kind === 'place') game.mode.drawing = false; updatePlacement(); return; }
+      if (moveDrag) { moveDrag = false; return; }
+      // inertia: screen velocity -> world velocity (same mapping as panCamera)
+      const k = worldPerPixel(cam);
+      const pitch = cameraPitch(cam);
+      const s = Math.sin(cam.yaw), c = Math.cos(cam.yaw);
+      const f = 1 / Math.max(0.35, Math.sin(pitch));
+      const sp = Math.hypot(vx, vy);
+      if (sp < 60) return;
+      const lim = Math.min(1, 2600 / sp);
+      cam.vx = (-vx * c - vy * s * f) * k * lim;
+      cam.vz = (vx * s - vy * c * f) * k * lim;
+    },
+    onBoxStart(x, y) {
+      if (game.hud) game.hud.showBox(x / pxScale, y / pxScale, x / pxScale, y / pxScale);
+    },
+    onBox(x0, y0, x1, y1) {
+      if (game.hud) game.hud.showBox(x0 / pxScale, y0 / pxScale, x1 / pxScale, y1 / pxScale);
+    },
+    onBoxCancel() {
+      if (game.hud) game.hud.hideBox();
+    },
+    onBoxEnd(x0, y0, x1, y1) {
+      if (game.hud) game.hud.hideBox();
+      const ids = boxSelect(sim, viewer, cam, ground, x0, y0, x1, y1);
+      if (ids.length) selectSquads(ids, ui.multi || keys.has('Shift'));
+      else if (!ui.multi) game.selection.clear();
+    },
+    onPinchStart() {
+      cam.vx = 0; cam.vz = 0;
+    },
+    onPinch(scale, cx, cy, dcx, dcy) {
+      if (scale > 0) zoomAt(cam, 1 / scale, cx, cy);
+      panCamera(cam, dcx, dcy);
+    },
+    onWheel(dy, x, y) {
+      zoomAt(cam, Math.exp(Math.max(-300, Math.min(300, dy)) * 0.0012), x, y);
+    },
+    onHover(x, y) {
+      game.pointer = [x, y];
+      const m = game.mode;
+      if (m.kind === 'place') {
+        const g = groundAt(x, y);
+        if (!g) return;
+        if (m.linear) { if (m.p1 && !m.p2) { m.hover = clampLinear(STRUCTURES[m.stype], m.p1, g[0], g[2], [0, 0]); updatePlacement(); } }
+        else if (!m.pinned) { m.x = g[0]; m.z = g[2]; updatePlacement(); }
+        return;
+      }
+      if (m.kind === 'ability') { updateAbilityTarget(x, y); return; }
+      const hit = pickSquad(sim, viewer, cam, ground, x, y, radiusPx());
+      if (hit) { game.frame.hover = { k: 'squad', id: hit.sq.id }; canvas.style.cursor = hit.sq.faction === viewer ? 'pointer' : 'crosshair'; return; }
+      const g = groundAt(x, y);
+      const st = g ? pickStructure(sim, viewer, g[0], g[2], 0.8, null, known()) : null;
+      if (st && st.faction !== 'neutral') { game.frame.hover = { k: 'struct', id: st.id }; canvas.style.cursor = 'pointer'; return; }
+      game.frame.hover = null;
+      canvas.style.cursor = ui.attackMove ? 'crosshair' : 'default';
+    },
+  };
+
+  /** Right-click style command: never changes the selection. */
+  function normalTapCommandOnly(sx, sy) {
+    const hit = pickSquad(sim, viewer, cam, ground, sx, sy, radiusPx(), (sq) => sq.faction !== viewer);
+    if (hit) { game.actions.attack('squad', hit.sq.id, hit.sq.cx, hit.sq.cz); return; }
+    const g = groundAt(sx, sy);
+    if (!g) return;
+    const st = pickStructure(sim, viewer, g[0], g[2], 0.8, null, known());
+    if (st && st.memory) { game.actions.moveTo(st.x, st.z, true); return; }
+    if (st && st.faction !== viewer && st.faction !== 'neutral') { game.actions.attack('struct', st.id, st.x, st.z); return; }
+    if (st && (st.type === 'trench') && game.actions.enterTrench(st.id, g[0], g[2])) return;
+    if (st && st.faction === viewer && (!st.built || st.hp < st.maxHp) && game.actions.assist(st)) return;
+    const node = pickNode(sim, viewer, g[0], g[2]);
+    if (node && hasCapability('gatherer')) { game.actions.gather(node); return; }
+    game.actions.moveTo(g[0], g[2], ui.attackMove);
+    ui.attackMove = false;
+  }
+
+  const gestures = createGestures(handlers, { scale: () => pxScale });
+
+  // ------------------------------------------------------------------ DOM binding
+  function toCanvas(e) {
+    const r = canvas.getBoundingClientRect();
+    pxScale = canvas.width / Math.max(1, r.width);
+    return [(e.clientX - r.left) * pxScale, (e.clientY - r.top) * (canvas.height / Math.max(1, r.height))];
+  }
+
+  function inf(e) {
+    return { button: e.button, type: e.pointerType || 'mouse', shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
+  }
+
+  const listeners = [];
+  function on(target, type, fn, opts) {
+    target.addEventListener(type, fn, opts);
+    listeners.push([target, type, fn, opts]);
+  }
+
+  on(canvas, 'pointerdown', (e) => {
+    e.preventDefault();
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const [x, y] = toCanvas(e);
+    gestures.down(e.pointerId, x, y, e.timeStamp, inf(e));
+    if (game.audio) game.audio.unlock();
+  });
+  on(canvas, 'pointermove', (e) => {
+    const [x, y] = toCanvas(e);
+    gestures.move(e.pointerId, x, y, e.timeStamp);
+  });
+  on(canvas, 'pointerup', (e) => {
+    const [x, y] = toCanvas(e);
+    gestures.up(e.pointerId, x, y, e.timeStamp);
+  });
+  on(canvas, 'pointercancel', (e) => gestures.cancel(e.pointerId, e.timeStamp));
+  on(canvas, 'lostpointercapture', (e) => gestures.cancel(e.pointerId, e.timeStamp));
+  on(canvas, 'contextmenu', (e) => e.preventDefault());
+  on(canvas, 'wheel', (e) => {
+    e.preventDefault();
+    const [x, y] = toCanvas(e);
+    const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+    gestures.wheel(dy, x, y, { ctrl: e.ctrlKey });
+  }, { passive: false });
+  on(canvas, 'pointerleave', () => { if (!gestures.count) game.frame.hover = null; });
+
+  function typing(e) {
+    const t = e.target;
+    return t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
+  }
+
+  on(window, 'keydown', (e) => {
+    if (typing(e) || ui.menuOpen) return; // a menu over the match owns the keyboard
+    keys.add(e.key.length === 1 ? e.key.toLowerCase() : e.key);
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    const own = game.selection.ownSquads(sim, viewer);
+    if (/^[1-9]$/.test(k)) {
+      const n = Number(k);
+      if (e.ctrlKey || e.metaKey) { groups.set(n, own.map((s) => s.id)); e.preventDefault(); }
+      else if (groups.has(n)) selectSquads(groups.get(n).filter((id) => sim.rt.squadById.has(id)), e.shiftKey);
+      return;
+    }
+    switch (k) {
+      case 'Escape':
+        if (game.mode.kind !== 'normal') setMode(null);
+        else if (ui.attackMove) { ui.attackMove = false; if (game.hud) game.hud.onModeChanged(); }
+        else game.selection.clear();
+        break;
+      case ' ': game.home(); e.preventDefault(); break;
+      case 'a': if (own.length) { ui.attackMove = true; if (game.hud) game.hud.onModeChanged(); } break;
+      case 's': game.actions.stop(); break;
+      case 'q': selectSquads(allCombatSquadIds(sim, viewer), e.shiftKey); break;
+      case 'e': selectSquads(squadIdsWithRole(sim, viewer, 'builder'), e.shiftKey); break;
+      case 'b': if (game.hud) game.hud.toggleBuildMenu(); break;
+      case 'r': if (game.mode.kind === 'place') rotatePlacement(); else game.actions.reinforce(); break;
+      case 'f': {
+        const sq = own[0];
+        if (sq) {
+          const i = PLAYER_FORMATIONS.indexOf(sq.formation);
+          game.actions.formation(PLAYER_FORMATIONS[(i + 1) % PLAYER_FORMATIONS.length]);
+        }
+        break;
+      }
+      case 'Enter': confirmPlacement(); break;
+      case 'p': case 'Pause': game.togglePause(); break;
+      case ']': game.speedStep(1); break;
+      case '[': game.speedStep(-1); break;
+      case '+': case '=': zoomAt(cam, 0.85, cam.width / 2, cam.height / 2); break;
+      case '-': zoomAt(cam, 1.18, cam.width / 2, cam.height / 2); break;
+      case 'F1': case '`': game.toggleDebug(); e.preventDefault(); break;
+      default: break;
+    }
+  });
+  on(window, 'keyup', (e) => keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key));
+  on(window, 'blur', () => { keys.clear(); gestures.reset(); });
+
+  function update(dt, now) {
+    gestures.tick(now);
+    let dx = 0, dy = 0;
+    if (keys.has('ArrowLeft')) dx += 1;
+    if (keys.has('ArrowRight')) dx -= 1;
+    if (keys.has('ArrowUp')) dy += 1;
+    if (keys.has('ArrowDown')) dy -= 1;
+    if (dx || dy) {
+      const speed = 700 * pxScale; // px/s of equivalent drag
+      panCamera(cam, dx * speed * dt, dy * speed * dt);
+    }
+    // keep ability ring / hover current when the camera moves under a still mouse
+    if (game.pointer && game.mode.kind === 'ability') updateAbilityTarget(game.pointer[0], game.pointer[1]);
+  }
+
+  function destroy() {
+    for (const [t, type, fn, opts] of listeners) t.removeEventListener(type, fn, opts);
+    listeners.length = 0;
+  }
+
+  return {
+    update, destroy, setMode, startPlacement, confirmPlacement, rotatePlacement, startAbility,
+    startRally(st) { setMode({ kind: 'rally', sid: st.id }); },
+    startRepair() { setMode({ kind: 'repair' }); },
+    startGather() { setMode({ kind: 'gather' }); },
+    cancelMode() { setMode(null); },
+    gestures,
+  };
+}

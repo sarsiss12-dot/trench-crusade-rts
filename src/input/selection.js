@@ -1,0 +1,116 @@
+// Player selection model (DOM-free). Holds squad ids (own squads; or a single visible enemy squad
+// for inspection) and at most one structure. Pruned every frame against the simulation and the
+// viewer's perception so a selection can never keep tracking something hidden by the fog.
+import { unitDef } from '../data/units.js';
+import { isSquadVisibleTo, isStructureKnownTo } from '../sim/perception.js';
+import { isSquadAlive } from '../sim/state.js';
+
+export function createSelection() {
+  const sel = {
+    squads: new Set(),
+    struct: 0,
+    version: 0, // bumps on every change (HUD refresh)
+  };
+
+  function changed() {
+    sel.version++;
+  }
+
+  sel.clear = () => {
+    if (!sel.squads.size && !sel.struct) return;
+    sel.squads.clear();
+    sel.struct = 0;
+    changed();
+  };
+
+  sel.set = (ids) => {
+    sel.squads.clear();
+    for (const id of ids) sel.squads.add(id);
+    sel.struct = 0;
+    changed();
+  };
+
+  sel.add = (ids) => {
+    for (const id of ids) sel.squads.add(id);
+    sel.struct = 0;
+    changed();
+  };
+
+  sel.toggle = (id) => {
+    if (sel.squads.has(id)) sel.squads.delete(id);
+    else sel.squads.add(id);
+    sel.struct = 0;
+    changed();
+  };
+
+  sel.setStruct = (id) => {
+    sel.squads.clear();
+    sel.struct = id;
+    changed();
+  };
+
+  sel.has = (id) => sel.squads.has(id);
+
+  /**
+   * Drop dead / removed / no-longer-visible entries. knownStructure(id) (optional): the structure as
+   * the viewer knows it (fog memory) — a remembered enemy structure stays selected even if it was
+   * destroyed out of sight, so the selection cannot be used to probe the fog.
+   */
+  sel.prune = (sim, viewer, knownStructure) => {
+    const { rt } = sim;
+    let dirty = false;
+    for (const id of sel.squads) {
+      const sq = rt.squadById.get(id);
+      if (!sq || !isSquadAlive(sq) || !isSquadVisibleTo(sq, viewer)) { sel.squads.delete(id); dirty = true; }
+    }
+    // an enemy squad may only be inspected alone
+    if (sel.squads.size > 1) {
+      for (const id of sel.squads) {
+        const sq = rt.squadById.get(id);
+        if (sq && sq.faction !== viewer) { sel.squads.delete(id); dirty = true; }
+      }
+    }
+    if (sel.struct) {
+      const st = knownStructure ? knownStructure(sel.struct) : rt.structById.get(sel.struct);
+      if (!st || !(st.faction === viewer || st.faction === 'neutral' || st.memory || isStructureKnownTo(st, viewer))) { sel.struct = 0; dirty = true; }
+    }
+    if (dirty) changed();
+  };
+
+  /** Own selected squads (sorted ids -> deterministic command payloads). */
+  sel.ownSquads = (sim, viewer) => {
+    const res = [];
+    for (const id of sel.squads) {
+      const sq = sim.rt.squadById.get(id);
+      if (sq && sq.faction === viewer) res.push(sq);
+    }
+    res.sort((a, b) => a.id - b.id);
+    return res;
+  };
+
+  sel.ownIds = (sim, viewer) => sel.ownSquads(sim, viewer).map((s) => s.id);
+
+  return sel;
+}
+
+/** "Tümü / All": alive + player-owned + combatUnit === true (data-driven, never by unit name). */
+export function allCombatSquadIds(sim, viewer) {
+  const ids = [];
+  for (const sq of sim.state.squads) {
+    if (sq.faction !== viewer || !isSquadAlive(sq)) continue;
+    if (unitDef(sq.type).combatUnit !== true) continue;
+    ids.push(sq.id);
+  }
+  return ids.sort((a, b) => a - b);
+}
+
+/** Own alive squads having a capability role (e.g. 'builder'). */
+export function squadIdsWithRole(sim, viewer, role) {
+  const ids = [];
+  for (const sq of sim.state.squads) {
+    if (sq.faction !== viewer || !isSquadAlive(sq)) continue;
+    if (unitDef(sq.type).roles.indexOf(role) < 0) continue;
+    ids.push(sq.id);
+  }
+  return ids.sort((a, b) => a - b);
+}
