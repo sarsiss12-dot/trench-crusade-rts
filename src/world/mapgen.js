@@ -29,7 +29,7 @@ export function generateWorld(map, seed) {
     width: map.width, height: map.height,
     props: [], ruins: [], houses: [], craters: [], bridges: [], riverSamples: [],
     graveyards: map.graveyards || [],
-    anchors: map.anchors, zones: map.zones, lanes: map.lanes, defensePlan: map.defensePlan || [],
+    anchors: map.anchors, zones: map.zones, lanes: map.lanes, defensePlan: map.defensePlan || [], grailPlan: map.grailPlan || [],
   };
   buildBaseHeights(world);
   carveRiver(world);

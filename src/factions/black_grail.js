@@ -1,10 +1,13 @@
 // Black Grail faction logic: DEATH / DISEASE / INFECTION / ORGANIC WARFARE.
-// No workers, no mines, no barracks chain. The economy is fed by battlefield death:
+// No mines, no barracks chain. The economy is fed by battlefield death:
 //  - corpses near Black Grail soldiers are consumed into BIOMASS
 //  - INFECTED corpses (killed by / carrying the plague) reanimate where they fell as Grail
 //    Thralls (canon: infected corpses "lurch to their feet, driven by a demonic will")
 //  - Altars of Beelzebub (canon structures) spread infected ground and raise hordes from biomass
 //  - infected ground heals the Grail and seeds infection into New Antioch soldiers
+//  - Phase 2: Grail Thrall work gangs (cheap, slow, capped) haul bodies to altars / corpse mounds
+//    and raise organic structures (corpse mound, plague pit, fly nest, bone barricade) on the
+//    Grail's own ground or on heavily infected ground
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS } from '../data/factions.js';
 import { unitDef } from '../data/units.js';
@@ -17,13 +20,26 @@ import { pointGridQuery } from '../sim/runtime.js';
 import { removeCorpse, damageSoldier } from '../combat/combat.js';
 
 let scratch = null;
+const PLAGUE = { kind: 'plague', infect: 0 };
 
+// Fighting Grail soldiers feed on the dead around them; work gangs (combatUnit false) do not —
+// they haul bodies to an altar / corpse mound instead (units/orders.js corpse gathering).
 function anyGrailSoldierNear(sim, x, z, r) {
   let found = false;
   pointGridQuery(sim.rt.soldierGrid, x, z, r, (m, sq) => {
-    if (!found && sq.faction === 'black_grail' && m.state === 'alive') found = true;
+    if (!found && sq.faction === 'black_grail' && m.state === 'alive' && unitDef(sq.type).combatUnit) found = true;
   });
   return found;
+}
+
+/** Built own structure with harvestRadius (corpse mound) whose radius holds (x,z), else null. */
+function moundNear(sim, fid, x, z) {
+  for (const st of sim.state.structures) {
+    if (st.faction !== fid || !st.built) continue;
+    const d = STRUCTURES[st.type];
+    if (d.harvestRadius && dist(x, z, st.x, st.z) <= d.harvestRadius) return d;
+  }
+  return null;
 }
 
 export function infectionAt(state, x, z) {
@@ -48,7 +64,11 @@ function income(sim, fid) {
     if (c.riseAt) continue;
     let rate = 0;
     if (!c.infected && anyGrailSoldierNear(sim, c.x, c.z, H.radius)) rate = H.ratePerSecond;
-    else if (infectionAt(state, c.x, c.z) > 110) rate = 0.12; // rot seeps into infected ground
+    else {
+      const mound = c.infected ? null : moundNear(sim, fid, c.x, c.z);
+      if (mound) rate = mound.harvestRate; // bodies near a corpse mound slowly render down
+      else if (infectionAt(state, c.x, c.z) > 110) rate = 0.12; // rot seeps into infected ground
+    }
     if (rate <= 0) continue;
     const take = Math.min(c.biomass, rate);
     c.biomass -= take;
@@ -173,7 +193,7 @@ function infectionEffects(sim, fid) {
       if (v >= 160 && rngFloat(rng) < 0.25) m.infection = Math.min(INFECTION_MAX, m.infection + 1);
       if (m.infection > 0) {
         // plague damage over time; the killing blow belongs to the Grail (corpse is infected)
-        damageSoldier(sim, sq, m, m.infection * 1.5, fid, null, 0, 0);
+        damageSoldier(sim, sq, m, m.infection * 1.5, fid, PLAGUE, 0, 0);
         if (m.state === 'alive' && v < 60 && rngFloat(rng) < 0.12) m.infection--;
       }
     }

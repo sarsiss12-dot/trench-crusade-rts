@@ -3,7 +3,9 @@
 // sim state + filtered events, bounded visual corpse pool (separate from gameplay corpses).
 import { createBuffer, createVAO, createTexture2D, drawElements } from './gl.js';
 import { POSE_TEXELS } from './shaders.js';
-import { computePose, POSE_FLOATS, deathVariant, muzzleWorld } from './anim.js';
+import { computePose, POSE_FLOATS, deathVariant, muzzleWorld, jointWorld } from './anim.js';
+import { planDeath, createLimbPool, stepLimb, CHAINS, GORE_QUALITY } from './gore.js';
+import { INFECTION_MAX } from '../sim/constants.js';
 import { UNIT_MODELS } from './models/humans.js';
 import { VERTEX_STRIDE } from './models/meshbuilder.js';
 import { sphereInFrustum, lerpAngle, clamp01 } from './math3d.js';
@@ -15,7 +17,9 @@ import { DT, DYING_TICKS, RISING_TICKS } from '../sim/constants.js';
 
 export const MAX_LIVE_ROWS = 720;
 export const MAX_CORPSE_ROWS = 300;
-const TEX_H = MAX_LIVE_ROWS + MAX_CORPSE_ROWS;
+export const MAX_GIB_ROWS = 64; // detached limbs (bounded per quality by render/gore.js)
+const GIB_BASE = MAX_LIVE_ROWS + MAX_CORPSE_ROWS;
+const TEX_H = GIB_BASE + MAX_GIB_ROWS;
 const DEATH_SECONDS = 1.35;
 
 export const ACCENTS = {
@@ -46,6 +50,7 @@ function newVisual(id, modelId, model, seed) {
     tint: ((seed & 255) / 255) * 2 - 1, mud: 0.25 + ((seed >> 8) & 255) / 255 * 0.5, wear: 0.3 + ((seed >> 16) & 255) / 255 * 0.7,
     highlight: 0, accent: [0.4, 0.1, 0.08], fade: 0, packPulse: 0, inTrench: false,
     seenFrame: 0, dirty: true,
+    lost: 0, blood: 0, sick: 0, bio: false, gore: null,
   };
 }
 
@@ -67,6 +72,9 @@ export function createUnitRenderer(gl, program, opts) {
   const buckets = new Map(); // modelId|lod -> array of visuals
   const corpses = []; // visual corpses (bounded)
   let corpseDirty = true;
+  const goreQ = GORE_QUALITY[opts.quality] ? opts.quality : 'balanced';
+  const limbs = createLimbPool(goreQ); // bounded detached limbs
+  const gibBuckets = new Map();
   let frame = 0;
   const stats = { soldiers: 0, drawn: 0, corpses: 0, triangles: 0 };
 
@@ -106,14 +114,25 @@ export function createUnitRenderer(gl, program, opts) {
         if ((show & SHOW_TARGET) && ev.hit) { const t = visuals.get(ev.target); if (t) t.hit = 1; }
         break;
       }
-      case 'HIT': { const t = visuals.get(ev.id); if (t) { t.hit = 1; t.hitSide = ev.dx > 0 ? 1 : -1; } break; }
+      case 'HIT': {
+        const t = visuals.get(ev.id);
+        if (t) {
+          t.hit = 1; t.hitSide = ev.dx > 0 ? 1 : -1;
+          if (ev.cause !== 'swarm' && ev.cause !== 'plague') t.blood = Math.min(0.75, t.blood + 0.22);
+        }
+        break;
+      }
       case 'DEATH': {
         const v = visuals.get(ev.id);
+        const plan = planDeath(ev, goreQ);
         if (v) {
           // orient the fall with the killing blow
           if (v.variant === 0 && (ev.dx || ev.dz)) v.rot = Math.atan2(-ev.dx, -ev.dz);
           else if (v.variant === 1 && (ev.dx || ev.dz)) v.rot = Math.atan2(ev.dx, ev.dz);
           v.deathRot = v.rot;
+          v.blood = Math.max(v.blood, ev.cause === 'plague' || ev.cause === 'swarm' ? 0.25 : 0.55 + (plan.lost ? 0.35 : 0));
+          v.bio = ev.faction === 'black_grail';
+          if (plan.lost) tearLimbs(v, plan, ev);
         }
         break;
       }
@@ -141,6 +160,84 @@ export function createUnitRenderer(gl, program, opts) {
     }
   }
 
+  const J = [0, 0, 0];
+  /** Tear limb chains off a dying visual: the stumps stay, each chain becomes a ballistic gib. */
+  function tearLimbs(v, plan, ev) {
+    v.lost = plan.lost;
+    if (!v.model) return;
+    // pose at the moment of the blow (upright, before the fall)
+    const snap = { ...v, death: 0.04, rise: -1, lost: 0, gib: null, highlight: 0, fade: 0, accent: v.accent.slice() };
+    computePose(SCRATCH, 0, v.model, snap);
+    const k = ev.cause === 'explosive' ? 3 + 7 * (ev.force || 0) : 1.6 + Math.min(2.5, (ev.ov || 0) * 2);
+    const dx = ev.dx || 0, dz = ev.dz || 0;
+    let n = 0;
+    for (const id of plan.chains) {
+      const ch = CHAINS[id];
+      jointWorld(ch.root, J);
+      const l = limbs.acquire();
+      const hsh = hash32(v.id, 91 + n);
+      const jit = (i) => (((hsh >>> (i * 8)) & 255) / 255 - 0.5);
+      l.age = 0; l.life = GORE_QUALITY[goreQ].limbLife; l.rest = false;
+      l.rx = J[0]; l.ry = J[1]; l.rz = J[2];
+      l.x = J[0]; l.y = J[1]; l.z = J[2];
+      l.vx = dx * k + jit(0) * k * 0.9; l.vz = dz * k + jit(1) * k * 0.9;
+      l.vy = (ev.cause === 'explosive' ? 3 + 6 * (ev.force || 0) : 1.2) + jit(2) * 1.5;
+      let ax = jit(3), ay = 0.4, az = jit(1) + 0.2;
+      const al = Math.hypot(ax, ay, az) || 1;
+      l.ax = ax / al; l.ay = ay / al; l.az = az / al;
+      l.ang = 0; l.spin = (6 + Math.abs(jit(2)) * 12) * (jit(3) > 0 ? 1 : -1);
+      l.chain = id; l.mask = ch.mask; l.root = ch.root; l.bio = !!v.bio; l.trail = 0;
+      l.visual = { ...snap, id: v.id * 16 + n, blood: 1, bio: !!v.bio, gib: { mask: ch.mask, root: ch.root, g: l.visual && l.visual.gib ? l.visual.gib.g : new Float32Array(12) } };
+      n++;
+    }
+  }
+
+  /** G = T(p) * R(axis, ang) * T(-r0): rigid world transform of a flying limb. */
+  function limbTransform(l) {
+    const g = l.visual.gib.g;
+    const c = Math.cos(l.ang), s = Math.sin(l.ang), t = 1 - c;
+    const x = l.ax, y = l.ay, z = l.az;
+    g[0] = t * x * x + c; g[1] = t * x * y - s * z; g[2] = t * x * z + s * y;
+    g[4] = t * x * y + s * z; g[5] = t * y * y + c; g[6] = t * y * z - s * x;
+    g[8] = t * x * z - s * y; g[9] = t * y * z + s * x; g[10] = t * z * z + c;
+    g[3] = l.x - (g[0] * l.rx + g[1] * l.ry + g[2] * l.rz);
+    g[7] = l.y - (g[4] * l.rx + g[5] * l.ry + g[6] * l.rz);
+    g[11] = l.z - (g[8] * l.rx + g[9] * l.ry + g[10] * l.rz);
+  }
+
+  function updateGibs(dt, time) {
+    for (const b of gibBuckets.values()) b.length = 0;
+    for (const l of limbs.items) {
+      if (!l.active) continue;
+      if (!stepLimb(l, dt, groundFn)) continue;
+      limbTransform(l);
+      const vis = l.visual;
+      vis.time = time;
+      // sink + fade in the last seconds (recycled quietly)
+      const left = l.life - l.age;
+      vis.fade = left < 3 ? 1 - left / 3 : 0;
+      let b = gibBuckets.get(vis.modelId);
+      if (!b) { b = []; gibBuckets.set(vis.modelId, b); }
+      b.push(vis);
+    }
+    let row = GIB_BASE;
+    for (const [, list] of gibBuckets) {
+      list.rowBase = row;
+      for (const vis of list) {
+        if (row >= TEX_H) break;
+        computePose(poseData, row * POSE_TEXELS * 4, vis.model, vis);
+        row++;
+      }
+      list.rowCount = row - list.rowBase;
+    }
+    const n = row - GIB_BASE;
+    stats.gibs = n;
+    if (n > 0) {
+      gl.bindTexture(gl.TEXTURE_2D, poseTex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, GIB_BASE, POSE_TEXELS, n, gl.RGBA, gl.FLOAT, poseData, GIB_BASE * POSE_TEXELS * 4);
+    }
+  }
+
   function addCorpseVisual(c, v, sim) {
     if (corpses.some((k) => k.id === c.id)) return;
     const seed = v ? v.seed : hash32(c.soldierId || c.id, 17);
@@ -154,6 +251,11 @@ export function createUnitRenderer(gl, program, opts) {
     cv.variant = v ? v.variant : deathVariant(seed);
     cv.accent = ACCENTS[c.faction] || cv.accent;
     cv.mud = Math.min(1, (v ? v.mud : 0.5) + 0.25);
+    // gore persists on the body the viewer saw fall (presentation only)
+    cv.lost = v ? v.lost : 0;
+    cv.blood = v ? Math.max(0.35, v.blood) : 0.5;
+    cv.bio = c.faction === 'black_grail';
+    cv.sick = c.infected ? 0.7 : 0;
     cv.born = frame;
     cv.fadeOut = -1;
     corpses.push(cv);
@@ -176,6 +278,7 @@ export function createUnitRenderer(gl, program, opts) {
   function exportCorpses() {
     return corpses.filter((c) => c.fadeOut < 0).map((c) => ({
       id: c.id, modelId: c.modelId, seed: c.seed, x: c.x, z: c.z, rot: c.rot, variant: c.variant, accent: c.accent.slice(), mud: c.mud,
+      lost: c.lost || 0, blood: c.blood || 0, bio: !!c.bio, sick: c.sick || 0,
     }));
   }
 
@@ -187,6 +290,7 @@ export function createUnitRenderer(gl, program, opts) {
       const cv = newVisual(k.id, k.modelId, models[k.modelId], k.seed);
       cv.x = k.x; cv.z = k.z; cv.rot = k.rot; cv.y = groundFn(k.x, k.z);
       cv.death = 1; cv.variant = k.variant; cv.mud = k.mud;
+      cv.lost = k.lost || 0; cv.blood = k.blood || 0; cv.bio = !!k.bio; cv.sick = k.sick || 0;
       if (k.accent) cv.accent = k.accent;
       cv.born = frame; cv.fadeOut = -1;
       corpses.push(cv);
@@ -272,6 +376,10 @@ export function createUnitRenderer(gl, program, opts) {
         v.work += (wantWork - v.work) * Math.min(1, dt * 4);
         v.workPhase += dt * 4.2;
         v.packPulse = def.model === 'bg_corpse_guard' ? Math.sin(time * 3 + v.seed) * 0.012 : 0;
+        // visible sickness of a soldier the viewer sees (infection stacks)
+        v.sick = sq.faction === 'black_grail' ? 0 : Math.min(1, m.infection / INFECTION_MAX * 1.4);
+        v.bio = sq.faction === 'black_grail';
+        if (m.state !== 'dying') v.lost = 0;
         const key = v.modelId + '|' + lod;
         let b = buckets.get(key);
         if (!b) { b = []; buckets.set(key, b); }
@@ -304,6 +412,7 @@ export function createUnitRenderer(gl, program, opts) {
     gl.bindTexture(gl.TEXTURE_2D, poseTex);
     if (row > 0) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, POSE_TEXELS, row, gl.RGBA, gl.FLOAT, poseData, 0);
     updateCorpses(sim, dt, time);
+    updateGibs(dt, time);
   }
 
   // corpse rows are rewritten only when the set changes or fades progress
@@ -376,6 +485,13 @@ export function createUnitRenderer(gl, program, opts) {
       gl.uniform1i(p.u.uRowBase, list.rowBase);
       drawElements(gl, gl.TRIANGLES, m.count, m.indexType, list.rowCount);
     }
+    if (!depth) for (const [mid, list] of gibBuckets) {
+      if (!list.rowCount) continue;
+      const m = models[mid].lods[1];
+      gl.bindVertexArray(m.vao);
+      gl.uniform1i(p.u.uRowBase, list.rowBase);
+      drawElements(gl, gl.TRIANGLES, m.count, m.indexType, list.rowCount);
+    }
     gl.bindVertexArray(null);
     gl.enable(gl.CULL_FACE);
   }
@@ -396,6 +512,6 @@ export function createUnitRenderer(gl, program, opts) {
     return visuals.get(id) || null;
   }
 
-  return { update, draw, onEvent, syncCorpses, exportCorpses, importCorpses, muzzleOf, visualOf, bucketsView: () => buckets, stats, models, corpses, visuals };
+  return { update, draw, onEvent, syncCorpses, exportCorpses, importCorpses, muzzleOf, visualOf, bucketsView: () => buckets, stats, models, corpses, visuals, limbs };
 }
 

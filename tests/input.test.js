@@ -275,3 +275,65 @@ test('picking: box select returns own squads only; structures & undiscovered res
   const far = sim.state.nodes.find((n) => n.z < 400);
   assert.equal(pickNode(sim, 'new_antioch', far.x, far.z), null);
 });
+
+// ------------------------------------------------------------------ Phase 2: facing gesture
+function faceRecorder(wants = true) {
+  const r = recorder();
+  for (const k of ['onFaceStart', 'onFace', 'onFaceEnd', 'onFaceCancel']) r.h[k] = (...a) => r.log.push([k, ...a]);
+  r.h.wantsFace = () => wants;
+  return r;
+}
+
+test('facing gesture: double-tap, hold the second tap and drag -> facing (no double tap, no long press)', () => {
+  const r = faceRecorder();
+  const g = createGestures(r.h);
+  g.down(1, 100, 100, 0, { type: 'touch' });
+  g.up(1, 100, 100, 100);
+  g.down(2, 102, 101, 250, { type: 'touch' });
+  g.tick(1200); // held a long time: still no long press for a facing candidate
+  g.move(2, 110, 104, 1250); // under the facing threshold: nothing yet (and no camera drag)
+  assert.deepEqual(r.names(), ['onTap']);
+  g.move(2, 140, 120, 1300);
+  g.move(2, 170, 150, 1350);
+  g.up(2, 170, 150, 1400);
+  assert.deepEqual(r.names(), ['onTap', 'onFaceStart', 'onFace', 'onFace', 'onFaceEnd']);
+  const end = r.log[r.log.length - 1];
+  assert.equal(end[1], 170); assert.equal(end[2], 150);
+});
+
+test('facing gesture: a released second tap stays a double tap; without a selection it is a drag', () => {
+  const r = faceRecorder();
+  const g = createGestures(r.h);
+  g.down(1, 100, 100, 0, { type: 'touch' });
+  g.up(1, 100, 100, 100);
+  g.down(2, 101, 100, 250, { type: 'touch' });
+  g.up(2, 101, 100, 320);
+  assert.deepEqual(r.names(), ['onTap', 'onDoubleTap']);
+  // nothing selected (wantsFace false): the held second press pans as before
+  const r2 = faceRecorder(false);
+  const g2 = createGestures(r2.h);
+  g2.down(1, 100, 100, 0, { type: 'touch' });
+  g2.up(1, 100, 100, 100);
+  g2.down(2, 101, 100, 250, { type: 'touch' });
+  g2.move(2, 160, 100, 300);
+  g2.up(2, 160, 100, 350);
+  assert.ok(r2.names().indexOf('onDragStart') >= 0 && r2.names().indexOf('onFaceStart') < 0);
+  // a second finger cancels a facing drag (becomes a pinch)
+  const r3 = faceRecorder();
+  const g3 = createGestures(r3.h);
+  g3.down(1, 100, 100, 0, { type: 'touch' });
+  g3.up(1, 100, 100, 100);
+  g3.down(2, 100, 100, 250, { type: 'touch' });
+  g3.move(2, 150, 100, 300);
+  g3.down(3, 300, 300, 320, { type: 'touch' });
+  assert.ok(r3.names().indexOf('onFaceCancel') >= 0 && r3.names().indexOf('onPinchStart') >= 0);
+});
+
+test('facing gesture: mouse right-button drag is the desktop equivalent', () => {
+  const r = faceRecorder();
+  const g = createGestures(r.h);
+  g.down(1, 100, 100, 0, { type: 'mouse', button: 2 });
+  g.move(1, 150, 130, 50);
+  g.up(1, 150, 130, 90);
+  assert.deepEqual(r.names(), ['onFaceStart', 'onFace', 'onFaceEnd']);
+});

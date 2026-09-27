@@ -23,7 +23,7 @@ export const UNITS = {
     combatUnit: false, roles: ['builder', 'gatherer', 'repairer'], squadSize: 5,
     hp: 95, armor: 0.05, speed: 2.9, vision: 40, radius: 0.44,
     weapon: 'auto_shotgun', melee: 'entrenching_tool', ammoPerSoldier: 10,
-    buildRate: 1.0, gatherRate: 1.6, carryCapacity: 8,
+    buildRate: 1.0, gatherRate: 1.6, carryCapacity: 8, gathers: 'salvage',
     formation: 'cluster', spacing: 1.6, canGarrison: true, heavy: false,
     model: 'na_engineer', icon: 'engineer',
     cost: { manpower: 5, material: 40 }, trainTime: 24,
@@ -52,6 +52,19 @@ export const UNITS = {
     formation: 'horde', spacing: 1.5, canGarrison: false, heavy: false,
     model: 'bg_thrall', icon: 'thrall',
     cost: { biomass: 55 }, trainTime: 16, raisedFromCorpses: true,
+  },
+  // Grail Thralls used as expendable labour: cheap, slow, weak, numerous. They raise the Black
+  // Grail's organic structures and haul corpses to altars / mounds. Not a generic worker caste.
+  thrall_gang: {
+    id: 'thrall_gang', faction: 'black_grail', nameKey: 'unit.thrall_gang', descKey: 'unit.thrall_gang.desc',
+    lore: { status: 'canon-inspired', ref: 'Grail Thralls are canon (official rules); using them as labour / corpse-hauling gangs is a gameplay adaptation' },
+    combatUnit: false, roles: ['builder', 'gatherer'], squadSize: 6,
+    hp: 70, armor: 0.1, speed: 2.05, vision: 30, radius: 0.44,
+    weapon: null, melee: 'thrall_claws', ammoPerSoldier: 0,
+    buildRate: 0.55, gatherRate: 0.9, carryCapacity: 4, gathers: 'corpse',
+    formation: 'horde', spacing: 1.6, canGarrison: false, heavy: false,
+    model: 'bg_thrall', icon: 'gang',
+    cost: { biomass: 30 }, trainTime: 12, maxSquads: 4,
   },
   corpse_guard: {
     id: 'corpse_guard', faction: 'black_grail', nameKey: 'unit.corpse_guard', descKey: 'unit.corpse_guard.desc',

@@ -166,7 +166,7 @@ test('a replacement that cannot reach its squad still joins (never invulnerable 
   const m = sq.members[2];
   m.x = 160; m.z = 398; m.wx = m.x; m.wz = m.z;
   m.state = 'joining'; m.stateTick = sim.state.tick;
-  run(sim, 45);
+  run(sim, 65);
   assert.equal(m.state, 'alive');
 });
 

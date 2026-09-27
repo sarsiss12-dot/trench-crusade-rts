@@ -126,6 +126,31 @@ export function updateVision(sim) {
   for (const n of state.nodes) {
     for (let j = 0; j < FACTION_ORDER.length; j++) if (isExploredAt(fog, j, n.x, n.z)) n.seenBy |= 1 << j;
   }
+  // craters are learned by looking at them (presentation carves only known craters)
+  const cr = state.craters;
+  if (cr) {
+    for (const c of cr) {
+      for (let j = 0; j < FACTION_ORDER.length; j++) if (isVisibleAt(fog, j, c.x, c.z)) c.seenBy |= 1 << j;
+    }
+  }
+}
+
+/**
+ * Is a lasting area effect (fly swarm, barrage zone) perceivable by the viewer right now? Own
+ * effects always; enemy effects only where the viewer currently sees part of the area (centre or
+ * rim samples). Presentation draws continuous effects through this — nothing leaks from the fog.
+ */
+export function effectVisibleTo(sim, e, viewer) {
+  if (e.faction === viewer || e.owner === viewer) return true;
+  const r = (e.radius || 0) * 0.7;
+  if (isPointVisibleTo(sim, viewer, e.x, e.z)) return true;
+  if (r <= 0) return false;
+  return isPointVisibleTo(sim, viewer, e.x + r, e.z) || isPointVisibleTo(sim, viewer, e.x - r, e.z) ||
+    isPointVisibleTo(sim, viewer, e.x, e.z + r) || isPointVisibleTo(sim, viewer, e.x, e.z - r);
+}
+
+export function isCraterKnownTo(c, viewer) {
+  return (c.seenBy & factionBit(viewer)) !== 0;
 }
 
 // ------------------------------------------------------------------ viewer filters

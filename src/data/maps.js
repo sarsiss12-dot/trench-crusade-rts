@@ -113,7 +113,9 @@ export const MAPS = {
       bg_mass: [[84, 186], [112, 192], [140, 196], [182, 196], [210, 190], [238, 184], [98, 166], [160, 172], [226, 166], [128, 176]],
       bg_support: [[132, 158], [192, 158]],
       bg_elite: [[150, 146], [174, 146]],
+      // faction home / base focus (fallbacks when the faction's HQ structure is gone)
       home: [[160, 486]],
+      home_bg: [[162, 72]],
       // model gallery lineup (presentation sandbox)
       gallery_na_a: [[146, 394]], gallery_na_b: [[160, 394]], gallery_na_c: [[174, 394]],
       gallery_bg_a: [[146, 381]], gallery_bg_b: [[160, 381]], gallery_bg_c: [[174, 381]],
@@ -144,6 +146,26 @@ export const MAPS = {
       { type: 'observation_post', x: 146, z: 492, rot: 3.141592653589793 },
       { type: 'fire_post', x: 118, z: 470, rot: 3.3 },
       { type: 'fire_post', x: 202, z: 470, rot: 2.98 },
+      // Phase 2 logistics / fortification (after the core line)
+      { type: 'aid_station', x: 140, z: 500, rot: 3.141592653589793 },
+      { type: 'low_sandbags', x1: 140, z1: 469, x2: 150, z2: 468 },
+      { type: 'low_sandbags', x1: 170, z1: 468, x2: 180, z2: 469 },
+      { type: 'ammo_dump', x: 182, z: 496, rot: 3.141592653589793 },
+      { type: 'muster_point', x: 196, z: 508, rot: 3.141592653589793 },
+      { type: 'signal_post', x: 174, z: 490, rot: 3.141592653589793 },
+      { type: 'breastwork', x1: 112, z1: 474, x2: 122, z2: 473 },
+      { type: 'breastwork', x1: 198, z1: 473, x2: 208, z2: 474 },
+      { type: 'workshop', x: 226, z: 506, rot: 3.141592653589793 },
+    ],
+    // Black Grail AI organic build plan (work gangs; BUILD pipeline, same rules as the player)
+    grailPlan: [
+      { type: 'corpse_mound', x: 160, z: 200, rot: 0 },
+      { type: 'fly_nest', x: 150, z: 212, rot: 0 },
+      { type: 'plague_pit', x: 100, z: 205, rot: 0 },
+      { type: 'plague_pit', x: 220, z: 200, rot: 0 },
+      { type: 'corpse_mound', x: 120, z: 160, rot: 0 },
+      { type: 'bone_barricade', x1: 150, z1: 222, x2: 160, z2: 222 },
+      { type: 'bone_barricade', x1: 110, z1: 222, x2: 120, z2: 222 },
     ],
   },
 };

@@ -42,7 +42,7 @@ function loadSettings() {
 }
 
 const settings = {
-  language: 'tr', quality: defaultQuality(), sound: true, volume: 0.8, debug: false, fog: true, uiScale: 1,
+  language: 'tr', quality: defaultQuality(), sound: true, volume: 0.8, sfxVolume: 1, musicVolume: 0.5, debug: false, fog: true, uiScale: 1,
   ...loadSettings(),
 };
 if (q.get('lang')) settings.language = q.get('lang');
@@ -311,7 +311,12 @@ const menu = createMenu({
   resume, quit,
   restart: () => { if (lastStart) lastStart(); else menu.showMain(); },
   applyLanguage: (lang) => { setLanguage(lang); document.documentElement.lang = lang; },
-  applyAudio: () => { audio.setEnabled(settings.sound !== false); audio.setVolume(settings.volume !== undefined ? settings.volume : 0.8); },
+  applyAudio: () => {
+    audio.setEnabled(settings.sound !== false);
+    audio.setVolume(settings.volume !== undefined ? settings.volume : 0.8);
+    audio.setSfxVolume(settings.sfxVolume !== undefined ? settings.sfxVolume : 1);
+    audio.setMusicVolume(settings.musicVolume !== undefined ? settings.musicVolume : 0.5);
+  },
   applyUiScale,
   applyDebug: () => { if (game && game.debug) { game.debug.setVisible(settings.debug); game.frame.debug.paths = !!settings.debug; } },
   applyFog: () => { if (game) game.setFog(settings.fog !== false); },

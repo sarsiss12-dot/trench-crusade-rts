@@ -12,9 +12,9 @@ import { ABILITIES } from '../data/abilities.js';
 import { COVER_TYPES, COVER_IDS } from '../data/cover.js';
 import { PLAYER_FORMATIONS } from '../units/formation.js';
 import { EV } from '../core/events.js';
-import { TICK_RATE } from '../sim/constants.js';
+import { TICK_RATE, INFECTION_MAX } from '../sim/constants.js';
 import { isSquadAlive } from '../sim/state.js';
-import { isCorpseKnownTo, isStructureVisibleTo } from '../sim/perception.js';
+import { isCorpseKnownTo, isStructureVisibleTo, isSoldierVisibleTo } from '../sim/perception.js';
 import { canAfford } from '../economy/economy.js';
 import { trenchSlotCount, trenchCoverStrength } from '../construction/trench.js';
 import { allCombatSquadIds, squadIdsWithRole } from '../input/selection.js';
@@ -41,7 +41,9 @@ export function createHud(game) {
   const resList = viewer === 'black_grail' ? ['biomass', 'corpses'] : fdef.resources;
   for (const k of resList) {
     const v = el('b');
-    const n = el('span.r', { title: t('res.' + k), html: icon(k) }, v);
+    const n = el('span.r', { title: t('res.' + k) + ' — ' + t('res.' + k + '.tip'), html: icon(k) }, v);
+    // economy readability: a tap on a resource explains where it comes from / what it buys
+    n.addEventListener('click', () => notify('res.' + k + '.tip', 'info', null, 0.5));
     resNodes[k] = v;
     resBox.appendChild(n);
   }
@@ -70,7 +72,8 @@ export function createHud(game) {
   // ------------------------------------------------------------------ quick stack (right)
   const quick = el('div.quick');
   const qAll = button('q', icon('all') + `<i>${t('hud.all')}</i>`, () => selectIds(allCombatSquadIds(sim, viewer)), t('hud.all'));
-  const qEng = fdef.buildList.length ? button('q', icon('engineer') + `<i>${t('hud.engineers')}</i>`, () => selectIds(squadIdsWithRole(sim, viewer, 'builder')), t('hud.engineers')) : null;
+  const bg = viewer === 'black_grail';
+  const qEng = fdef.buildList.length ? button('q', icon(bg ? 'gang' : 'engineer') + `<i>${t(bg ? 'hud.gangs' : 'hud.engineers')}</i>`, () => selectIds(squadIdsWithRole(sim, viewer, 'builder')), t(bg ? 'hud.gangs' : 'hud.engineers')) : null;
   const qBox = button('q tog', icon('box'), () => { game.ui.boxMode = !game.ui.boxMode; refreshToggles(); }, t('hud.box'));
   const qMulti = button('q tog', icon('multi'), () => { game.ui.multi = !game.ui.multi; refreshToggles(); }, t('hud.multi'));
   const qHome = button('q', icon('home'), () => game.home(), t('hud.home'));
@@ -111,7 +114,8 @@ export function createHud(game) {
       const def = STRUCTURES[stype];
       const cost = def.kind === 'linear' ? Object.fromEntries(Object.entries(def.costPerM).map(([k, v]) => [k, v])) : def.cost;
       const per = def.kind === 'linear' ? '/m' : '';
-      const b = button('bm', `${icon(iconForStructure(stype))}<span class="n">${t('struct.' + stype)}</span><span class="c">${costText(cost)}${per}</span>`, () => {
+      const b = button('bm', `${icon(iconForStructure(stype))}<span class="n">${t('struct.' + stype)}</span><span class="c">${costText(cost)}${per}</span><span class="d">${t('struct.' + stype + '.desc')}</span>`, () => {
+        if (def.requires && !hasBuilt(def.requires)) { notify('build.requires_x', 'warn', { struct: t('struct.' + def.requires) }); return; }
         buildOpen = false;
         toggleClass(buildMenu, 'open', false);
         game.input.startPlacement(stype);
@@ -121,6 +125,10 @@ export function createHud(game) {
     }
   }
   renderBuildMenu();
+
+  function hasBuilt(type) {
+    return sim.state.structures.some((x) => x.faction === viewer && x.type === type && x.built);
+  }
 
   function toggleBuildMenu(force) {
     if (!fdef.buildList.length) return;
@@ -185,13 +193,17 @@ export function createHud(game) {
         game.actions.formation(PLAYER_FORMATIONS[(fi + 1) % PLAYER_FORMATIONS.length]);
         setTimeout(() => { dirty = true; }, 120);
       }, { title: t('hud.formation') }));
-      if (FACTIONS[viewer].usesAmmo && own.some((sq) => sq.members.length < unitDef(sq.type).squadSize)) {
-        cmds.append(cmd('reinforce', t('hud.reinforce'), () => game.actions.reinforce()));
+      const rc = FACTIONS[viewer].reinforcements;
+      if (rc && own.some((sq) => sq.members.length < unitDef(sq.type).squadSize)) {
+        // the squad holds its ground; paid replacements walk up from the rear
+        const rcost = { manpower: rc.manpower, supply: rc.supply };
+        cmds.append(cmd('reinforce', `${t('hud.reinforce_req')}<br><small>${costText(rcost)}/${t('hud.per_soldier')}</small>`, () => game.actions.reinforce(), { title: t('hud.reinforce_tip') }));
       }
       if (hasBuilder) {
+        const gang = own.some((sq) => unitDef(sq.type).gathers === 'corpse');
         cmds.append(cmd('build', t('hud.build'), () => toggleBuildMenu(), { on: buildOpen }));
-        cmds.append(cmd('repair', t('hud.repair'), () => game.input.startRepair()));
-        cmds.append(cmd('gather', t('hud.gather'), () => game.input.startGather()));
+        if (!gang) cmds.append(cmd('repair', t('hud.repair'), () => game.input.startRepair()));
+        cmds.append(cmd('gather', t(gang ? 'hud.haul' : 'hud.gather'), () => game.input.startGather(), { title: t(gang ? 'hud.haul_tip' : 'hud.gather') }));
       }
       cmds.append(cmd('deselect', '', () => game.selection.clear(), { title: t('hud.deselect') }));
       return;
@@ -225,11 +237,34 @@ export function createHud(game) {
     // nothing selected: faction-level actions
     if (fdef.buildList.length) cmds.append(cmd('build', t('hud.build'), () => toggleBuildMenu(), { on: buildOpen }));
     for (const a of fdef.abilities) {
-      const b = cmd(a, t(ABILITIES[a].nameKey), () => game.input.startAbility(a), { title: t(ABILITIES[a].descKey) });
+      const b = cmd(a, t(ABILITIES[a].nameKey), () => game.input.startAbility(a), { title: t(ABILITIES[a].descKey) + '\n' + abilityStats(a) });
       b.dataset.ability = a;
       b.classList.add('ability');
       cmds.append(b);
     }
+  }
+
+  /** Readable ability summary from data (damage, infection, duration, radius, cooldown, cost). */
+  function abilityStats(id) {
+    const a = ABILITIES[id];
+    const cd = game.actions.abilityCooldown ? game.actions.abilityCooldown(id) : a.cooldown;
+    const parts = [];
+    if (a.effect === 'swarm') {
+      parts.push(t('ab.dps', { v: a.dps }));
+      parts.push(t('ab.infect', { v: a.infectInterval }));
+      parts.push(t('ab.acc', { v: Math.round(a.accuracyDebuff * 100) }));
+      parts.push(t('ab.duration', { v: a.duration }));
+      parts.push(t('ab.ignores_cover'));
+    } else {
+      parts.push(t('ab.shells', { n: a.shells, d: a.damage }));
+      if (a.suppress) parts.push(t('ab.suppress', { v: a.suppress.seconds }));
+      if (a.craters) parts.push(t('ab.craters'));
+      parts.push(t('ab.delay', { v: a.delay }));
+    }
+    parts.push(t('ab.radius', { v: a.radius }));
+    parts.push(t('ab.cooldown', { v: Math.round(cd) }));
+    parts.push(costText(a.cost));
+    return parts.join(' · ');
   }
 
   // ------------------------------------------------------------------ mode bar
@@ -251,10 +286,10 @@ export function createHud(game) {
       if (!m.valid) ok.disabled = true;
       ok.classList.add('ok');
       btns.push(ok);
-    } else if (m.kind === 'ability') text = t('hud.ability_hint') + ' — ' + t(ABILITIES[m.id].nameKey);
+    } else if (m.kind === 'ability') text = t('hud.ability_hint') + ' — <b>' + t(ABILITIES[m.id].nameKey) + '</b><br><small>' + abilityStats(m.id) + '</small>';
     else if (m.kind === 'rally') text = t('hud.rally_hint');
     else if (m.kind === 'repair') text = t('hud.repair_hint');
-    else if (m.kind === 'gather') text = t('hud.gather_hint');
+    else if (m.kind === 'gather') text = t(game.selection.ownSquads(sim, viewer).some((sq) => unitDef(sq.type).gathers === 'corpse') ? 'hud.haul_hint' : 'hud.gather_hint');
     else if (game.ui.attackMove) text = t('hud.attack_move');
     if (!text) { toggleClass(modebar, 'open', false); return; }
     toggleClass(modebar, 'open', true);
@@ -272,7 +307,7 @@ export function createHud(game) {
     if (sq.members.some((m) => m.postId)) return t('hud.in_trench');
     if (sq.target && sq.engaged) return t('hud.fighting');
     if (sq.working || sq.order.t === 'build' || sq.order.t === 'repair' || sq.order.t === 'gather') return t('hud.working');
-    if (sq.order.t === 'move' || sq.order.t === 'attack' || sq.order.t === 'reinforce') return t('hud.moving');
+    if (sq.order.t === 'move' || sq.order.t === 'attack') return t('hud.moving');
     return t('hud.idle');
   }
 
@@ -290,6 +325,7 @@ export function createHud(game) {
       const hp = el('div.bar.hp', null, el('i'));
       const rows = [head, el('div.row', { html: icon('cover', 'sm') }, hp)];
       if (!enemy && sq.ammoMax > 0) rows.push(el('div.row', { html: icon('ammo', 'sm') }, el('div.bar.ammo', null, el('i'))));
+      if (sq.faction !== 'black_grail') rows.push(el('div.row.infrow', { html: icon('infection', 'sm') }, el('div.bar.inf', null, el('i')), el('span.inft')));
       if (!enemy) rows.push(el('div.cov'));
       info.append(...rows);
       info.dataset.kind = 'squad';
@@ -314,6 +350,7 @@ export function createHud(game) {
       const head = el('div.ih', { html: `${icon(iconForStructure(st.type))}<span class="nm">${t(nameKey)}</span>` }, el('span.st'));
       if (st.faction !== viewer && st.faction !== 'neutral') head.classList.add('enemy');
       info.append(head, el('div.row', null, el('div.bar.hp', null, el('i'))));
+      if (st.faction === viewer && def.buildable) info.append(el('div.sdesc', { text: t('struct.' + st.type + '.desc') }));
       if (def.trains && st.faction === viewer) info.append(el('div.queue')); // never an enemy's production
       info.dataset.kind = 'struct';
       info.dataset.id = st.id;
@@ -345,8 +382,25 @@ export function createHud(game) {
       if (ammo) { setWidth(ammo, sq.ammoMax ? sq.ammo / sq.ammoMax : 0); toggleClass(ammo.parentNode, 'low', sq.ammo < sq.ammoMax * 0.25); }
       const cov = info.querySelector('.cov');
       if (cov) {
-        setText(cov, t('hud.cover') + ': ' + t(COVER_TYPES[COVER_IDS[idx]].key));
+        let txt = t('hud.cover') + ': ' + t(COVER_TYPES[COVER_IDS[idx]].key);
+        if (sq.faction === viewer && sq.reinf) txt += ' · ' + t(sq.reinf.cut ? 'hud.reinf_cut' : sq.reinf.wait ? 'hud.reinf_wait' : 'hud.reinf_on');
+        setText(cov, txt);
         cov.dataset.level = String(lvl);
+      }
+      // visible sickness: infected soldiers and average stacks (seen soldiers only for enemies)
+      const ib = info.querySelector('.inf i');
+      if (ib) {
+        let n = 0, stacks = 0, seen = 0;
+        for (const m of sq.members) {
+          if (m.state !== 'alive' && m.state !== 'joining') continue;
+          if (sq.faction !== viewer && !isSoldierVisibleTo(sim, sq, m, viewer)) continue;
+          seen++;
+          if (m.infection > 0) { n++; stacks += m.infection; }
+        }
+        setWidth(ib, seen ? stacks / (seen * INFECTION_MAX) : 0);
+        const row = info.querySelector('.infrow');
+        toggleClass(row, 'none', n === 0);
+        setText(info.querySelector('.inft'), n ? t('hud.infected', { n, avg: (stacks / n).toFixed(1) }) : t('hud.healthy'));
       }
     } else if (kind === 'multi') {
       const own = game.selection.ownSquads(sim, viewer);
@@ -372,6 +426,11 @@ export function createHud(game) {
       else if (st.type === 'trench') {
         const occ = st.occ ? st.occ.filter((x) => x).length : 0;
         status = `${occ}/${trenchSlotCount(st)} · ${t('hud.cover')} ${Math.round(trenchCoverStrength(st) * 100)}%`;
+      }
+      else if (live && st.maxHp) {
+        const r = st.hp / st.maxHp;
+        if (r < 0.33) status = t('hud.stage_critical');
+        else if (r < 0.66) status = t('hud.stage_damaged');
       }
       if (!live) status = t('hud.last_known');
       setText(info.querySelector('.st'), status);
@@ -427,7 +486,25 @@ export function createHud(game) {
     for (const b of buildMenu.querySelectorAll('.bm')) {
       const def = STRUCTURES[b.dataset.stype];
       const cost = def.kind === 'linear' ? Object.fromEntries(Object.entries(def.costPerM).map(([k, v]) => [k, v * def.minLen])) : def.cost;
-      b.classList.toggle('poor', !canAfford(f.resources, cost));
+      b.classList.toggle('poor', !canAfford(f.resources, cost) || (def.requires && !hasBuilt(def.requires)));
+    }
+    // reinforcement request button: progress of walking replacements
+    const rb = cmds.querySelector('[data-cmd="reinforce"]');
+    if (rb) {
+      const own = game.selection.ownSquads(sim, viewer);
+      let want = 0, walking = 0, cut = false, waiting = false;
+      for (const sq of own) {
+        want += Math.max(0, unitDef(sq.type).squadSize - sq.members.length);
+        for (const m of sq.members) if (m.state === 'joining') walking++;
+        if (sq.reinf) { cut = cut || !!sq.reinf.cut; waiting = waiting || !!sq.reinf.wait; }
+      }
+      let badge = rb.querySelector('.cd');
+      const txt = cut ? '✕' : walking ? walking + '→' : want ? '+' + want : '';
+      if (txt) {
+        if (!badge) { badge = el('span.cd'); rb.appendChild(badge); }
+        setText(badge, txt);
+      } else if (badge) badge.remove();
+      rb.classList.toggle('poor', cut || waiting || !canAfford(f.resources, { manpower: fdef.reinforcements.manpower, supply: fdef.reinforcements.supply }));
     }
   }
 
@@ -488,6 +565,11 @@ export function createHud(game) {
         break;
       case EV.ABILITY_CAST:
         if (ev.faction !== viewer && ev.ability === 'artillery_barrage') notify('notice.enemy_barrage', 'bad', null, 8);
+        if (ev.faction !== viewer && ev.ability === 'mortar_barrage') notify('notice.enemy_mortar', 'bad', null, 8);
+        if (ev.faction !== viewer && ev.ability === 'fly_swarm') notify('notice.enemy_swarm', 'bad', null, 8);
+        break;
+      case EV.NOTICE:
+        if (ev.faction === viewer) notify(ev.key, ev.key === 'reinf.complete' || ev.key === 'reinf.dispatched' ? 'good' : 'warn', null, 3);
         break;
       default: break;
     }

@@ -26,9 +26,21 @@ export function canTrain(sim, faction, st, unitType) {
   const u = unitDef(unitType);
   if (u.faction !== faction) return 'train.invalid';
   if (st.queue.length >= MAX_QUEUE) return 'train.queue_full';
+  if (u.maxSquads && squadCount(sim, faction, unitType) >= u.maxSquads) return 'train.cap';
   if (!canAfford(sim.state.factions[faction].resources, u.cost)) return 'train.no_resources';
   if (sim.state.match.phase === 'ENDED') return 'train.invalid';
   return null;
+}
+
+/** Squads of a type a faction fields or has queued (force cap, e.g. Grail work gangs). */
+export function squadCount(sim, faction, unitType) {
+  let n = 0;
+  for (const sq of sim.state.squads) if (sq.faction === faction && sq.type === unitType) n++;
+  for (const st of sim.state.structures) {
+    if (st.faction !== faction || !st.queue) continue;
+    for (const q of st.queue) if (q.unit === unitType) n++;
+  }
+  return n;
 }
 
 export function queueTraining(sim, faction, st, unitType) {

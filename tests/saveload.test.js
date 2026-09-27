@@ -3,6 +3,7 @@ import { serializeSave, deserializeSave, hashState, SAVE_FORMAT, migrateSave, en
 import { simulationFromState, stateHash } from '../src/sim/simulation.js';
 import { createStorage } from '../src/save/storage.js';
 import { makeSim, run } from './helpers.js';
+import { STATE_VERSION } from '../src/sim/constants.js';
 
 function fakeLocalStorage() {
   const m = new Map();
@@ -22,7 +23,7 @@ test('versioned save roundtrip preserves state exactly', () => {
   const str = serializeSave(sim.state, { name: 'test' });
   const obj = JSON.parse(str);
   assert.equal(obj.format, SAVE_FORMAT);
-  assert.equal(obj.version, 1);
+  assert.equal(obj.version, STATE_VERSION);
   const { state, meta } = deserializeSave(str);
   assert.equal(meta.name, 'test');
   assert.equal(hashState(state), hashState(sim.state));
@@ -47,7 +48,7 @@ test('migration layer upgrades older saves; rejects unknown/future versions', ()
   for (const sq of s.squads) { delete sq.hordeBonus; for (const m of sq.members) delete m.killer; }
   s.version = 0;
   const upgraded = migrateSave({ format: SAVE_FORMAT, version: 0, state: s, meta: {} });
-  assert.equal(upgraded.version, 1);
+  assert.equal(upgraded.version, STATE_VERSION);
   assert.ok(Array.isArray(upgraded.state.effects));
   assert.equal(upgraded.state.squads[0].hordeBonus, 0);
   assert.throws(() => migrateSave({ format: SAVE_FORMAT, version: 99, state: {} }));

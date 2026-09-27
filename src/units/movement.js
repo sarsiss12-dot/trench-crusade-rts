@@ -18,6 +18,7 @@ const SLOT = {};
 const GOAL = [0, 0];
 const STEER = [0, 0];
 let detourBudget = 0;
+const SUPPRESS_SPEED = 0.6; // data/abilities.js mortar_barrage.suppress.speedMult
 
 function holdsWhenEngaged(sq) {
   const o = sq.order;
@@ -29,11 +30,17 @@ function advanceAnchor(sim, sq, def) {
   const px = sq.x, pz = sq.z;
   if (sq.pathState !== 'ready' || !sq.path || (sq.engaged && holdsWhenEngaged(sq))) {
     sq.vx = 0; sq.vz = 0;
+    // commanded facing (MOVE.face): once the anchor stops, the formation wheels to face it
+    const fh = sq.order.fh;
+    if (fh !== undefined && !(sq.order.t === 'move' && sq.pathState !== 'done' && sq.pathState !== 'failed' && sq.path)) {
+      sq.rot = turnToward(sq.rot, fh, 3.6 * DT);
+    }
     return;
   }
   const fIdx = FACTIONS[sq.faction].index;
   let mult = moveSpeedMult(sim.rt.nav, sq.x, sq.z, sq.faction, fIdx, def.heavy);
   if (mult < 0.2) mult = 0.2;
+  if (sq.suppressUntil > sim.state.tick) mult *= SUPPRESS_SPEED; // pinned by mortar fire
   let cohesion = 1;
   if (sq.lag > 5) cohesion = 0.45;
   else if (sq.lag > 2.6) cohesion = 0.78;
@@ -55,7 +62,12 @@ function advanceAnchor(sim, sq, def) {
   }
   sq.vx = sq.x - px;
   sq.vz = sq.z - pz;
-  if (sq.vx * sq.vx + sq.vz * sq.vz > 1e-8) {
+  // last metres of a faced move: wheel to the commanded facing so the formation arrives turned
+  const fh = sq.order.fh;
+  const n = path.length;
+  if (fh !== undefined && n >= 2 && sq.pathIndex * 2 >= n - 2 && dist(sq.x, sq.z, path[n - 2], path[n - 1]) < 4) {
+    sq.rot = turnToward(sq.rot, fh, 3.6 * DT);
+  } else if (sq.vx * sq.vx + sq.vz * sq.vz > 1e-8) {
     sq.rot = turnToward(sq.rot, headingOf(sq.vx, sq.vz), 3.2 * DT);
   }
   if (sq.pathIndex * 2 >= path.length) {
@@ -111,7 +123,7 @@ function soldierTarget(sim, sq, m, def, aliveIndex, aliveTotal, offs) {
     }
   }
   if (o.t === 'gather' && o.phase === 'gathering') {
-    const node = rt.nodeById.get(o.nid);
+    const node = o.cid ? rt.corpseById.get(o.cid) : rt.nodeById.get(o.nid);
     if (node) {
       workSpot(sim, node, 'node', aliveIndex, aliveTotal, OFF);
       return datan2(node.x - OFF[0], node.z - OFF[1]);
@@ -134,6 +146,7 @@ function stepSoldier(sim, sq, m, def, fIdx, tx, tz, facingHint) {
     let mult = moveSpeedMult(nav, m.x, m.z, sq.faction, fIdx, def.heavy);
     if (mult <= 0) mult = 0.5; // escape blocked cell
     let sp = def.speed * DT * mult;
+    if (sq.suppressUntil > sim.state.tick) sp *= SUPPRESS_SPEED;
     if (d > 2.5) sp *= 1.3;
     if (sq.melee) sp *= 1.12;
     const step = d < sp ? d : sp;
@@ -184,7 +197,8 @@ export function passableGoal(nav, ax, az, tx, tz, out) {
 function steeringPoint(m, gx, gz, dGoal, out) {
   out[0] = gx; out[1] = gz;
   if (!m.dp) return out;
-  if (dGoal < 1.2 || dist(m.dgx, m.dgz, gx, gz) > 6) { m.dp = null; return out; } // reached / goal moved on
+  // reached / goal moved on (a walking replacement's long route tolerates a drifting squad)
+  if (dGoal < 1.2 || dist(m.dgx, m.dgz, gx, gz) > (m.state === 'joining' ? 30 : 6)) { m.dp = null; return out; }
   if (dist(m.x, m.z, m.dp[m.di * 2], m.dp[m.di * 2 + 1]) < 0.8) {
     m.di++;
     if (m.di * 2 >= m.dp.length) { m.dp = null; return out; }
@@ -213,7 +227,8 @@ function watchProgress(sim, sq, m, dGoal, gx, gz) {
   m.stk = 0;
   m.dtry = (m.dtry || 0) + 1;
   const nav = rt.nav;
-  if (m.dtry > 3 && dGoal > 8) {
+  if (m.dtry > 3 && dGoal > 8 && m.state !== 'joining') {
+    // (walking replacements never jump: they keep trying routes — reinforcements do not teleport)
     // sealed off (pocket behind deep water, boxed in by new structures): rejoin the squad
     let idx = cellAt(nav, sq.x, sq.z);
     if (idx >= 0 && !isPassable(nav, idx)) idx = nearestPassable(nav, idx, 8);
@@ -246,7 +261,7 @@ export function updateMovement(sim) {
     for (const m of sq.members) if (m.state === 'alive' || m.state === 'joining') aliveTotal++;
     if (aliveTotal === 0) { sq.lag = 0; continue; }
     const offs = formationOffsets(sq.formation, Math.max(1, aliveTotal), def.spacing);
-    let idx = 0, lagSum = 0, cx = 0, cz = 0, working = 0;
+    let idx = 0, lagSum = 0, cx = 0, cz = 0, working = 0, present = 0;
     for (const m of sq.members) {
       if (m.state !== 'alive' && m.state !== 'joining') continue;
       const hint = soldierTarget(sim, sq, m, def, idx, aliveTotal, offs);
@@ -262,13 +277,19 @@ export function updateMovement(sim) {
       const atWork = ((o.t === 'build' || o.t === 'repair') && o.arrived) || (o.t === 'gather' && o.phase === 'gathering');
       m.working = atWork && dGoal < 1.3 && m.state === 'alive' ? 1 : 0;
       working += m.working;
-      if (!m.postId) lagSum += dGoal;
-      cx += m.x; cz += m.z;
+      // replacements still walking up do not hold the squad back nor move its centre
+      if (m.state !== 'joining') {
+        if (!m.postId) lagSum += dGoal;
+        cx += m.x; cz += m.z;
+        present++;
+      }
       idx++;
     }
-    sq.lag = lagSum / aliveTotal;
-    sq.cx = cx / aliveTotal;
-    sq.cz = cz / aliveTotal;
+    if (present) {
+      sq.lag = lagSum / present;
+      sq.cx = cx / present;
+      sq.cz = cz / present;
+    } else sq.lag = 0; // only replacements on their way: keep the last known centre
     // melee squads follow their brawl
     if (sq.melee) {
       sq.x += (sq.cx - sq.x) * 0.15;

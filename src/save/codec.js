@@ -117,6 +117,26 @@ export const MIGRATIONS = {
     s.version = 1;
     return { ...save, version: 1 };
   },
+  // v1 -> v2 (Phase 2): shell craters, walking replacement requests, mortar suppression, the
+  // mortar barrage ability. Old 'reinforce' orders (squad walked back to base) become a request:
+  // the squad stays where it was and replacements walk to it.
+  1: (save) => {
+    const s = save.state;
+    if (!Array.isArray(s.craters)) s.craters = [];
+    for (const sq of s.squads || []) {
+      if (sq.suppressUntil === undefined) sq.suppressUntil = 0;
+      if (sq.reinf === undefined) sq.reinf = null;
+      if (sq.order && sq.order.t === 'reinforce') {
+        sq.reinf = { src: sq.order.sid || 0, next: 0, cut: 0, wait: 0, auto: 0 };
+        sq.order = { t: 'idle' };
+        sq.path = null; sq.pathIndex = 0; sq.pathState = 'none';
+      }
+    }
+    const na = s.factions && s.factions.new_antioch;
+    if (na && na.abilities && !na.abilities.mortar_barrage) na.abilities.mortar_barrage = { readyTick: 0 };
+    s.version = 2;
+    return { ...save, version: 2 };
+  },
 };
 
 export function migrateSave(save) {

@@ -5,13 +5,14 @@ import { EV } from '../core/events.js';
 import { unitDef, hasRole } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS, areHostile } from '../data/factions.js';
-import { dist, headingOf, rotateOffset, clamp } from '../core/dmath.js';
+import { dist, headingOf, rotateOffset, clamp, wrapAngle } from '../core/dmath.js';
 import { inZone, clampToZone } from '../world/mapgen.js';
 import { PLAYER_FORMATIONS, formationRadius } from '../units/formation.js';
 import { setOrder, trenchNear, releasePosts } from '../units/orders.js';
 import { validatePlacement, placeStructure, cancelStructure } from '../construction/construction.js';
 import { canTrain, queueTraining, cancelTraining } from './production.js';
 import { validateAbility, castAbility } from './abilities.js';
+import { requestReinforcement } from '../factions/reinforcement.js';
 
 export const CMD = Object.freeze({
   MOVE: 'MOVE',
@@ -65,12 +66,13 @@ function ownSquads(sim, cmd) {
 const OFF = [0, 0];
 
 /** Spread group destinations so squads do not pile onto one point. Deterministic. */
-function groupDestinations(squads, x, z) {
+function groupDestinations(squads, x, z, face) {
   if (squads.length === 1) return [[x, z]];
   let cx = 0, cz = 0;
   for (const sq of squads) { cx += sq.x; cz += sq.z; }
   cx /= squads.length; cz /= squads.length;
-  const heading = dist(cx, cz, x, z) > 1 ? headingOf(x - cx, z - cz) : squads[0].rot;
+  // an explicit facing orients the whole group line across it (formation facing)
+  const heading = face === face && face !== undefined ? face : dist(cx, cz, x, z) > 1 ? headingOf(x - cx, z - cz) : squads[0].rot;
   const sorted = squads.slice().sort((a, b) => a.id - b.id);
   const perRow = Math.min(4, sorted.length);
   const res = new Map();
@@ -106,15 +108,21 @@ export function applyCommand(sim, cmd) {
       const squads = ownSquads(sim, cmd);
       if (!squads.length) return reject(sim, cmd, 'cmd.no_units');
       if (!Number.isFinite(cmd.x) || !Number.isFinite(cmd.z)) return reject(sim, cmd, 'cmd.invalid');
-      const dests = groupDestinations(squads, cmd.x, cmd.z);
+      // optional final facing (radians, plain number): the squad turns to it on arrival
+      if (cmd.face !== undefined && cmd.face !== null && !Number.isFinite(cmd.face)) return reject(sim, cmd, 'cmd.invalid');
+      const face = Number.isFinite(cmd.face) ? wrapAngle(cmd.face) : NaN;
+      const dests = groupDestinations(squads, cmd.x, cmd.z, face);
       squads.forEach((sq, i) => {
         const p = clampPrep(sim, cmd.faction, dests[i]);
         const def = unitDef(sq.type);
-        // auto trench alignment: a move ending on a friendly/neutral trench occupies it
+        // auto trench alignment: a move ending on a friendly/neutral trench occupies it (trench
+        // posts carry their own facing, so an explicit facing does not apply there)
         const seg = def.canGarrison ? trenchNear(sim, sq.faction, p[0], p[1], 3.5) : null;
-        setOrder(sim, sq, { t: 'move', x: p[0], z: p[1], am: cmd.attackMove ? 1 : 0, trench: seg ? seg.id : 0 });
+        const o = { t: 'move', x: p[0], z: p[1], am: cmd.attackMove ? 1 : 0, trench: seg ? seg.id : 0 };
+        if (face === face && !seg) o.fh = face;
+        setOrder(sim, sq, o);
       });
-      ack(sim, cmd, squads, cmd.x, cmd.z, { attackMove: !!cmd.attackMove });
+      ack(sim, cmd, squads, cmd.x, cmd.z, face === face ? { attackMove: !!cmd.attackMove, face } : { attackMove: !!cmd.attackMove });
       return { ok: true };
     }
     case CMD.ENTER_TRENCH: {
@@ -192,10 +200,20 @@ export function applyCommand(sim, cmd) {
       return { ok: true };
     }
     case CMD.GATHER: {
-      const node = rt.nodeById.get(cmd.nid);
       const bit = 1 << FACTIONS[cmd.faction].index;
+      if (cmd.cid) {
+        // corpse field (Black Grail work gangs): a known body that is not the plague's to raise
+        const c = rt.corpseById.get(cmd.cid);
+        if (!c || c.infected || c.riseAt || !(c.seenBy & bit)) return reject(sim, cmd, 'cmd.invalid_target');
+        const gangs = ownSquads(sim, cmd).filter((sq) => hasRole(unitDef(sq.type), 'gatherer') && unitDef(sq.type).gathers === 'corpse');
+        if (!gangs.length) return reject(sim, cmd, 'cmd.no_gatherers');
+        for (const sq of gangs) setOrder(sim, sq, { t: 'gather', cid: c.id, fx: c.x, fz: c.z, phase: 'to_node' });
+        ack(sim, cmd, gangs, c.x, c.z, { cid: c.id });
+        return { ok: true };
+      }
+      const node = rt.nodeById.get(cmd.nid);
       if (!node || node.amount <= 0 || !(node.seenBy & bit)) return reject(sim, cmd, 'cmd.invalid_target');
-      const gatherers = ownSquads(sim, cmd).filter((sq) => hasRole(unitDef(sq.type), 'gatherer'));
+      const gatherers = ownSquads(sim, cmd).filter((sq) => hasRole(unitDef(sq.type), 'gatherer') && unitDef(sq.type).gathers !== 'corpse');
       if (!gatherers.length) return reject(sim, cmd, 'cmd.no_gatherers');
       for (const sq of gatherers) setOrder(sim, sq, { t: 'gather', nid: node.id, phase: 'to_node' });
       ack(sim, cmd, gatherers, node.x, node.z, { nid: node.id });
@@ -203,7 +221,10 @@ export function applyCommand(sim, cmd) {
     }
     case CMD.DELIVER: {
       const carriers = ownSquads(sim, cmd).filter((sq) => sq.carry > 0);
-      for (const sq of carriers) setOrder(sim, sq, { t: 'gather', nid: sq.order.nid || 0, phase: 'to_drop' });
+      for (const sq of carriers) {
+        const o = sq.order;
+        setOrder(sim, sq, o.cid !== undefined ? { t: 'gather', cid: o.cid, fx: o.fx, fz: o.fz, phase: 'to_drop' } : { t: 'gather', nid: o.nid || 0, phase: 'to_drop' });
+      }
       return { ok: true };
     }
     case CMD.SET_RALLY: {
@@ -233,23 +254,16 @@ export function applyCommand(sim, cmd) {
       return { ok: true };
     }
     case CMD.REINFORCE: {
+      // the squad keeps its order and position (front line, trench posts); replacements walk to it
       const squads = ownSquads(sim, cmd);
-      let n = 0;
+      let n = 0, why = 'cmd.cannot_reinforce';
       for (const sq of squads) {
-        if (sq.members.length >= unitDef(sq.type).squadSize) continue;
-        // nearest reinforcement point (structures with reinforceRadius)
-        let best = null, bestD = 1e9;
-        for (const st of state.structures) {
-          if (st.faction !== cmd.faction || !st.built || !STRUCTURES[st.type].reinforceRadius) continue;
-          const d = dist(sq.x, sq.z, st.x, st.z);
-          if (d < bestD) { bestD = d; best = st; }
-        }
-        if (!best) continue;
-        releasePosts(sim, sq);
-        setOrder(sim, sq, { t: 'reinforce', sid: best.id });
-        n++;
+        const r = requestReinforcement(sim, sq, false);
+        if (!r) n++;
+        else if (r !== 'reinf.full') why = r;
       }
-      if (!n) return reject(sim, cmd, 'cmd.cannot_reinforce');
+      if (!n) return reject(sim, cmd, why);
+      ack(sim, cmd, squads, squads[0].cx, squads[0].cz, { reinforce: 1 });
       return { ok: true };
     }
     default:

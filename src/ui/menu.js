@@ -158,6 +158,9 @@ export function createMenu(env) {
       p.append(choice(t('menu.quality'), ['low', 'balanced', 'high'].map((v) => [v, t('quality.' + v)]), S.quality || 'balanced', (v) => { S.quality = v; env.saveSettings(); }));
       p.append(choice(t('menu.sound'), [[true, t('menu.on')], [false, t('menu.off')]], S.sound !== false, (v) => { S.sound = v; env.saveSettings(); env.applyAudio(); }));
       p.append(choice(t('menu.volume'), [[0.3, '30%'], [0.6, '60%'], [0.8, '80%'], [1, '100%']], S.volume !== undefined ? S.volume : 0.8, (v) => { S.volume = v; env.saveSettings(); env.applyAudio(); }));
+      // separate mix levels: the score never drowns the gunfire unless the player wants it to
+      p.append(choice(t('menu.sfx'), [[0.4, '40%'], [0.7, '70%'], [1, '100%']], S.sfxVolume !== undefined ? S.sfxVolume : 1, (v) => { S.sfxVolume = v; env.saveSettings(); env.applyAudio(); }));
+      p.append(choice(t('menu.music'), [[0, t('menu.off')], [0.25, '25%'], [0.5, '50%'], [0.8, '80%']], S.musicVolume !== undefined ? S.musicVolume : 0.5, (v) => { S.musicVolume = v; env.saveSettings(); env.applyAudio(); }));
       p.append(choice('UI', [[1, '100%'], [1.15, '115%'], [1.3, '130%']], S.uiScale || 1, (v) => { S.uiScale = v; env.saveSettings(); env.applyUiScale(); }));
       p.append(choice(t('menu.debug'), [[true, t('menu.on')], [false, t('menu.off')]], !!S.debug, (v) => { S.debug = v; env.saveSettings(); env.applyDebug(); }));
     });

@@ -11,6 +11,7 @@ import { ABILITIES } from '../data/abilities.js';
 import { unitDef } from '../data/units.js';
 import { PLAYER_FORMATIONS } from '../units/formation.js';
 import { snapToTrenchEndpoint } from '../construction/trench.js';
+import { isPointVisibleTo } from '../sim/perception.js';
 
 const TAP_RADIUS_CSS = 26;
 const G = [0, 0, 0];
@@ -29,6 +30,17 @@ export function createInputController(canvas, game) {
 
   function groundAt(sx, sy) {
     return pickGround(cam, sx, sy, G) ? G : null;
+  }
+
+  /** A body in sight near (x,z) for Grail work gangs (bodies out of sight are never picked). */
+  function pickCorpse(x, z) {
+    if (!game.selection.ownSquads(sim, viewer).some((sq) => unitDef(sq.type).gathers === 'corpse')) return null;
+    let best = null, bd = 2.6;
+    for (const c of sim.state.corpses) {
+      const d = Math.hypot(c.x - x, c.z - z);
+      if (d < bd && isPointVisibleTo(sim, viewer, c.x, c.z)) { bd = d; best = c; }
+    }
+    return best;
   }
 
   function hasCapability(role) {
@@ -216,6 +228,8 @@ export function createInputController(canvas, game) {
       if (game.audio) game.audio.ui('select');
       return;
     }
+    const body = own.length ? pickCorpse(gx, gz) : null;
+    if (body) { game.actions.haul(body); return; }
     const node = pickNode(sim, viewer, gx, gz);
     if (node && own.length && hasCapability('gatherer')) { game.actions.gather(node); return; }
     if (own.length) {
@@ -258,6 +272,8 @@ export function createInputController(canvas, game) {
       }
       case 'gather': {
         const g = groundAt(sx, sy);
+        const c = g ? pickCorpse(g[0], g[2]) : null;
+        if (c) { if (game.actions.haul(c)) setMode(null); return; }
         const n = g ? pickNode(sim, viewer, g[0], g[2], 6) : null;
         if (n && game.actions.gather(n)) setMode(null);
         return;
@@ -269,7 +285,48 @@ export function createInputController(canvas, game) {
 
   // ------------------------------------------------------------------ gestures
   let drawDrag = false, moveDrag = false;
+  let face = null; // facing drag in progress { x0, z0, x1, z1, attackMove }
+  const FACE_MIN = 2.5; // world metres: shorter drags give a plain move
   const handlers = {
+    wantsFace(x, y, info) {
+      if (game.mode.kind !== 'normal' || ui.boxMode) return false;
+      if (!game.selection.ownSquads(sim, viewer).length) return false;
+      if (!groundAt(x, y)) return false;
+      // a double tap on an own squad keeps selecting its type
+      if (info.button === 0 && pickSquad(sim, viewer, cam, ground, x, y, radiusPx(), (sq) => sq.faction === viewer)) return false;
+      return true;
+    },
+    onFaceStart(x, y) {
+      cam.vx = 0; cam.vz = 0;
+      const g = groundAt(x, y);
+      if (!g) { face = null; return; }
+      face = { x0: g[0], z0: g[2], x1: g[0], z1: g[2], attackMove: ui.attackMove };
+      game.frame.faceArrow = { ...face, valid: true };
+    },
+    onFace(x, y) {
+      if (!face) return;
+      const g = groundAt(x, y);
+      if (!g) return;
+      face.x1 = g[0]; face.z1 = g[2];
+      const len = Math.hypot(face.x1 - face.x0, face.z1 - face.z0);
+      game.frame.faceArrow = { ...face, valid: len >= FACE_MIN };
+    },
+    onFaceEnd() {
+      const f = face;
+      face = null;
+      game.frame.faceArrow = null;
+      if (!f) return;
+      const dx = f.x1 - f.x0, dz = f.z1 - f.z0;
+      const len = Math.hypot(dx, dz);
+      // heading convention of the simulation: 0 = +z, atan2(dx, dz)
+      game.actions.moveTo(f.x0, f.z0, f.attackMove, len >= FACE_MIN ? Math.atan2(dx, dz) : undefined);
+      ui.attackMove = false;
+      if (game.hud) game.hud.onModeChanged();
+    },
+    onFaceCancel() {
+      face = null;
+      game.frame.faceArrow = null;
+    },
     wantsBox(info) {
       return game.mode.kind === 'normal' && (ui.boxMode || (info.type === 'mouse' && info.shift));
     },
@@ -408,6 +465,8 @@ export function createInputController(canvas, game) {
     if (st && st.faction !== viewer && st.faction !== 'neutral') { game.actions.attack('struct', st.id, st.x, st.z); return; }
     if (st && (st.type === 'trench') && game.actions.enterTrench(st.id, g[0], g[2])) return;
     if (st && st.faction === viewer && (!st.built || st.hp < st.maxHp) && game.actions.assist(st)) return;
+    const body = pickCorpse(g[0], g[2]);
+    if (body) { game.actions.haul(body); return; }
     const node = pickNode(sim, viewer, g[0], g[2]);
     if (node && hasCapability('gatherer')) { game.actions.gather(node); return; }
     game.actions.moveTo(g[0], g[2], ui.attackMove);

@@ -22,10 +22,11 @@ Gereksinim yok (sıfır bağımlılık). Node.js ≥ 18 yalnızca geliştirme su
 
 ```bash
 node tools/serve.js            # http://localhost:8080  (aynı ağdaki telefon için LAN adresi de yazdırılır)
-npm test                       # = node tests/run.js      — 132 Node testi
+npm test                       # = node tests/run.js      — 157 Node testi
 npm run build                  # = node tools/build.js    — dist/index.html (tek dosya, çevrimdışı çalışır)
 npm run balance                # = node tools/balance.js  — AI'ya karşı AI deterministik maçlar
 npm run test:browser           # = node tools/browser_smoke.js — (Playwright varsa) 9 gerçek tarayıcı kontrolü
+node tools/showcase.js         # (Playwright varsa) Faz 2 görsel sahneleri → test-output/showcase-*.png
 ```
 
 Build çıktısı `dist/index.html` tek başına çift tıklanarak (`file://`) veya herhangi bir statik sunucudan açılır.
@@ -48,7 +49,8 @@ WebGL bağlamı kaybolursa maç aynı simülasyon durumu, sis hafızası ve cese
 | **Sürükle:** kamerayı kaydır (ataletli) | Sol sürükle: kamera · Shift+sürükle: kutu seçimi |
 | **İki parmak:** yakınlaştır + kaydır | Tekerlek veya `+`/`−`: yakınlaştır · Oklar: kaydır |
 | **Çift dokun:** ekrandaki aynı türden tüm mangalar | `Q` Tümü · `E` istihkâm · `Ctrl+1–9`/`1–9` gruplar |
-| **Basılı tut** (seçim varken): saldırarak ilerle | `A` saldırarak ilerle · `S` dur · `F` düzen · `R` döndür/takviye |
+| **Basılı tut** (seçim varken): saldırarak ilerle | `A` saldırarak ilerle · `S` dur · `F` düzen · `R` döndür / takviye iste |
+| **Yön verme:** hedefe çift dokun, ikinci dokunuşu bırakmadan sürükle → ok çıkar, bırakınca manga gider ve o yöne bakar | **Sağ sürükle:** hedef + bakış yönü |
 | **Tümü** düğmesi: yaşayan + oyuncuya ait + `combatUnit === true` | `B` inşa · `Boşluk` üs · `P` duraklat · `[` `]` hız |
 | **Kutu** kipi (sağ panel): tek parmak sürükleme = kutu seçimi | `Esc` iptal / seçimi bırak · `F1` hata ayıklama |
 | **Çoklu** kipi: dokunuşlar seçime ekler/çıkarır · **✕** seçimi kaldır | |
@@ -62,6 +64,49 @@ Sağ tık hiçbir işlev için **zorunlu değildir**; her şey dokunuşla yapıl
 dokun (veya sürükle), ✓ ile onayla; bir sonraki parça önceki bitişten zincirlenir. Binalar için dokun / sürükle,
 ⟳ döndür, ✓ onayla. Geçersiz yerleştirme kırmızı hayalet + neden (bölge dışı, çakışma, kaynak…) gösterir.
 
+## 2b. Faz 02 — Android geri bildirimi sonrası
+
+Gerçek Android testinden (480 asker / HIGH ≈ en kötü 40 FPS) gelen geri bildirimle, çalışan sistemler yeniden
+yazılmadan eklendi:
+
+- **HOME düzeltmesi:** HOME / ilk kamera artık taraf farkında (`sim/home.js`): yaşayan HQ yapısı (burç / sunak;
+  birden çok sunakta çapaya en yakını), yoksa tarafa özgü harita çapası. Eski hata: Kara Kâse HOME'u sunaklar yerine
+  orman cephesindeki toplanma çapalarının ortalamasına gidiyordu.
+- **Yön komutu:** MOVE komutuna isteğe bağlı, serileştirilebilir `face` (radyan). Manga varışta o yöne döner, bekleme
+  emri yönü korur; çoklu seçimde düzen hattı yöne dik açılır. Siper yuvaları kendi yönünü kullanır.
+- **Takviye yeniden tasarımı:** "Takviye İste" mangayı cepheden çekmez. Kaynak (burç / ikmal deposu / toplanma
+  noktası) gerekir; her yedek için insan gücü + ikmal ödenir, yedek kaynakta doğar ve **yürüyerek** gelir, boş düzen /
+  siper yuvasını alır. Yol kesikse gecikir (bildirim), kaynak yok olursa iptal; yolda vurulabilir; ışınlanma yok.
+- **Yeni Antakya yapıları:** sargı yeri (iyileştirme, enfeksiyon tedavisi), saha atölyesi (malzeme, onarım aurası,
+  tahkimatlı duvarı açar), cephane deposu (geniş ikmal; yıkılınca patlar), işaret direği (topçu/havan bekleme
+  süresi ×0.8), toplanma noktası (takviye kaynağı, ikmal → insan gücü).
+- **Duvar ailesi:** alçak kum torbası, toprak göğüs siperi (patlamaya dirençli), takviyeli kereste duvar, tahkimatlı
+  duvar (geçilmez; aralar geçit) + mevcut siper / kum torbası / tel. Her biri ayrı yönlü siper türü ve hareket etkisi.
+- **Kara Kâse inşası:** Köle Çalışma Takımı (ucuz, yavaş, zayıf, en fazla 4) ceset taşır ve organik yapı diker:
+  ceset yığını, veba çukuru, sinek yuvası, kemik barikat, (oyuncu için) yeni sunak. Kendi bölgesinde veya ağır
+  enfekte zeminde. Yeni Antakya ile aynı menü değil (asimetri korunur).
+- **Sinek Sürüsü okunabilirliği:** koyu dönen sinek bulutu, gölge, soluk miasma, kalan süreyi gösteren halka, etkilenen
+  askerlerde hastalık rengi + sinekler + sendeleme + çubukta enfeksiyon göstergesi, verilerden üretilen yetenek bilgisi
+  (hasar/sn, enfeksiyon aralığı, isabet düşüşü, süre, yarıçap, bekleme). Sis arkasından sızıntı yok (`effectVisibleTo`).
+- **Beelzebub Sunağı:** kanon sinek biçimi korunarak ölülerden örülmüş dev sinek: ceset yığını kaide, kaynaşmış
+  bedenlerden karın, kemik plakalı göğüs, kafataslarından baş, faset gözler, kâse biçimli sunu kabı, yırtık deri
+  kanatlar, kemik bacaklar, kazıklı kurbanlar, zincirler, sinekler.
+- **Vahşet (yalnızca sunum):** neden / fazla hasar / patlama gücüne göre parçalanma (kol, bacak, kafa, patlayıcı,
+  felaket); ayrılan uzuvlar sınırlı havuzda balistik uçar, yere oturur, kan izi bırakır; kan katmanları (isabet sisi,
+  ağır püskürme, yönlü parçalanma patlaması, sınırlı zemin göllenmesi, ceset lekesi); Kara Kâse için koyu enfekte
+  sıvı + hastalık zerreleri + sinekler. Oyun RNG'si kullanılmaz (asker kimliği hash'i).
+- **Topçu / havan:** flaş, toprak sütunu, enkaz, şok halkası, sınırlı duman sütunu, mesafeye göre sarsıntı;
+  **kalıcı, sınırlı (48) kraterler** (birleşir, hafif siper verir, arazi yalnızca görülen kraterlerde oyulur).
+  Havan Ateşi: çok sayıda küçük mermi, kısa bekleme, bastırma (isabet ve hız düşer), krater bırakmaz.
+- **Ses:** katmanlı silah sesleri (çatlama + telefon hoparlörü bandında gövde + mekanik + kuyruk), MG ritmi, ağır silah
+  daha pes, pompalı daha geniş, topçu alt bas + darbe + gümbürtü; öncelikli ses bütçesi; uzak çatışma toplu cızırtı +
+  gümbürtüye dönüşür; sınırlayıcı. **Prosedürel müzik** (drone, metal rezonans, davul, frig ezgi, çok ölçülü koro,
+  gümbürtü; HAZIRLIK / SAVAŞ / KRİTİK + zafer/yenilgi), ayrı Müzik / Efekt ses ayarı, patlamalarda müzik kısılır.
+- **Yapı hasar evreleri:** SAĞLAM / HASARLI (is, enkaz, duman) / KRİTİK (çatlaklar, kararma); yıkılınca çöküş;
+  Kara Kâse yapıları yırtılır (koyu biyokütle, sıvı, sinek bulutu).
+- **Kayıt:** sürüm 2 + 1→2 göçü (kraterler, takviye istekleri, bastırma, havan yeteneği; eski "takviyeye geri yürü"
+  emirleri yerinde bekleyen isteğe dönüşür). Eski kayıtlar sessizce bozulmaz (test).
+
 ## 3. Mimari
 
 Tek kaynak ağacı, alan (domain) bazlı modüller, **döngüsel bağımlılık yok** (test ile zorunlu), dev `game.js` yok.
@@ -72,19 +117,23 @@ src/
   data/         units, weapons, structures, factions, abilities, cover, terrain_types, maps, scenarios  (veri odaklı)
   world/        mapgen (katmanlı harita), terrain, nav (A* + yumuşatma + önbellek), fog, ground, structgrid
   sim/          state (JSON GameState), commands, simulation (sabit 20 Hz tick), match, perception (sis + görünürlük
-                bitmaskeleri + olay filtreleme), production, abilities, scenario, runtime (yeniden kurulabilir önbellekler)
+                bitmaskeleri + olay filtreleme), production, abilities (+ kraterler, patlamalar), scenario, home (taraf
+                farkında HOME), corpses, runtime (yeniden kurulabilir önbellekler)
   units/        orders (manga emir makinesi, yol istek kısıtlama), movement (manga + asker yönlendirme), formation
   combat/       combat (menzil/yakın dövüş, tepki gecikmesi, ölüm → ceset), cover (arazi + siper + yönlü kum torbası)
   construction/ trench (SİPER TEK DOĞRULUK KAYNAĞI), construction (yerleştirme doğrulama → şantiye → iş → tamam)
-  economy/ factions/  ortak ekonomi yardımcıları + Yeni Antakya lojistiği / Kara Kâse ceset ekonomisi
+  economy/ factions/  ortak ekonomi yardımcıları + Yeni Antakya lojistiği (reinforcement: yürüyen yedekler) /
+                Kara Kâse ceset ekonomisi
   ai/           ai (zamanlayıcı), black_grail_ai (hat bazlı dalgalar, yeniden emir), new_antioch_ai (savunma planı)
   save/         codec (sürümlü, göç zinciri, typed array base64), storage (slotlar, sandbox yalıtımı)
   render/       renderer (geçiş sırası), shaders, terrain_mesh, units_renderer (instanced skinning, poz dokusu),
-                anim (prosedürel FK+IK), static_renderer, clutter, fortifications_renderer, fx, overlays,
-                fog_memory, camera, gl, math3d, textures, models/ (humans, props, structures, fortifications…)
+                anim (prosedürel FK+IK, kopuk uzuv / uçan uzuv satırları), gore (DOM'suz vahşet planı + havuzlar),
+                craters (görülen krater hafızası + profil), static_renderer, clutter, fortifications_renderer, fx,
+                overlays, fog_memory, camera, gl, math3d, textures,
+                models/ (humans, props, structures, structures_p2, walls, fortifications…)
   input/        gestures (DOM'suz jest tanıyıcı), selection, pick (sise saygılı), controller (DOM bağlama)
   ui/           hud, minimap, menu, debug, i18n (TR/EN), icons (satır içi SVG), dom, style.css
-  audio/        audio (Web Audio sentezi)
+  audio/        audio (Web Audio sentezi: katmanlı silahlar, ses bütçesi, uzak cephe), music (prosedürel müzik)
   app/          session (sabit adım, hız, olay dağıtımı, komut günlüğü), actions (niyet → komut), game (bağlama)
   main.js       giriş: ayarlar, menüler, maç yaşam döngüsü
 ```
@@ -97,7 +146,7 @@ src/
 - **Determinizm:** aynı başlangıç durumu + tohum + komutlar + tick sayısı ⇒ aynı durum özeti (test edilir).
   Komutlar tick/seq taşır; AI da aynı komut hattını kullanır ⇒ lockstep çok oyunculu mimariye hazır (ağ yok).
 - **GameState** düz JSON'dur (typed array'ler codec ile base64); runtime önbellekleri (nav, grid'ler, indeksler)
-  durumdan yeniden kurulur, kayda girmez. Kayıt sürümü 1, göç zinciri mevcut.
+  durumdan yeniden kurulur, kayda girmez. Kayıt sürümü 2, göç zinciri (0→1→2) mevcut.
 - **Manga düzeyi yapay zekâ:** yol bulma manga başına (4 istek/tick kısıtlamalı, LRU önbellek); askerler düzen
   yuvalarına / siper yuvalarına / iş noktalarına yönlenir; ayırma döngüsü açık döngülerle.
 - **Siper tek doğruluk kaynağı:** `construction/trench.js` — gezinme maliyeti, siper (cover) gücü, doluluk yuvaları,
@@ -146,14 +195,18 @@ src/
 
 ## 5. Testler
 
-`npm test` — 132 test (Node, sıfır bağımlılık): mimari (döngü yok, katman kuralları, yasak API'ler, import konumu,
+`npm test` — 157 test (Node, sıfır bağımlılık): mimari (döngü yok, katman kuralları, yasak API'ler, import konumu,
 DOM'suz modüller), simülasyon, savaş, hareket (sıkışma kurtarma, cepler, katılma), inşa/siper, ekonomi, AI,
 kayıt/yükleme + göç, determinizm (kayıt → yükle → devam = kesintisiz), sis (asker bazlı görünürlük, kör atış yok,
 olay temizleme, düşen askerin mangasını açığa çıkarmaması), yol bulma (A* iş bütçesi, önbellekten bağımsızlık), mobil
 girdi (jest eşikleri, uzun basma, pinch sonrası kaydırma, zincirli yerleştirme, Tümü kuralı, sise saygılı seçim),
 sunum (sabit adım, ileri sarmada maç sonu, olay filtresi, sis hafızası yeniden kurma/yükleme, bilinen siperle zemin
 oyma, i18n eksiksizliği), render (ertelenmiş canvas boyutu, piksel bütçesi, çubuk kalınlığı, artımlı arazi = tam
-yeniden kurma), stres (160 ve 480 asker bütçesi). Düzeltilen her hata için bir regresyon testi eklendi.
+yeniden kurma), stres (160 / 320 / 480 asker bütçesi + sunum CPU ölçümü). Faz 2 (`tests/phase2.test.js`,
+`render.test.js`, `input.test.js`): taraf farkında HOME, Sinek Sürüsü hasar/enfeksiyon + sis filtresi, yön komutu
+serileştirme + kayıt/yükleme, yürüyen takviye, siperde takviye, yol kesik / kaynak kaybı, yeni yapılar, duvar
+siperleri, Kara Kâse inşası, köle ekonomisi, krater sınırı, kan gölü / uzuv havuzu sınırı, eski kayıt göçü, AI'nın
+yeni komutları kullanması, yön jesti. Düzeltilen her hata için bir regresyon testi eklendi.
 
 `npm run test:browser` — başsız Chromium (GPU yoksa SwiftShader) ile 9 kontrol: menü, Yeni Antakya, dikey telefonda
 Kara Kâse, dokunmatik seç + ilerle, **GPU bağlamı kaybından dönüş**, **başlatma hatasından kurtarma paneli**, stres
@@ -164,8 +217,9 @@ Kara Kâse, dokunmatik seç + ilerle, **GPU bağlamı kaybından dönüş**, **b
 **Simülasyon:** manga başına yol bulma (asker başına A* yok) + tick başına 4 istek + **tick başına A* iş bütçesi**
 (12 000 düğüm; bir dalganın uzun yolları birkaç tick'e yayılır, önbellek isabeti de aynı maliyetle sayılır →
 deterministik) + LRU önbellek; sıkışma kurtarma yolları aynı bütçeden, tick başına en fazla 2; sis 4 tick'te bir,
-hedef seçimi kademeli; sınırlı oyun cesedi (360). Node ölçümü (bu makine): 160 asker ≈ 0.19 ms/tick, 480 asker
-≈ 0.57 ms/tick; 15 dk AI'ya karşı AI maçı ≈ 0.2–0.3 ms/tick ortalama.
+hedef seçimi kademeli; sınırlı oyun cesedi (360) ve krater (48). Node ölçümü (bu makine, Faz 2 sonrası, ölçüm
+gürültülü): 160 asker ≈ 0.13–0.47 ms/tick, 320 asker ≈ 0.24 ms/tick, 480 asker ≈ 0.32–0.50 ms/tick; 15 dk AI'ya
+karşı AI maçı ≈ 0.1–0.2 ms/tick ortalama.
 
 **Render:** instancing (asker / prop / zemin dağınıklığı / decal / parçacık), manga ve parça bazlı frustum culling,
 mesafe LOD, gölge geçişinde hafif LOD; sınırlı görsel ceset (80–300) / parçacık (700–2600) / decal havuzları;
@@ -180,6 +234,12 @@ derlenip bağlanır (sürücü paralel derleyebilir); kazı sonrası arazi yaln�
 duraklatma menüsü açıkken 2 Hz boşta çizim; HUD 5 Hz, mini harita 10 Hz; kalite ön ayarları (düşük: gölgesiz,
 DPR ≤ 1, antialias yok).
 
+**Faz 2 vahşet / VFX bütçeleri (kaliteye göre, oynanıştan bağımsız):** uçan uzuv havuzu 12 / 32 / 64, kan gölü /
+ceset lekesi 48 / 110 / 190, parçalanma olasılığı ve kan parçacığı yoğunluğu LOW'da düşük; uzuvlar ek poz satırı
+(en fazla 64) olarak mevcut instanced çizime girer, gölge geçişine girmez; sinek sürüsü parçacıkları kareden bağımsız
+oranla ve halka tampon içinde; kraterler arazide yalnızca değişen bölgede yeniden oyulur. Sunum CPU ölçümü (Node):
+480 poz + 300 ceset (6 karede bir) + 64 uzuv + havuzlar ≈ 2.9 ms/kare. Gerçek cihaz FPS'i ölçülmedi.
+
 ## 7. Bilinen sınırlamalar
 
 - Bu geliştirme ortamında GPU yoktu; tarayıcı testleri yazılım rasterleyici (SwiftShader) ile yapıldı. Gerçek mobil
@@ -188,12 +248,13 @@ DPR ≤ 1, antialias yok).
   sürücülerde senkron bekleme olabilir); iOS Safari'nin ANGLE/Metal katmanında `flat` varyasyonların maliyeti.
 - Yapı yerleştirme / tamamlanmasında gezinme katmanları ve bağlantı bileşenleri tüm harita için yeniden kuruluyor
   (masaüstünde birkaç ms; nadir olay) — artımlı güncelleme sonraki faz.
-- Denge yalnızca AI'ya karşı AI ile ayarlandı (16 tohum, 15 dk: Yeni Antakya 6 / Kara Kâse 10 — iki taraf da
-  kazanabiliyor); insan oyuncuyla denge testi yapılmadı.
+- Denge yalnızca AI'ya karşı AI ile ölçüldü (16 tohum, 15 dk: Faz 1'de Yeni Antakya 6 / Kara Kâse 10; Faz 2
+  sonrası 5 / 11 — iki taraf da kazanabiliyor, sonuçlar ikmal harcamasına duyarlı); insan oyuncuyla denge testi yok.
 - Ağ kodu yok (mimari lockstep'e hazır: deterministik sim + tick'li düz komutlar + komut günlüğü).
 - Tek harita / tek senaryo (siege). Tank, alev makinesi, topçu birimleri, hava durumu etkileri, kampanya yok.
 - Animasyonlar prosedürel (keyframe dosyası yok); yüz ve parmak ayrıntısı yok.
-- Ses tamamen sentez; müzik yok.
+- Ses ve müzik tamamen sentez; gerçek telefon hoparlöründe dinleme testi yapılmadı (frekans bandı buna göre seçildi).
+- Vahşet görselleri yalnızca yazılım rasterleyicide (SwiftShader) ekran görüntüsüyle kontrol edildi.
 - Yol bulma manga düzeyinde; çok kalabalık darboğazlarda askerler kısa süre birbirine takılabilir.
 
 ## 8. Yol haritası

@@ -231,7 +231,7 @@ void main() {
 // ------------------------------------------------------------------------------- skinned units
 
 export const BONES = 14;
-export const POSE_TEXELS = BONES * 3 + 2;
+export const POSE_TEXELS = BONES * 3 + 3; // 14 bones x 3 rows + look + accent + gore/sickness
 
 const SKIN_FN = `
 uniform highp sampler2D uPoseTex;
@@ -257,7 +257,7 @@ layout(location=1) in vec4 aNormal;
 layout(location=2) in vec4 aColor;
 layout(location=3) in vec4 aBones;
 out vec3 vWorld; out vec3 vNormal; out vec3 vColor; out vec3 vObj;
-flat out int vMat; flat out vec4 vP0; flat out vec4 vP1;
+flat out int vMat; flat out vec4 vP0; flat out vec4 vP1; flat out vec4 vP2;
 void main() {
   int row = uRowBase + gl_InstanceID;
   vec4 r0, r1, r2;
@@ -268,6 +268,7 @@ void main() {
   vNormal = vec3(dot(r0.xyz, n), dot(r1.xyz, n), dot(r2.xyz, n));
   vP0 = texelFetch(uPoseTex, ivec2(${BONES * 3}, row), 0);
   vP1 = texelFetch(uPoseTex, ivec2(${BONES * 3 + 1}, row), 0);
+  vP2 = texelFetch(uPoseTex, ivec2(${BONES * 3 + 2}, row), 0);
   vWorld = wp;
   vObj = aPos;
   vColor = pow(aColor.rgb, vec3(2.2));
@@ -277,7 +278,7 @@ void main() {
 
 export const SKINNED_FS = HEADER + GLOBALS + SHADOW + COMMON_FRAG + `
 in vec3 vWorld; in vec3 vNormal; in vec3 vColor; in vec3 vObj;
-flat in int vMat; flat in vec4 vP0; flat in vec4 vP1;
+flat in int vMat; flat in vec4 vP0; flat in vec4 vP1; flat in vec4 vP2;
 out vec4 fragColor;
 void main() {
   vec3 N = normalize(vNormal);
@@ -285,6 +286,20 @@ void main() {
   float aoY = mix(0.45, 1.0, smoothstep(0.0, 1.2, vObj.y));
   vec3 accent = pow(vP1.rgb, vec3(2.2));
   vec3 alb = vColor * (1.0 - vP1.a * 0.55);
+  // gore layer: blood soaks cloth / skin in noisy patches (dark red; Grail ichor near-black green)
+  if (vP2.x > 0.01) {
+    float nb = texture(uNoiseTex, vObj.xy * 1.7 + vObj.z * 0.9 + vP0.x).r;
+    float soak = smoothstep(0.62 - vP2.x * 0.5, 0.7 - vP2.x * 0.45, nb) * clamp(vP2.x * 1.6, 0.0, 1.0);
+    vec3 bc = mix(vec3(0.075, 0.004, 0.003), vec3(0.018, 0.022, 0.006), vP2.z);
+    alb = mix(alb, bc, soak * 0.85);
+  }
+  // visible sickness (infected New Antioch soldiers): sallow, greenish pallor, dark blotches
+  if (vP2.y > 0.01) {
+    float nb2 = texture(uNoiseTex, vObj.xz * 2.3 + vObj.y).g;
+    vec3 sick = alb * vec3(0.78, 0.9, 0.52);
+    alb = mix(alb, sick, vP2.y * 0.8);
+    alb *= 1.0 - vP2.y * 0.45 * smoothstep(0.66, 0.74, nb2);
+  }
   float sh = mix(1.0, shadowAt(vWorld, N), 0.85);
   vec3 col = shade(alb, vMat, N, vWorld, vObj, vP0, accent, aoY, sh);
   col += vP0.w * vec3(0.16, 0.14, 0.09) * (0.35 + pow(clamp(1.0 - dot(N, normalize(uCamPos - vWorld)), 0.0, 1.0), 2.0) * 2.5);
@@ -353,8 +368,17 @@ void main() {
   vec3 alb = vColor * (1.0 + (tint - 0.5) * 0.25);
   float dmg = vParams.w;
   if (dmg > 0.0) {
+    // damage stages (presentation): DAMAGED -> soot patches; CRITICAL -> cracks + charring
     float sc = texture(uNoiseTex, vObj.xy * 0.7 + vObj.z * 0.3).g;
     alb *= 1.0 - dmg * 0.6 * smoothstep(0.35, 0.7, sc);
+    float soot = smoothstep(0.3, 0.7, dmg) * (1.0 - smoothstep(0.2, 2.2, vObj.y));
+    alb *= 1.0 - 0.45 * soot * texture(uNoiseTex, vObj.xz * 0.35 + 0.3).b;
+    if (dmg > 0.34) {
+      vec2 cq = vObj.xy * 1.9 + vObj.zx * 0.8;
+      float cn = texture(uNoiseTex, cq * 0.23).r * 0.7 + texture(uNoiseTex, cq * 0.61).g * 0.3;
+      float crack = 1.0 - smoothstep(0.0, 0.018 + 0.02 * dmg, abs(cn - 0.5));
+      alb *= 1.0 - crack * smoothstep(0.34, 0.8, dmg) * 0.85;
+    }
   }
   float aoY = mix(0.5, 1.0, smoothstep(0.0, 1.5, vObj.y));
   // slate roofs: overlapping tile courses + staggered joints (large dark-metal surfaces only)
@@ -571,9 +595,12 @@ void main() {
   else if (vShape == 7) { float ang = atan(vUV.y, vUV.x); a = (1.0 - smoothstep(0.0, 0.1, abs(r - 0.8))) * step(0.0, sin(ang * 4.0 + vP.y * 3.0)); } // attack marker
   else if (vShape == 8) { float ang = atan(vUV.y, vUV.x); a = (1.0 - smoothstep(0.0, 0.05, abs(r - 0.96))) * step(0.0, sin(ang * 18.0 + vP.y)) + (1.0 - smoothstep(0.0, 1.0, r)) * 0.12; } // area ring
   else if (vShape == 9) { vec2 q = abs(vUV); float e = max(q.x, q.y); a = (1.0 - smoothstep(0.0, 0.1, abs(e - 0.93))) + 0.1; } // footprint box
+  else if (vShape == 10) { a = (1.0 - smoothstep(0.0, 0.16, abs(r - 0.84))) * (0.75 + 0.25 * n.r) + (1.0 - smoothstep(0.0, 0.84, r)) * 0.12; } // blast shock ring
+  else if (vShape == 11) { float ang = atan(vUV.x, -vUV.y) / 6.2831853 + 0.5; a = (1.0 - smoothstep(0.0, 0.035, abs(r - 0.97))) * (step(ang, vP.x) * 0.85 + 0.15) + (1.0 - smoothstep(0.35, 1.0, r)) * 0.07 * (0.6 + 0.8 * n.g); } // effect area + remaining time
+  else if (vShape == 12) { float q = r + (n.r - 0.5) * 0.9 - (n.b - 0.5) * 0.4; a = (1.0 - smoothstep(0.35, 0.75, q)) * (0.75 + 0.25 * n.g); } // blood spray / splatter
   a *= vColor.a;
   if (a < 0.003) discard;
-  if (uAdditive < 0.5 && vShape != 1 && vShape != 5 && vShape != 7 && vShape != 8 && vShape != 9) c = fogOfWar(c, vWorld);
+  if (uAdditive < 0.5 && vShape != 1 && vShape != 5 && vShape != 7 && vShape != 8 && vShape != 9 && vShape != 11) c = fogOfWar(c, vWorld);
   fragColor = vec4(pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)) * a, uAdditive > 0.5 ? 0.0 : a);
 }`;
 

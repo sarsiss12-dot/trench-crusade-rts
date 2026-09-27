@@ -8,6 +8,7 @@ import { findPath } from '../world/nav.js';
 import { PATHS_PER_TICK, PATH_WORK_PER_TICK, REPATH_TICKS, MELEE_CHARGE_RANGE } from '../sim/constants.js';
 import { WEAPONS } from '../data/weapons.js';
 import { factionBit, isPointVisibleTo, visibleCentroid } from '../sim/perception.js';
+import { removeCorpse } from '../sim/corpses.js';
 import {
   trenchSlot, ensureOccupancy, trenchConnected, trenchSlotCount, trenchFrame,
 } from '../construction/trench.js';
@@ -318,7 +319,7 @@ export function updateOrders(sim) {
               assignTrenchPosts(sim, sq, seg, o.x, o.z);
               sq.order = { t: 'hold_trench', sid: seg.id };
             } else sq.order = { t: 'idle' };
-          } else sq.order = { t: 'idle' };
+          } else sq.order = o.fh === undefined ? { t: 'idle' } : { t: 'idle', fh: o.fh }; // keeps its facing
           clearPath(sq);
         } else if (sq.pathState === 'failed') {
           if (sq.pathFails > 3) { sq.order = { t: 'idle' }; clearPath(sq); }
@@ -451,14 +452,38 @@ function nearestSite(sim, sq, radius) {
   return best;
 }
 
+/**
+ * Corpse gathering (Grail work gangs): the order remembers the field (fx,fz); the gang strips the
+ * current body, then the next known, uninfected, not-rising corpse nearby (infected bodies are the
+ * plague's: they rise instead). Returns the corpse or null.
+ */
+function corpseTarget(sim, sq, o) {
+  const { rt, state } = sim;
+  let c = o.cid ? rt.corpseById.get(o.cid) : null;
+  if (c && !c.infected && !c.riseAt && c.biomass > 0.01) return c;
+  const bit = factionBit(sq.faction);
+  let best = null, bestD = CORPSE_FIELD_R;
+  const fx = o.fx !== undefined ? o.fx : sq.x, fz = o.fz !== undefined ? o.fz : sq.z;
+  for (const k of state.corpses) {
+    if (k.infected || k.riseAt || k.biomass <= 0.01 || !(k.seenBy & bit)) continue;
+    const d = dist(fx, fz, k.x, k.z);
+    if (d < bestD || (d === bestD && best && k.id < best.id)) { bestD = d; best = k; }
+  }
+  o.cid = best ? best.id : 0;
+  return best;
+}
+const CORPSE_FIELD_R = 16;
+
 function updateGather(sim, sq, def, o) {
   const { state, rt } = sim;
-  const node = rt.nodeById.get(o.nid);
+  const corpseMode = def.gathers === 'corpse';
+  const node = corpseMode ? corpseTarget(sim, sq, o) : rt.nodeById.get(o.nid);
+  const amountOf = (n) => (corpseMode ? n.biomass : n.amount);
   let alive = 0;
   for (const m of sq.members) if (m.state === 'alive') alive++;
   const cap = alive * (def.carryCapacity || 0);
   if (o.phase === 'to_node') {
-    if (!node || node.amount <= 0) {
+    if (!node || amountOf(node) <= 0) {
       if (sq.carry > 0) { o.phase = 'to_drop'; clearPath(sq); }
       else { sq.order = { t: 'idle' }; clearPath(sq); }
       return;
@@ -471,7 +496,8 @@ function updateGather(sim, sq, def, o) {
     return;
   }
   if (o.phase === 'gathering') {
-    if (!node || node.amount <= 0 || sq.carry >= cap - 0.001) {
+    if (node && dist(sq.x, sq.z, node.x, node.z) > 6) { o.phase = 'to_node'; clearPath(sq); return; } // next body
+    if (!node || amountOf(node) <= 0 || sq.carry >= cap - 0.001) {
       for (const m of sq.members) m.working = 0;
       o.phase = sq.carry > 0 ? 'to_drop' : 'to_node';
       clearPath(sq);
@@ -481,8 +507,15 @@ function updateGather(sim, sq, def, o) {
     let workers = 0;
     for (const m of sq.members) if (m.state === 'alive' && m.working) workers++;
     if (workers > 0) {
-      const amt = Math.min(node.amount, cap - sq.carry, workers * def.gatherRate * (1 / 20));
-      node.amount -= amt;
+      const amt = Math.min(amountOf(node), cap - sq.carry, workers * def.gatherRate * (1 / 20));
+      if (corpseMode) {
+        node.biomass -= amt;
+        if (node.biomass <= 0.0001) {
+          state.factions[sq.faction].stats.corpsesHarvested++;
+          removeCorpse(sim, node, 'consumed');
+          o.cid = 0;
+        }
+      } else node.amount -= amt;
       sq.carry += amt;
     }
     return;
@@ -494,11 +527,12 @@ function updateGather(sim, sq, def, o) {
     if (dd < 6) {
       const f = state.factions[sq.faction];
       const amount = Math.floor(sq.carry * 100) / 100;
-      f.resources.material += amount;
-      sim.events.push({ type: EV.RESOURCE_DELIVERED, faction: sq.faction, squadId: sq.id, resource: 'material', amount, x: sq.x, z: sq.z });
+      const res = corpseMode ? 'biomass' : 'material';
+      f.resources[res] = (f.resources[res] || 0) + amount;
+      sim.events.push({ type: EV.RESOURCE_DELIVERED, faction: sq.faction, squadId: sq.id, resource: res, amount, x: sq.x, z: sq.z });
       sq.carry = 0;
       clearPath(sq);
-      if (node && node.amount > 0) o.phase = 'to_node';
+      if (node && amountOf(node) > 0) o.phase = 'to_node';
       else sq.order = { t: 'idle' };
       return;
     }

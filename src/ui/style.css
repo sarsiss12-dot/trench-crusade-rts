@@ -140,6 +140,14 @@ canvas.minimap { height: min(30vh, calc(190px * var(--ui))); aspect-ratio: 320 /
 .bm .n { font-size: 0.75em; text-align: center; white-space: nowrap; }
 .bm .c { font-size: 0.7em; color: var(--dim); display: inline-flex; align-items: center; gap: 2px; }
 .bm.poor { opacity: 0.5; }
+/* Phase 2: one-line role hint under each build option (context help, not a panel) */
+.bm .d { font-size: 0.62em; line-height: 1.15; color: var(--dim); text-align: center; max-width: 11em; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.selinfo .infrow.none { opacity: 0.55; }
+.selinfo .inft { font-size: 0.8em; white-space: nowrap; }
+.bar.inf i { background: linear-gradient(#b9c460, #6f7a26); }
+.selinfo .sdesc { margin-top: 4px; font-size: 0.8em; color: var(--dim); max-width: 22em; }
+.modebar .mt small { color: var(--dim); font-size: 0.85em; }
+.hud-top .r { cursor: help; }
 
 .notices { position: absolute; left: 50%; top: calc(52px * var(--ui) + var(--safe-t)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
 .notice { padding: 4px 12px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); font-size: 0.9em; transition: opacity 0.5s; white-space: nowrap; }
@@ -254,6 +262,7 @@ pre.debug {
 
 /* ------------------------------------------------------------------ small / portrait screens */
 @media (max-height: 430px) {
+  .bm .d { display: none; }
   :root { --btn: calc(42px * var(--ui)); }
   .res { gap: 7px; }
   .selinfo { padding: 4px 8px; }

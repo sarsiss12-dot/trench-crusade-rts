@@ -4,7 +4,7 @@
 import { BONE, BONE_COUNT, WEAPON_GEOM } from './models/humans.js';
 import { affFromEuler, affMul, affApply } from './math3d.js';
 
-export const POSE_FLOATS = (BONE_COUNT * 3 + 2) * 4;
+export const POSE_FLOATS = (BONE_COUNT * 3 + 3) * 4;
 
 const W = [];
 for (let i = 0; i < BONE_COUNT; i++) W.push(new Float32Array(12));
@@ -180,7 +180,10 @@ export function computePose(dst, offset, model, a) {
   let crouch = work * 0.12 + (a.inTrench ? 0.0 : 0);
   if (melee >= 0) crouch += Math.sin(melee * Math.PI) * 0.08;
   const pelvisPitch = 0.06 * walk + hunch * 0.25 + work * 0.15;
-  const pelvisRoll = Math.sin(ph) * 0.045 * walk + lurch * 0.4;
+  // visible sickness (infection stacks): an unsteady, swaying stance and a sagging head
+  const sick = a.sick || 0;
+  const stagger = sick > 0.25 ? Math.sin(t * 1.9 + a.seed) * 0.07 * sick + Math.sin(t * 4.7 + a.seed * 2) * 0.02 * sick : 0;
+  const pelvisRoll = Math.sin(ph) * 0.045 * walk + lurch * 0.4 + stagger;
   fk(rig, BONE.PELVIS, pelvisPitch, Math.sin(ph) * 0.08 * walk, pelvisRoll, 0, bob - crouch, 0);
 
   // spine: lean, hunch, breathing, aim blade, recoil, dig bend, melee lunge, hit flinch
@@ -189,7 +192,7 @@ export function computePose(dst, offset, model, a) {
   if (melee >= 0) sp += Math.sin(melee * Math.PI) * 0.35;
   sp -= hit * 0.3;
   const spYaw = blade - Math.sin(ph) * 0.12 * walk * (1 - aim) + a.aimYaw * 0.4 + hit * 0.25 * a.hitSide;
-  fk(rig, BONE.SPINE, sp, spYaw, -lurch * 0.5);
+  fk(rig, BONE.SPINE, sp + sick * 0.12, spYaw, -lurch * 0.5 - stagger * 1.2);
   fk(rig, BONE.HEAD, -hunch * 0.7 + aim * 0.08 - sp * 0.3 + Math.sin(t * 0.37 + a.seed) * 0.05, -blade * 0.9 + Math.sin(t * 0.23 + a.seed * 3) * 0.2 * (1 - aim), 0);
 
   // legs: walk cycle (drag one leg for lurching hordes), crouch for work / kneeling
@@ -295,11 +298,47 @@ function stowTool(rig) {
   fk(rig, BONE.TOOL, 1.75, 0.0, 0.35, 0.0, 0.45, -0.02);
 }
 
+const GM = new Float32Array(12);
+
+/**
+ * Skinning rows. Presentation gore (render/gore.js): a.lost (bone mask) collapses torn-off bones to
+ * their joint (the stump stays on the body); a.gib = { mask, root, g } draws ONLY that limb chain,
+ * carried rigidly by the world transform g (the rest of the body collapses to the torn end).
+ */
 function writeRow(dst, offset, rig, a) {
   const p = rig.pivots;
   let o = offset;
+  const lost = a.lost || 0;
+  const gib = a.gib;
+  let jx = 0, jy = 0, jz = 0;
+  if (gib) {
+    const r = W[gib.root], g = gib.g;
+    const rx = r[3], ry = r[7], rz = r[11];
+    jx = g[0] * rx + g[1] * ry + g[2] * rz + g[3];
+    jy = g[4] * rx + g[5] * ry + g[6] * rz + g[7];
+    jz = g[8] * rx + g[9] * ry + g[10] * rz + g[11];
+  }
   for (let b = 0; b < BONE_COUNT; b++) {
-    const m = W[b];
+    let m = W[b];
+    const bit = 1 << b;
+    if (gib) {
+      if (!(gib.mask & bit)) {
+        dst[o] = 0; dst[o + 1] = 0; dst[o + 2] = 0; dst[o + 3] = jx;
+        dst[o + 4] = 0; dst[o + 5] = 0; dst[o + 6] = 0; dst[o + 7] = jy;
+        dst[o + 8] = 0; dst[o + 9] = 0; dst[o + 10] = 0; dst[o + 11] = jz;
+        o += 12;
+        continue;
+      }
+      affMul(GM, gib.g, m);
+      m = GM;
+    } else if (lost & bit) {
+      // torn off: every vertex of the bone collapses onto its joint
+      dst[o] = 0; dst[o + 1] = 0; dst[o + 2] = 0; dst[o + 3] = m[3];
+      dst[o + 4] = 0; dst[o + 5] = 0; dst[o + 6] = 0; dst[o + 7] = m[7];
+      dst[o + 8] = 0; dst[o + 9] = 0; dst[o + 10] = 0; dst[o + 11] = m[11];
+      o += 12;
+      continue;
+    }
     const px = p[b * 3], py = p[b * 3 + 1], pz = p[b * 3 + 2];
     // skin = W * T(-pivot)
     dst[o] = m[0]; dst[o + 1] = m[1]; dst[o + 2] = m[2]; dst[o + 3] = m[3] - (m[0] * px + m[1] * py + m[2] * pz);
@@ -309,7 +348,16 @@ function writeRow(dst, offset, rig, a) {
   }
   dst[o] = a.tint; dst[o + 1] = a.mud; dst[o + 2] = a.wear; dst[o + 3] = a.highlight;
   dst[o + 4] = a.accent[0]; dst[o + 5] = a.accent[1]; dst[o + 6] = a.accent[2]; dst[o + 7] = a.fade;
-  return o + 8;
+  // gore / sickness layer: blood soaking, visible infection, Grail ichor (dark) vs red blood
+  dst[o + 8] = a.blood || 0; dst[o + 9] = a.sick || 0; dst[o + 10] = a.bio ? 1 : 0; dst[o + 11] = lost || gib ? 1 : 0;
+  return o + 12;
+}
+
+/** World position of a bone joint of the last posed soldier (call right after computePose). */
+export function jointWorld(bone, out) {
+  const m = W[bone];
+  out[0] = m[3]; out[1] = m[7]; out[2] = m[11];
+  return out;
 }
 
 /** World-space muzzle point of a posed soldier (call right after computePose). */

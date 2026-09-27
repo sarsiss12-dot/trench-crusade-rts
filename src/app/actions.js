@@ -6,7 +6,7 @@ import { CMD } from '../sim/commands.js';
 import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { validatePlacement } from '../construction/construction.js';
-import { validateAbility } from '../sim/abilities.js';
+import { validateAbility, abilityCooldown } from '../sim/abilities.js';
 import { canTrain } from '../sim/production.js';
 import { isSquadAlive } from '../sim/state.js';
 
@@ -31,10 +31,13 @@ export function createActions(game) {
   }
 
   const A = {
-    moveTo(x, z, attackMove = false) {
+    /** face (optional, radians; heading 0 = +z): the squads turn to it on arrival. */
+    moveTo(x, z, attackMove = false, face = undefined) {
       const squads = own();
       if (!squads.length) return false;
-      session.issue(CMD.MOVE, { squadIds: squads.map((s) => s.id), x, z, attackMove: !!attackMove });
+      const cmd = { squadIds: squads.map((s) => s.id), x, z, attackMove: !!attackMove };
+      if (Number.isFinite(face)) cmd.face = face;
+      session.issue(CMD.MOVE, cmd);
       feedback(attackMove ? 'attack' : 'move', x, z);
       return true;
     },
@@ -140,11 +143,26 @@ export function createActions(game) {
     },
 
     gather(node) {
-      const squads = own().filter((sq) => unitDef(sq.type).roles.indexOf('gatherer') >= 0);
+      const squads = own().filter((sq) => unitDef(sq.type).roles.indexOf('gatherer') >= 0 && unitDef(sq.type).gathers !== 'corpse');
       if (!squads.length) return fail('cmd.no_gatherers');
       session.issue(CMD.GATHER, { squadIds: squads.map((s) => s.id), nid: node.id });
       feedback('build', node.x, node.z);
       return true;
+    },
+
+    /** Grail work gangs: haul a known, uninfected body (and the field around it) to a drop-off. */
+    haul(corpse) {
+      const squads = own().filter((sq) => unitDef(sq.type).gathers === 'corpse');
+      if (!squads.length) return fail('cmd.no_gatherers');
+      if (corpse.infected) return fail('cmd.corpse_infected');
+      session.issue(CMD.GATHER, { squadIds: squads.map((s) => s.id), cid: corpse.id });
+      feedback('build', corpse.x, corpse.z);
+      return true;
+    },
+
+    /** Selected squads (own, missing soldiers) that could request replacements. */
+    reinforceable() {
+      return own().filter((sq) => sq.members.length < unitDef(sq.type).squadSize);
     },
 
     train(st, unit) {
@@ -173,6 +191,10 @@ export function createActions(game) {
       session.issue(CMD.SET_RALLY, { sid: st.id, x, z });
       feedback('rally', x, z);
       return true;
+    },
+
+    abilityCooldown(id) {
+      return abilityCooldown(sim, viewer, id);
     },
 
     abilityCheck(id, x, z) {

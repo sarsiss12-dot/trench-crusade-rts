@@ -221,6 +221,23 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     }
   }
 
+  /** Dotted shaft + chevron head on the ground from (x0,z0) toward (x1,z1). */
+  function faceArrow(x0, z0, x1, z1, col, alpha) {
+    const dx = x1 - x0, dz = z1 - z0;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.5) return;
+    const ux = dx / len, uz = dz / len;
+    dots(x0 + ux * 1.2, z0 + uz * 1.2, x1, z1, 0.9, 0.22, col, alpha);
+    // chevrons
+    for (let k = 0; k < 2; k++) {
+      const bx = x1 - ux * k * 1.1, bz = z1 - uz * k * 1.1;
+      for (const s of [1, -1]) {
+        const ex = bx - ux * 1.4 + uz * 1.1 * s, ez = bz - uz * 1.4 - ux * 1.1 * s;
+        dots(ex, ez, bx, bz, 0.35, 0.2, col, alpha * (1 - k * 0.35));
+      }
+    }
+  }
+
   function zoneOutline(zone, col, alpha) {
     const pts = [[zone.x0, zone.z0], [zone.x1, zone.z0], [zone.x1, zone.z1], [zone.x0, zone.z1], [zone.x0, zone.z0]];
     let phase = 0;
@@ -273,6 +290,19 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
         const c = ar <= 0 ? [0.85, 0.2, 0.15] : [0.46, 0.58, 0.74];
         bar(x0, y0 + h + Math.max(1, dpr), w, Math.max(2, 3 * dpr), c[0], c[1], c[2], blink, Math.max(0.04, ar), 0);
       }
+    }
+    // infection (visible sickness): a sickly pip bar with the share of infected soldiers
+    let inf = 0;
+    for (const m of sq.members) if (m.state === 'alive' && m.infection > 0 && (own || isSoldierVisibleTo(sim, sq, m, renderer.viewer))) inf++;
+    if (inf && sq.faction !== 'black_grail') {
+      const s = 5 * dpr;
+      bar(x0 + w + 2 * dpr, y0, s * 2, h, 0.55, 0.62, 0.16, 1, inf / alive, 0);
+    }
+    // walking replacements on their way (own squads)
+    if (own && sq.reinf) {
+      const s = 4 * dpr;
+      const pulse = 0.55 + 0.45 * Math.sin(renderer.time * 5);
+      bar(x0 - s - 2 * dpr, y0 - s - 2 * dpr, s, s, 0.86, 0.66, 0.3, pulse, 1, 0);
     }
     // cover indicator (own squads, when it matters)
     if (own && lvl > 0 && (selected || engaged || recent)) {
@@ -334,6 +364,17 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
         ringsFor(sq, own ? OWN_RING : ENEMY_RING, 0.95);
         if (!own) continue;
         routeLine(sim, sq);
+        // commanded facing at the destination / holding position
+        const fh = sq.order.fh;
+        if (fh !== undefined) {
+          const ox = sq.order.t === 'move' ? sq.order.x : sq.x, oz = sq.order.t === 'move' ? sq.order.z : sq.z;
+          faceArrow(ox, oz, ox + Math.sin(fh) * 6, oz + Math.cos(fh) * 6, OWN_RING, 0.7);
+        }
+        // requested replacements: the walk from the source
+        if (sq.reinf) {
+          const src = rt.structById.get(sq.reinf.src);
+          if (src) dots(src.x, src.z, sq.cx, sq.cz, 2.6, 0.2, sq.reinf.cut ? INVALID : [0.9, 0.66, 0.3], 0.5, (t * 3) % 2.6, 120);
+        }
         if (sq.order.t === 'attack' && sq.order.tk === 'squad') {
           const tg = rt.squadById.get(sq.order.tid);
           if (tg && isSquadVisibleTo(tg, viewer)) ringsFor(tg, ENEMY_RING, 0.55 + 0.25 * Math.sin(t * 6), 1.1);
@@ -392,6 +433,14 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     } else {
       r.forts.setGhost(null);
       r.statics.setGhost(null);
+    }
+
+    // facing drag (double-tap-hold-drag / right-drag): destination + direction arrow
+    const fa = frame.faceArrow;
+    if (fa) {
+      const col = fa.valid === false ? INVALID : [0.95, 0.86, 0.55];
+      mark(fa.x0, fa.z0, ground(fa.x0, fa.z0), 1.7, 0, col[0], col[1], col[2], 0.95, DS.MARKER, 0.2);
+      faceArrow(fa.x0, fa.z0, fa.x1, fa.z1, col, 0.95);
     }
 
     // ability targeting

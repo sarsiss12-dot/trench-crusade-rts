@@ -110,7 +110,8 @@ await check('start-failure-recovers', base + '?autostart=1&seed=3&quality=balanc
   act: async (page) => {
     await page.waitForSelector('.fatal .big.primary', { timeout: 15000 });
     await page.click('.fatal .big.primary'); // retry on low quality
-    await page.waitForFunction(() => TC.game && TC.game.renderer.frameStats.drawCalls > 0, null, { timeout: 30000, polling: 250 });
+    // (the first simulated tick can lag the first drawn frame on a software rasterizer)
+    await page.waitForFunction(() => TC.game && TC.game.renderer.frameStats.drawCalls > 0 && TC.game.sim.state.tick > 0, null, { timeout: 30000, polling: 250 });
     const q = await page.evaluate(() => TC.settings.quality);
     if (q !== 'low') throw new Error('retry did not switch to low quality');
   },

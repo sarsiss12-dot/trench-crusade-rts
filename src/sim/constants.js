@@ -1,6 +1,6 @@
 // Simulation constants. The simulation runs at a fixed tick rate; rendering interpolates.
 
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 export const TICK_RATE = 20;
 export const DT = 1 / TICK_RATE;
 
@@ -18,8 +18,10 @@ export const DETOURS_PER_TICK = 2; // rescue paths for stuck soldiers per tick (
 // (a loaded save with a cold cache makes exactly the same decisions).
 export const PATH_WORK_PER_TICK = 12000;
 export const STUCK_WINDOW = 20; // ticks between soldier progress checks
-export const JOIN_TIMEOUT_TICKS = 20 * 40; // a reinforcement that cannot reach its squad joins anyway
+export const JOIN_TIMEOUT_TICKS = 20 * 60; // a walking replacement counts as a member after this (it keeps walking)
 export const REPATH_TICKS = 30; // attack-order chase re-path interval
 export const MELEE_CHARGE_RANGE = 22; // melee squads charge targets within this distance
 export const ACQUIRE_EXTRA = 8; // extra acquisition range beyond weapon range
 export const INFECTION_MAX = 6;
+export const MAX_CRATERS = 48; // persistent shell craters (bounded; nearby hits merge)
+export const MAX_CRATER_R = 4.2;

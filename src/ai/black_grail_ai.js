@@ -7,16 +7,22 @@
 //  - Fly Swarm is cast on entrenched / clustered visible defenders
 //  - biomass is spent raising hordes at Altars; risen dead join the nearest assault
 // Noncombat squads never join assault groups (combatUnit flag, not unit names).
-import { unitDef } from '../data/units.js';
+//  - Phase 2 corpse economy: a few capped Grail Thrall work gangs haul uninfected bodies to
+//    altars / corpse mounds and raise the map's organic build plan (corpse mound, fly nest,
+//    plague pits, bone barricades) through the same BUILD / GATHER commands as a player
+import { unitDef, hasRole } from '../data/units.js';
 import { ABILITIES } from '../data/abilities.js';
 import { FACTIONS, areHostile } from '../data/factions.js';
 import { CMD } from '../sim/commands.js';
 import { dist } from '../core/dmath.js';
+import { STRUCTURES } from '../data/structures.js';
+import { validatePlacement } from '../construction/construction.js';
 import { rngFloat } from '../core/rng.js';
 import { aiIssue } from './issue.js';
 
 const LANES = ['west', 'center', 'east'];
 const WAYPOINT_REACHED = 16;
+const HAUL_RANGE = 380; // how far a gang is sent for a body (it still has to walk back)
 
 function combatSquads(sim, fid) {
   return sim.state.squads.filter((sq) => sq.faction === fid && unitDef(sq.type).combatUnit && sq.members.some((m) => m.state === 'alive' || m.state === 'rising'));
@@ -31,6 +37,24 @@ function aliveCount(sq) {
 function groupById(ai, id) {
   for (const g of ai.groups) if (g.id === id) return g;
   return null;
+}
+
+/** Fielded + queued squads of a type (read-only; the force cap itself is enforced by TRAIN). */
+function squadCount(sim, fid, type) {
+  let n = 0;
+  for (const sq of sim.state.squads) if (sq.faction === fid && sq.type === type) n++;
+  for (const st of sim.state.structures) if (st.faction === fid && st.queue) for (const q of st.queue) if (q.unit === type) n++;
+  return n;
+}
+
+function planDone(sim, fid, item) {
+  for (const s of sim.state.structures) {
+    if (s.type !== item.type || s.faction !== fid) continue;
+    const x = item.x1 !== undefined ? (item.x1 + item.x2) / 2 : item.x;
+    const z = item.x1 !== undefined ? (item.z1 + item.z2) / 2 : item.z;
+    if (dist(s.x, s.z, x, z) < 3) return true;
+  }
+  return false;
 }
 
 function newGroup(ai, lane, role) {
@@ -168,6 +192,77 @@ export const blackGrailAI = {
     this.manageGroups(sim, fid, ai);
     this.useAbility(sim, fid, ai);
     this.produce(sim, fid, ai);
+    this.gangs(sim, fid, ai);
+  },
+
+  /** Work gangs: keep a couple, build the organic plan, haul corpses. Never used in assaults. */
+  gangs(sim, fid, ai) {
+    const { state, world } = sim;
+    if (state.tick - (ai.lastGangThink || -1e9) < 20) return;
+    ai.lastGangThink = state.tick;
+    if (sim.scenario && sim.scenario.mode === 'stress') return;
+    const f = state.factions[fid];
+    const bit = 1 << FACTIONS[fid].index;
+    const gangs = state.squads.filter((sq) => sq.faction === fid && hasRole(unitDef(sq.type), 'builder') && sq.members.some((m) => m.state === 'alive'));
+    // production: at most two gangs (cap in data is higher), only with biomass to spare
+    const want = 2;
+    const gdef = unitDef('thrall_gang');
+    if (squadCount(sim, fid, 'thrall_gang') < want && (f.resources.biomass || 0) >= gdef.cost.biomass + 40 && state.tick - (ai.lastGang || -1e9) > 20 * 30) {
+      const altar = state.structures.find((s) => s.faction === fid && s.built && s.queue && s.queue.length === 0 && STRUCTURES[s.type].trains.indexOf('thrall_gang') >= 0);
+      if (altar) {
+        ai.lastGang = state.tick;
+        aiIssue(sim, { type: CMD.SET_RALLY, faction: fid, sid: altar.id, x: altar.x, z: altar.z + 12 });
+        aiIssue(sim, { type: CMD.TRAIN, faction: fid, sid: altar.id, unit: 'thrall_gang' });
+      }
+    }
+    const busy = new Set();
+    let placedNow = false;
+    for (const g of gangs) if (g.order.sid) busy.add(g.order.sid);
+    for (const g of gangs) {
+      const o = g.order;
+      if (o.t === 'build') continue;
+      if (o.t === 'gather' && o.phase !== 'to_node') continue;
+      // 1) unfinished own sites
+      let site = null, sd = 1e9;
+      for (const st of state.structures) {
+        if (st.faction !== fid || st.built || busy.has(st.id)) continue;
+        const d = dist(g.x, g.z, st.x, st.z);
+        if (d < sd) { sd = d; site = st; }
+      }
+      if (site) { busy.add(site.id); aiIssue(sim, { type: CMD.ASSIST_BUILD, faction: fid, squadIds: [g.id], sid: site.id }); continue; }
+      // 2) next organic plan item (keep biomass for the horde: only with a surplus)
+      if (!placedNow && (f.resources.biomass || 0) > 120 && state.match.phase === 'WAR') {
+        let placed = false;
+        for (const item of world.grailPlan || []) {
+          if (planDone(sim, fid, item)) continue;
+          const params = item.x1 !== undefined ? { x1: item.x1, z1: item.z1, x2: item.x2, z2: item.z2 } : { x: item.x, z: item.z, rot: item.rot || 0 };
+          if (!validatePlacement(sim, fid, item.type, params).ok) continue;
+          aiIssue(sim, { type: CMD.BUILD, faction: fid, squadIds: [g.id], stype: item.type, ...params });
+          placed = true;
+          placedNow = true; // one new site per think (commands resolve next tick)
+          break;
+        }
+        if (placed) continue;
+      }
+      if (o.t === 'gather') continue;
+      // 3) haul a known, uninfected body left behind the horde: an own assault squad nearby covers
+      //    the gang, no visible defender close to it (gangs are expendable labour, not scouts)
+      let body = null, bd = Infinity;
+      const own = state.squads.filter((q) => q.faction === fid && unitDef(q.type).combatUnit);
+      for (const c of state.corpses) {
+        if (c.infected || c.riseAt || !(c.seenBy & bit)) continue;
+        const d = dist(g.cx, g.cz, c.x, c.z);
+        if (d >= bd || d > HAUL_RANGE) continue;
+        let covered = false;
+        for (const q of own) if (dist(q.cx, q.cz, c.x, c.z) < 45) { covered = true; break; }
+        if (!covered) continue;
+        let unsafe = false;
+        for (const en of state.squads) if (areHostile(fid, en.faction) && (en.visibleTo & bit) && dist(en.cx, en.cz, c.x, c.z) < 45) { unsafe = true; break; }
+        if (unsafe) continue;
+        bd = d; body = c;
+      }
+      if (body) aiIssue(sim, { type: CMD.GATHER, faction: fid, squadIds: [g.id], cid: body.id });
+    }
   },
 
   deploy(sim, fid, ai) {

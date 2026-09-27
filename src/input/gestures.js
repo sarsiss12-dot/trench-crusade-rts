@@ -13,6 +13,10 @@
 //   onPinchStart(cx, cy) · onPinch(scale, cx, cy, dcx, dcy) · onPinchEnd()
 //   onHover(x, y) · onWheel(dy, x, y, info)
 //   wantsBox(info) -> bool : should a primary drag become a box selection?
+//   wantsFace(x, y, info) -> bool : may this press become a FACING drag? (mobile: the second
+//     press of a double tap, held and dragged past faceSlop; mouse: a right-button drag)
+//   onFaceStart(x, y, info) · onFace(x, y, info) · onFaceEnd(x, y, info) · onFaceCancel()
+//     A double tap released without dragging stays a normal double tap (no conflict).
 // opts.scale() -> input px per CSS px: distance thresholds are CSS pixels (finger-sized on every
 // screen density and render resolution).
 
@@ -22,6 +26,7 @@ export const GESTURE_DEFAULTS = Object.freeze({
   longPress: 520, // ms
   doubleTap: 330, // ms between taps
   doubleTapSlop: 24, // CSS px
+  faceSlop: 16, // CSS px a held second tap must travel before it becomes a facing drag
 });
 
 export function createGestures(handlers = {}, opts = {}) {
@@ -95,8 +100,12 @@ export function createGestures(handlers = {}, opts = {}) {
   /** Pointer pressed. info: { button, type: 'touch'|'mouse'|'pen', shift, ctrl } */
   function down(id, x, y, t, inf = {}) {
     const i = { button: inf.button || 0, type: inf.type || 'touch', shift: !!inf.shift, ctrl: !!inf.ctrl };
-    pointers.set(id, { x, y, sx: x, sy: y, t0: t, info: i });
+    const p0 = { x, y, sx: x, sy: y, t0: t, info: i, face: false };
+    pointers.set(id, p0);
     if (pointers.size === 1) {
+      // second press of a double tap (same spot, in time): a candidate facing drag
+      const dblPress = i.button === 0 && t - lastTap.t <= cfg.doubleTap && Math.hypot(x - lastTap.x, y - lastTap.y) <= cfg.doubleTapSlop * scale();
+      if (dblPress && H.wantsFace && H.wantsFace(x, y, i)) p0.face = true;
       primary = id;
       mode = 'pending';
       longTried = false;
@@ -104,7 +113,8 @@ export function createGestures(handlers = {}, opts = {}) {
       samples.length = 0;
       samples.push([t, x, y]);
     } else if (pointers.size === 2) {
-      // second finger (also a finger put back after a pinch): any drag/box turns into a pinch
+      // second finger (also a finger put back after a pinch): any drag/box/facing turns into a pinch
+      if (mode === 'face') call('onFaceCancel');
       startPinch();
     } else {
       if (mode === 'pinch') { call('onPinchEnd'); pinch = null; }
@@ -119,8 +129,23 @@ export function createGestures(handlers = {}, opts = {}) {
       return;
     }
     p.x = x; p.y = y;
-    if (mode === 'pending' && id === primary) {
+    if (mode === 'pending' && id === primary && p.face) {
+      if (Math.hypot(x - p.sx, y - p.sy) > cfg.faceSlop * scale()) {
+        mode = 'face';
+        call('onFaceStart', p.sx, p.sy, p.info);
+        call('onFace', x, y, p.info);
+      }
+    } else if (mode === 'face' && id === primary) {
+      call('onFace', x, y, p.info);
+    } else if (mode === 'pending' && id === primary) {
       if (Math.hypot(x - p.sx, y - p.sy) > cfg.tapSlop * scale() && !longFired) {
+        // mouse right-button drag with a selection: facing (desktop equivalent)
+        if (p.info.button === 2 && H.wantsFace && H.wantsFace(p.sx, p.sy, p.info)) {
+          mode = 'face';
+          call('onFaceStart', p.sx, p.sy, p.info);
+          call('onFace', x, y, p.info);
+          return;
+        }
         const wantBox = H.wantsBox ? H.wantsBox(p.info) : false;
         if (wantBox && p.info.button === 0) {
           mode = 'box';
@@ -177,6 +202,10 @@ export function createGestures(handlers = {}, opts = {}) {
       }
     } else if ((mode === 'drag' || mode === 'box') && id === primary) {
       endDrag(false);
+    } else if (mode === 'face' && id === primary) {
+      call('onFaceEnd', p.x, p.y, p.info);
+      lastTap = { t: -1e9, x: -1e9, y: -1e9 };
+      mode = 'ignore';
     }
     pointers.delete(id);
     afterRelease(t);
@@ -198,6 +227,7 @@ export function createGestures(handlers = {}, opts = {}) {
   function cancel(id, t = 0) {
     if (!pointers.has(id)) return;
     if ((mode === 'drag' || mode === 'box') && id === primary) { endDrag(true); mode = 'ignore'; }
+    if (mode === 'face' && id === primary) { call('onFaceCancel'); mode = 'ignore'; }
     pointers.delete(id);
     afterRelease(t);
   }
@@ -206,7 +236,7 @@ export function createGestures(handlers = {}, opts = {}) {
   function tick(t) {
     if (mode !== 'pending' || longTried) return;
     const p = pointers.get(primary);
-    if (!p || p.info.type === 'mouse') return;
+    if (!p || p.info.type === 'mouse' || p.face) return; // a held second tap aims, it is no long press
     if (t - p.t0 >= cfg.longPress) {
       longTried = true;
       longFired = !!(H.onLongPress && H.onLongPress(p.x, p.y, p.info));
@@ -220,6 +250,7 @@ export function createGestures(handlers = {}, opts = {}) {
   /** Forget every pointer (window blur, page hidden): finish drags quietly, drop a half box. */
   function reset() {
     if (mode === 'drag' || mode === 'box') endDrag(true);
+    if (mode === 'face') call('onFaceCancel');
     if (mode === 'pinch') call('onPinchEnd');
     pointers.clear();
     mode = 'none';

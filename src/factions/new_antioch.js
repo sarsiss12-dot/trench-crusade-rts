@@ -2,18 +2,16 @@
 //  - supply / material income from physical structures (depot, bastion workshop)
 //  - food from fields (disrupted when enemies are near) -> manpower growth (population)
 //  - ammunition: squads carry limited ammo; resupply only near supply points (bastion/depot/cache)
-//  - replacements: soldiers walk out from the bastion/depot to depleted squads (no magic refill)
+//  - replacements: requested squads stay at the front; soldiers walk out from a source
+//    (bastion / depot / muster point) to them (factions/reinforcement.js, no magic refill)
+//  - support buildings: aid station (heal / treat infection), workshop (repair aura), muster levy
 import { STRUCTURES } from '../data/structures.js';
 import { unitDef } from '../data/units.js';
 import { areHostile } from '../data/factions.js';
 import { EV } from '../core/events.js';
 import { dist } from '../core/dmath.js';
-import { createSoldier } from '../sim/state.js';
-import { exitPoint } from '../sim/production.js';
-import { distanceToStructure, approachPoint } from '../units/orders.js';
-import { isPointPassable } from '../world/nav.js';
-
-const P = [0, 0];
+import { distanceToStructure } from '../units/orders.js';
+import { updateReinforcements } from './reinforcement.js';
 
 function fieldEfficiency(sim, st) {
   for (const sq of sim.state.squads) {
@@ -70,30 +68,47 @@ function resupply(sim, fid) {
   }
 }
 
-function reinforce(sim, fid) {
-  const { state, rt } = sim;
+/** Muster point levy: supply is turned into fresh recruits (manpower) at a fixed rate. */
+function levy(sim, fid) {
+  const { state } = sim;
   const f = state.factions[fid];
-  for (const sq of state.squads) {
-    if (sq.faction !== fid) continue;
-    const def = unitDef(sq.type);
-    if (sq.members.length >= def.squadSize) continue;
-    if (sq.members.some((m) => m.state === 'joining')) continue;
-    const idleNearBase = (sq.order.t === 'idle' || sq.order.t === 'hold_trench') && state.tick - sq.lastHitTick > 200;
-    if (sq.order.t !== 'reinforce' && !idleNearBase) continue;
-    const pt = supplyPointFor(sim, fid, sq.x, sq.z, 'reinforceRadius');
-    if (!pt) continue;
-    const mp = 1;
-    const sup = 6;
-    if (f.resources.manpower < mp || f.resources.supply < sup) continue;
-    f.resources.manpower -= mp;
-    f.resources.supply -= sup;
-    // replacements leave the building on the side facing their squad (not through its back wall)
-    approachPoint(pt, sq.x, sq.z, P, 1.4);
-    if (!isPointPassable(rt.nav, P[0], P[1])) exitPoint(pt, P);
-    const m = createSoldier(state, def, sq.members.length, P[0], P[1], sq.rot, 'joining');
-    sq.members.push(m);
-    rt.soldierIndex.set(m.id, sq);
-    sim.events.push({ type: EV.SQUAD_SPAWNED, id: sq.id, faction: fid, unit: sq.type, x: P[0], z: P[1], reinforcement: m.id });
+  for (const st of state.structures) {
+    if (st.faction !== fid || !st.built) continue;
+    const lv = STRUCTURES[st.type].levy;
+    if (!lv || (state.tick + st.id) % lv.everyTicks !== 0) continue;
+    if (f.resources.supply >= lv.supply) { f.resources.supply -= lv.supply; f.resources.manpower += 1; }
+  }
+}
+
+/**
+ * Aid station: wounded soldiers nearby slowly recover; one infection stack is treated every
+ * cureEveryTicks. Workshop: damaged friendly structures nearby are patched up. Runs every 10 ticks.
+ */
+function support(sim, fid) {
+  const { state } = sim;
+  for (const st of state.structures) {
+    if (st.faction !== fid || !st.built) continue;
+    const d = STRUCTURES[st.type];
+    if (d.heal) {
+      const r = d.heal.radius, cure = (state.tick + st.id) % d.heal.cureEveryTicks < 10;
+      for (const sq of state.squads) {
+        if (sq.faction !== fid || dist(sq.cx, sq.cz, st.x, st.z) > r + 12) continue;
+        const hpMax = unitDef(sq.type).hp;
+        for (const m of sq.members) {
+          if (m.state !== 'alive' || dist(m.x, m.z, st.x, st.z) > r) continue;
+          if (m.hp < hpMax) m.hp = Math.min(hpMax, m.hp + d.heal.hpPerSec * 0.5);
+          if (cure && m.infection > 0) m.infection--;
+        }
+      }
+    }
+    if (d.repairAura) {
+      for (const o of state.structures) {
+        if (o.faction !== fid || !o.built || o.hp >= o.maxHp || o === st) continue;
+        if (state.tick - o.lastDamageTick < 100) continue; // not while under fire
+        if (distanceToStructure(o, st.x, st.z) > d.repairAura.radius) continue;
+        o.hp = Math.min(o.maxHp, o.hp + d.repairAura.hpPerSec * 0.5);
+      }
+    }
   }
 }
 
@@ -103,6 +118,8 @@ export const newAntiochLogic = {
     const t = sim.state.tick;
     if (t % 20 === 0) income(sim, fid);
     if (t % 10 === 5) resupply(sim, fid);
-    if (t % 30 === 7) reinforce(sim, fid);
+    updateReinforcements(sim, fid);
+    if (t % 10 === 3) support(sim, fid);
+    levy(sim, fid);
   },
 };

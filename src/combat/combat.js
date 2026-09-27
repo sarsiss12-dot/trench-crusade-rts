@@ -1,5 +1,6 @@
 // Combat: squad-level target acquisition (throttled, fog-aware), soldier-level staggered fire,
 // melee, damage with cover/armor, death -> dying -> corpse (bounded), structure fire/damage.
+import { removeCorpse } from '../sim/corpses.js';
 import { unitDef } from '../data/units.js';
 import { WEAPONS } from '../data/weapons.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -23,8 +24,15 @@ const PROT = { dmg: 0, acc: 0, cover: 0 };
 const STRUCT_EFFECTIVE = 0.3; // weapons below this structure multiplier do not auto-engage structures
 const ticks = (sec) => Math.max(1, Math.round(sec * TICK_RATE));
 
+const SUPPRESS_ACC = 0.6;
+
 function fbit(faction) {
   return FACTIONS[faction] ? 1 << FACTIONS[faction].index : 0;
+}
+
+/** A soldier that can be shot / struck: fighting members and replacements walking up to them. */
+export function targetable(e) {
+  return e.state === 'alive' || e.state === 'joining';
 }
 
 function hasAlive(sq) {
@@ -116,7 +124,7 @@ function assignMeleeTargets(sq, esq) {
     if (m.state !== 'alive') continue;
     let best = 0, bestD = 1e18;
     for (const e of esq.members) {
-      if (e.state !== 'alive') continue;
+      if (!targetable(e)) continue;
       const d = dist2(m.x, m.z, e.x, e.z);
       if (d < bestD) { bestD = d; best = e.id; }
     }
@@ -130,7 +138,7 @@ function assignMeleeTargets(sq, esq) {
  * src: who dealt it — a squad id (> 0), minus a structure id (< 0), or 0 (plague, barrage). Carried on
  * HIT / DEATH so presentation can tell whether the direction may be shown (hidden shooters stay hidden).
  */
-export function damageSoldier(sim, vsq, v, amount, attackerFaction, weapon, dx, dz, src = 0) {
+export function damageSoldier(sim, vsq, v, amount, attackerFaction, weapon, dx, dz, src = 0, force = 0) {
   if (v.state !== 'alive' && v.state !== 'joining') return;
   const vdef = unitDef(vsq.type);
   let d = amount * (1 - vdef.armor);
@@ -140,11 +148,17 @@ export function damageSoldier(sim, vsq, v, amount, attackerFaction, weapon, dx, 
   if (weapon && weapon.infect && vsq.faction !== 'black_grail') {
     v.infection = Math.min(INFECTION_MAX, v.infection + weapon.infect);
   }
-  if (v.hp <= 0) killSoldier(sim, vsq, v, attackerFaction, weapon ? weapon.kind : 'other', dx, dz, src);
-  else sim.events.push({ type: EV.HIT, id: v.id, sq: vsq.id, faction: vsq.faction, x: v.x, z: v.z, dx, dz, dmg: d, src });
+  const cause = weapon ? weapon.kind : 'other';
+  // overkill relative to the victim's max hp: presentation picks collapse vs. trauma from it
+  if (v.hp <= 0) killSoldier(sim, vsq, v, attackerFaction, cause, dx, dz, src, Math.round((-v.hp / vdef.hp) * 100) / 100, force);
+  else sim.events.push({ type: EV.HIT, id: v.id, sq: vsq.id, faction: vsq.faction, x: v.x, z: v.z, dx, dz, dmg: d, src, cause });
 }
 
-export function killSoldier(sim, vsq, v, attackerFaction, cause, dx, dz, src = 0) {
+/**
+ * ov: overkill (fraction of max hp beyond zero), force: blast closeness (0..1). Both are sim facts
+ * carried on DEATH for presentation only (gore never feeds back into the simulation).
+ */
+export function killSoldier(sim, vsq, v, attackerFaction, cause, dx, dz, src = 0, ov = 0, force = 0) {
   const { state } = sim;
   v.hp = 0;
   v.state = 'dying';
@@ -154,7 +168,10 @@ export function killSoldier(sim, vsq, v, attackerFaction, cause, dx, dz, src = 0
   releaseSoldierPost(sim, v);
   state.factions[vsq.faction].stats.losses++;
   if (attackerFaction && state.factions[attackerFaction]) state.factions[attackerFaction].stats.kills++;
-  sim.events.push({ type: EV.DEATH, id: v.id, sq: vsq.id, faction: vsq.faction, unit: vsq.type, x: v.x, z: v.z, dx: dx || 0, dz: dz || 0, cause, src });
+  sim.events.push({
+    type: EV.DEATH, id: v.id, sq: vsq.id, faction: vsq.faction, unit: vsq.type, x: v.x, z: v.z,
+    dx: dx || 0, dz: dz || 0, cause, src, ov, force, inf: v.infection,
+  });
 }
 
 function impactFor(sim, vsq, hit, x, z) {
@@ -176,7 +193,7 @@ function pickTargetSoldier(sim, esq, m, range, j) {
   const start = (m.id + m.shots) % n;
   for (let k = 0; k < n; k++) {
     const e = esq.members[(start + k) % n];
-    if (e.state === 'alive' && dist2(m.x, m.z, e.x, e.z) <= r2 && soldierDetectedBy(sim, e, j)) return e;
+    if (targetable(e) && dist2(m.x, m.z, e.x, e.z) <= r2 && soldierDetectedBy(sim, e, j)) return e;
   }
   return null;
 }
@@ -191,7 +208,7 @@ function nearestEnemyAdjacent(sim, m, faction, r) {
     for (let cx = x0; cx <= x1; cx++) {
       for (let j = g.head[cz * g.cols + cx]; j !== -1; j = g.next[j]) {
         const e = g.refs[j];
-        if (e.state !== 'alive') continue;
+        if (!targetable(e)) continue;
         const esq = g.owners[j];
         if (!areHostile(faction, esq.faction)) continue;
         const d = dist2(m.x, m.z, e.x, e.z);
@@ -221,7 +238,7 @@ function meleeStrike(sim, sq, m, weapon, esq, e) {
     damageSoldier(sim, esq, e, dmg, sq.faction, weapon, dx / d, dz / d, sq.id);
     if (weapon.cleave && weapon.cleave > 1) {
       for (const o of esq.members) {
-        if (o === e || o.state !== 'alive') continue;
+        if (o === e || !targetable(o)) continue;
         if (dist2(m.x, m.z, o.x, o.z) <= (weapon.range + 0.6) * (weapon.range + 0.6)) {
           damageSoldier(sim, esq, o, dmg * 0.6, sq.faction, weapon, dx / d, dz / d, sq.id);
           break;
@@ -239,6 +256,7 @@ function rangedShot(sim, sq, m, weapon, esq, e) {
   acc *= 1 - PROT.acc;
   if (e.vx * e.vx + e.vz * e.vz > 0.0004) acc *= 0.9;
   if (sq.debuffUntil > state.tick) acc *= 0.65;
+  if (sq.suppressUntil > state.tick) acc *= SUPPRESS_ACC; // under mortar fire
   const hit = rngFloat(state.rng.main) < acc;
   m.shots++;
   m.targetId = e.id;
@@ -377,8 +395,18 @@ export function destroyStructure(sim, st, attackerFaction) {
   structuresChanged(sim);
   sim.events.push({
     type: EV.STRUCTURE_DESTROYED, id: st.id, stype: st.type, faction: st.faction, x: st.x, z: st.z,
-    x1: st.x1, z1: st.z1, x2: st.x2, z2: st.z2, rot: st.rot,
+    x1: st.x1, z1: st.z1, x2: st.x2, z2: st.z2, rot: st.rot, organic: STRUCTURES[st.type].organic ? 1 : 0,
   });
+  // a stocked ammunition dump goes up when destroyed (only once built): a queued detonation,
+  // resolved next tick by sim/abilities.js (plain data, deterministic, saved like any effect)
+  const ex = STRUCTURES[st.type].explodes;
+  if (ex && st.built) {
+    state.effects.push({
+      id: state.nextId++, kind: 'detonation', ability: '', faction: attackerFaction || '', owner: st.faction,
+      x: st.x, z: st.z, radius: ex.radius, start: state.tick, next: state.tick + 1,
+      blast: { blastRadius: ex.radius, damage: ex.damage, structureDamage: ex.structureDamage, size: 'heavy', craters: true, indiscriminate: true },
+    });
+  }
   if (st.objective) {
     const attacker = factionByRole(state, 'attacker') || attackerFaction;
     endMatch(sim, attacker, 'objective_destroyed');
@@ -414,7 +442,7 @@ function structureFire(sim, st) {
   const fj = FACTIONS[st.faction].index;
   for (let k = 0; k < n; k++) {
     const c = tsq.members[(st.shots + k) % n];
-    if (c.state === 'alive' && dist2(gx, gz, c.x, c.z) <= w.range * w.range && soldierDetectedBy(sim, c, fj)) { e = c; break; }
+    if (targetable(c) && dist2(gx, gz, c.x, c.z) <= w.range * w.range && soldierDetectedBy(sim, c, fj)) { e = c; break; }
   }
   if (!e) { st.burst = 0; return; }
   st.shots++;
@@ -490,13 +518,7 @@ export function addCorpse(sim, sq, v) {
   return c;
 }
 
-export function removeCorpse(sim, c, reason) {
-  const { state, rt } = sim;
-  const i = state.corpses.indexOf(c);
-  if (i >= 0) state.corpses.splice(i, 1);
-  rt.corpseById.delete(c.id);
-  sim.events.push({ type: EV.CORPSE_REMOVED, id: c.id, reason, x: c.x, z: c.z });
-}
+export { removeCorpse };
 
 export function updateDeaths(sim) {
   const { state, rt } = sim;

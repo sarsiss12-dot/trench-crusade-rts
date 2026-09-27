@@ -1,6 +1,7 @@
 // Central localization layer. Every user-facing string goes through t(key, params).
 // Turkish is the primary language; English is complete. Missing keys fall back to English, then
 // to the key itself (visible in development, never a crash).
+import { TR_P2, EN_P2 } from './i18n_p2.js';
 
 const TR = {
   'app.title': 'Yeni Antakya Kuşatması',
@@ -355,6 +356,10 @@ const EN = {
   'help.mouse': 'Left click: select / order · Right click: order · Left drag: camera (Shift+drag: box select) · Wheel or +/−: zoom · Arrows: pan · Space: base · Q: All · E: engineers · A: attack-move · S: stop · F: formation · R: rotate / reinforce · B: build · Ctrl+1–9: assign group, 1–9: recall group · P: pause · [ ]: speed · Esc: cancel · F1: debug',
   'debug.title': 'Debug', 'debug.paths': 'Paths', 'gallery.title': 'Model Gallery', 'stress.title': 'Stress Test', 'lore.title': 'Setting Notes',
 };
+
+// Phase 2 additions (and updated help lines) live in their own table
+Object.assign(TR, TR_P2);
+Object.assign(EN, EN_P2);
 
 export const LANGUAGES = { tr: TR, en: EN };
 let current = 'tr';

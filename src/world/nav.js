@@ -11,7 +11,10 @@ const SQRT2 = 1.4142135623730951;
 const MIN_COST = 1 / 1.15;
 const DX = [1, -1, 0, 0, 1, 1, -1, -1];
 const DZ = [0, 0, 1, -1, 1, -1, 1, -1];
-const LINEAR_PRIORITY = { trench: 1, sandbags: 2, wire: 3 };
+// which line wins a shared cell (the more obstructive one); unknown types rank as walls
+const LINEAR_PRIORITY = {
+  trench: 1, low_sandbags: 2, sandbags: 3, bone_barricade: 3, breastwork: 4, timber_wall: 5, wire: 6, fortified_wall: 7,
+};
 export const PATH_MAX_EXPANSIONS = 70000;
 const CACHE_SIZE = 128;
 
@@ -84,9 +87,15 @@ export function rebuildNavDynamic(nav, structures) {
     const def = STRUCTURES[s.type];
     if (def.kind === 'linear') {
       if (!s.built && s.progress < 0.3) continue;
+      if (def.blocks) {
+        // solid wall sections (fortified wall) block movement like a building; the gaps between
+        // segments are the passages (a later gate system can open / close them)
+        linearCellsVisit(nav.terrain, s, def.width * 0.5, (idx) => { nav.blocked[idx] = 1; });
+        continue;
+      }
       linearCellsVisit(nav.terrain, s, def.width * 0.5, (idx) => {
         const prev = nav.linear[idx];
-        if (!prev || LINEAR_PRIORITY[s.type] > LINEAR_PRIORITY[prev.type]) nav.linear[idx] = s;
+        if (!prev || (LINEAR_PRIORITY[s.type] || 4) > (LINEAR_PRIORITY[prev.type] || 4)) nav.linear[idx] = s;
       });
     } else if (def.kind === 'building' && def.blocks) {
       footprintCellsVisit(nav, s, (idx) => { nav.blocked[idx] = 1; });
@@ -113,7 +122,7 @@ export function isPointPassable(nav, x, z) {
 
 function linearCostMult(s, factionId) {
   const def = STRUCTURES[s.type];
-  if (s.faction === factionId) return s.type === 'wire' ? 1.5 : s.type === 'sandbags' ? 1.4 : 1;
+  if (s.faction === factionId) return s.type === 'wire' ? 1.5 : s.type === 'trench' ? 1 : def.kind === 'linear' && def.cover ? 1.4 : 1;
   return def.pathCostMult || 1;
 }
 

@@ -13,6 +13,9 @@ import { inZone } from '../world/mapgen.js';
 import { cellAt } from '../world/nav.js';
 import { footprintCellsVisit } from '../world/nav.js';
 import { snapToTrenchEndpoint, chooseFront } from './trench.js';
+import { WALL_TYPES } from '../data/structures.js';
+import { FACTIONS } from '../data/factions.js';
+import { infectionAt } from '../factions/black_grail.js';
 
 function fail(reason) {
   return { ok: false, reason };
@@ -73,13 +76,28 @@ function endToEnd(a, b, out) {
  * Validate a placement. params: linear {x1,z1,x2,z2} | building {x,z,rot}.
  * Returns { ok, reason, cost, params } — params are normalized (snapped, front chosen).
  */
+/**
+ * Where a faction may build: its deployment zone; the Black Grail also on ground its corruption has
+ * claimed (infection >= FACTIONS[f].buildOnInfection) — organic structures grow where it festers.
+ */
+export function canBuildAt(sim, faction, x, z) {
+  if (inZone(sim.world.zones[faction], x, z)) return true;
+  const th = FACTIONS[faction].buildOnInfection;
+  return !!th && infectionAt(sim.state, x, z) >= th;
+}
+
+/** Linear types that may not cross each other (the wall family counts as one kind). */
+function lineGroup(type) {
+  return WALL_TYPES.indexOf(type) >= 0 ? 'wall' : type;
+}
+
 export function validatePlacement(sim, faction, type, params) {
   const { state, world, rt } = sim;
   const def = STRUCTURES[type];
   if (!def || !def.buildable) return fail('build.invalid');
   if (def.builder !== faction) return fail('build.not_faction');
   if (state.match.phase === 'ENDED') return fail('build.match_over');
-  const zone = world.zones[faction];
+  if (def.requires && !state.structures.some((s) => s.faction === faction && s.type === def.requires && s.built)) return fail('build.requires');
   const t = world.terrain;
   const f = state.factions[faction];
   if (def.kind === 'linear') {
@@ -96,7 +114,7 @@ export function validatePlacement(sim, faction, type, params) {
     const steps = Math.max(2, Math.ceil(len));
     for (let k = 0; k <= steps; k++) {
       const x = lerp(x1, x2, k / steps), z = lerp(z1, z2, k / steps);
-      if (!inZone(zone, x, z)) return fail('build.out_of_zone');
+      if (!canBuildAt(sim, faction, x, z)) return fail('build.out_of_zone');
       const ci = cellAt(rt.nav, x, z);
       if (ci < 0) return fail('build.out_of_zone');
       const ty = t.types[ci];
@@ -105,7 +123,7 @@ export function validatePlacement(sim, faction, type, params) {
     }
     const cand = { x1, z1, x2, z2 };
     for (const s of state.structures) {
-      if (s.type !== type || STRUCTURES[s.type].kind !== 'linear') continue;
+      if (STRUCTURES[s.type].kind !== 'linear' || lineGroup(s.type) !== lineGroup(type)) continue;
       const d = segSegDistance(cand, s);
       if (d >= def.width * 0.7) continue;
       // lines of the same kind may be chained end to end (trench networks, wire belts, sandbag
@@ -136,7 +154,7 @@ export function validatePlacement(sim, faction, type, params) {
   // building
   const { x, z } = params;
   const rot = params.rot || 0;
-  if (!inZone(zone, x, z)) return fail('build.out_of_zone');
+  if (!canBuildAt(sim, faction, x, z)) return fail('build.out_of_zone');
   let bad = null;
   const probe = { type, x, z, rot };
   footprintCellsVisit(rt.nav, probe, (ci) => {

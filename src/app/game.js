@@ -1,6 +1,7 @@
 // Match wiring: session (simulation) + renderer + camera + selection + input + HUD + minimap +
 // audio + debug overlay, and the frame loop. UI / audio / debug factories are injected by the
 // entry point so this module stays independent of concrete DOM widgets.
+import { factionHome } from '../sim/home.js';
 import { createSession, SPEEDS } from './session.js';
 import { createActions } from './actions.js';
 import { createRenderer } from '../render/renderer.js';
@@ -10,16 +11,10 @@ import { createInputController } from '../input/controller.js';
 import { EV } from '../core/events.js';
 
 function homeView(sim, viewer) {
-  const role = sim.state.factions[viewer].role;
-  const a = sim.world.anchors;
-  if (role === 'defender') {
-    const h = (a.home && a.home[0]) || [sim.world.width / 2, sim.world.height - 90];
-    return { x: h[0], z: h[1] - 8, yaw: 0, dist: 80 };
-  }
-  const m = a.bg_mass || [[sim.world.width / 2, 150]];
-  let x = 0, z = 0;
-  for (const p of m) { x += p[0]; z += p[1]; }
-  return { x: x / m.length, z: z / m.length - 6, yaw: Math.PI, dist: 90 };
+  const h = factionHome(sim, viewer);
+  // New Antioch looks north toward the front, the Black Grail looks south (yaw PI)
+  if (sim.state.factions[viewer].role === 'defender') return { x: h.x, z: h.z - 8, yaw: 0, dist: 80 };
+  return { x: h.x, z: h.z + 6, yaw: Math.PI, dist: 90 };
 }
 
 /**

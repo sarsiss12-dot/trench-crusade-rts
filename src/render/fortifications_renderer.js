@@ -1,10 +1,14 @@
-// Dynamic fortification meshes (trenches, sandbags, wire) rebuilt from structure data when the
+// Dynamic fortification meshes (trenches, sandbags, wire, walls, bone barricades) rebuilt from structure data when the
 // data changes (placement, dig progress steps, damage, destruction) — never per frame.
 import { createBuffer, createVAO, drawElements } from './gl.js';
 import { MeshBuilder, VERTEX_STRIDE } from './models/meshbuilder.js';
 import { buildTrench, buildSandbags, buildWire } from './models/fortifications.js';
+import { WALL_BUILDERS } from './models/walls.js';
 import { baseHeightAt } from '../world/terrain.js';
 import { isStructureKnownTo } from '../sim/perception.js';
+
+// every linear structure type with a segment-built mesh
+const FORT_BUILDERS = { trench: buildTrench, sandbags: buildSandbags, wire: buildWire, ...WALL_BUILDERS };
 
 function layout(gl, vbo, instBuf, ibo) {
   return createVAO(gl, [
@@ -30,9 +34,8 @@ export function buildFortMesh(structures, world, viewer, filter) {
   for (const s of structures) {
     if (filter && !filter(s)) continue;
     if (viewer && !isStructureKnownTo(s, viewer) && s.faction !== 'neutral') continue;
-    if (s.type === 'trench') buildTrench(mb, s, ground);
-    else if (s.type === 'sandbags') buildSandbags(mb, s, ground);
-    else if (s.type === 'wire') buildWire(mb, s, ground);
+    const build = FORT_BUILDERS[s.type];
+    if (build) build(mb, s, ground);
   }
   return mb.finish();
 }
@@ -45,7 +48,7 @@ export function createFortificationRenderer(gl, program, world, sim) {
   function signature(list) {
     let s = '';
     for (const x of list) {
-      if (x.type !== 'trench' && x.type !== 'sandbags' && x.type !== 'wire') continue;
+      if (!FORT_BUILDERS[x.type]) continue;
       s += x.id + ':' + Math.floor(x.progress * 10) + ':' + Math.floor((x.hp / x.maxHp) * 5) + ',';
     }
     return s;

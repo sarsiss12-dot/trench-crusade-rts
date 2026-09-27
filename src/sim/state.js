@@ -52,6 +52,7 @@ export function createInitialState({ scenario, settings, seed, world }) {
     corpses: [],
     nodes: [],
     effects: [],
+    craters: [], // persistent shell craters (sim/abilities.js addCrater, bounded)
     fog: createFogState(world.width, world.height, FACTION_ORDER.length),
     infection: {
       cs: INFECTION_CELL,
@@ -119,6 +120,7 @@ export function createSquad(state, factionId, unitType, x, z, rot, opts = {}) {
     aiGroup: 0,
     spawnTick: state.tick,
     lag: 0, cx: x, cz: z, working: 0, melee: false,
+    reinf: null, suppressUntil: 0,
   };
   const offs = formationOffsets(sq.formation, n, def.spacing);
   const tmp = [0, 0];

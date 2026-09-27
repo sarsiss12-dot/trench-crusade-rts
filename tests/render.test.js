@@ -167,3 +167,72 @@ test('terrain fields: a local rebuild after digging equals a full rebuild', () =
   }
   assert.less((region.x1 - region.x0 + 1) * (region.z1 - region.z0 + 1), t.vcols * t.vrows / 10, 'a small patch of the map');
 });
+
+// ------------------------------------------------------------------ Phase 2 gore / craters (pure)
+import { planDeath, createLimbPool, createPoolSet, stepLimb, GORE_QUALITY } from '../src/render/gore.js';
+import { createCraterMemory, craterOffset, CRATER_MEMORY_MAX } from '../src/render/craters.js';
+
+test('gore: trauma follows cause / overkill / blast force; disease kills stay whole; deterministic', () => {
+  const count = (fields, n = 400) => {
+    const out = { collapse: 0, limb: 0, head: 0, explosive: 0, catastrophic: 0 };
+    for (let i = 1; i <= n; i++) out[planDeath({ id: i * 7 + 3, ...fields }).kind]++;
+    return out;
+  };
+  const rifle = count({ cause: 'rifle', ov: 0.2 });
+  assert.greater(rifle.collapse, 380, 'rifle: mostly a normal collapse');
+  const mg = count({ cause: 'mg', ov: 0.3 });
+  assert.greater(mg.limb, 5); assert.less(mg.limb, 80, 'heavy MG: low limb trauma');
+  const close = count({ cause: 'explosive', force: 0.9, ov: 0.6 });
+  assert.greater(close.explosive + close.catastrophic, 200, 'close to the shell: high chance');
+  const far = count({ cause: 'explosive', force: 0.1, ov: 0.1 });
+  assert.less(far.explosive + far.catastrophic, 60);
+  const huge = count({ cause: 'melee', ov: 3 });
+  assert.greater(huge.catastrophic, 250, 'huge overkill: catastrophic');
+  const plague = count({ cause: 'plague', ov: 5 });
+  assert.equal(plague.collapse, 400, 'disease never dismembers');
+  assert.deepEqual(planDeath({ id: 42, cause: 'explosive', force: 0.8, ov: 1 }), planDeath({ id: 42, cause: 'explosive', force: 0.8, ov: 1 }));
+  // LOW quality lowers the chance, never the gameplay
+  const low = { collapse: 0 };
+  for (let i = 1; i <= 400; i++) if (planDeath({ id: i * 7 + 3, cause: 'explosive', force: 0.9, ov: 0.6 }, 'low').kind === 'collapse') low.collapse++;
+  assert.greater(low.collapse, close.collapse);
+});
+
+test('gore: detached limb pool and blood pools are bounded per quality and recycle', () => {
+  for (const q of ['low', 'balanced', 'high']) {
+    const limbs = createLimbPool(q);
+    for (let i = 0; i < 500; i++) { const l = limbs.acquire(); l.y = 2; l.life = 30; l.age = 0; l.rest = false; }
+    assert.equal(limbs.items.length, GORE_QUALITY[q].limbs);
+    assert.ok(limbs.activeCount() <= GORE_QUALITY[q].limbs);
+    const pools = createPoolSet(q);
+    for (let i = 0; i < 2000; i++) pools.add(i, i, 1.5, i & 1);
+    assert.equal(pools.pool.items.length, GORE_QUALITY[q].pools);
+    assert.ok(pools.pool.activeCount() <= GORE_QUALITY[q].pools);
+    for (let k = 0; k < 400; k++) pools.step(1);
+    assert.equal(pools.pool.activeCount(), 0, 'old pools fade out');
+  }
+  assert.less(GORE_QUALITY.low.limbs, GORE_QUALITY.high.limbs);
+  // ballistic limb: falls, lands on the ground approximation, rests, then frees its slot
+  const limbs = createLimbPool('balanced');
+  const l = limbs.acquire();
+  Object.assign(l, { x: 0, y: 1.5, z: 0, vx: 3, vy: 4, vz: 0, age: 0, life: 5, rest: false, spin: 5, ang: 0 });
+  let t = 0;
+  while (l.active && t < 10) { stepLimb(l, 1 / 30, () => 0.2); t += 1 / 30; assert.ok(l.y >= 0.2 - 1e-6, 'never below ground'); }
+  assert.equal(l.active, false, 'slot freed after its life');
+});
+
+test('craters (presentation): bowl + rim profile, memory of seen craters is bounded', () => {
+  const c = { id: 5, x: 10, z: 10, r: 3, d: 1 };
+  assert.less(craterOffset(c, 10, 10), -0.3, 'deep centre');
+  assert.greater(craterOffset(c, 13.1, 10) + craterOffset(c, 10, 13.1), 0, 'raised rim');
+  assert.equal(craterOffset(c, 30, 30), 0);
+  const craters = [];
+  for (let i = 0; i < 300; i++) craters.push({ id: i + 1, x: i * 3, z: 50, r: 2, d: 1, seenBy: 1 });
+  const mem = createCraterMemory();
+  mem.update({ state: { craters } }, 'new_antioch');
+  assert.ok(mem.size() <= CRATER_MEMORY_MAX);
+  // unseen craters are not carved for the viewer
+  const mem2 = createCraterMemory();
+  mem2.update({ state: { craters: [{ id: 1, x: 5, z: 5, r: 3, d: 1, seenBy: 2 }] } }, 'new_antioch');
+  assert.equal(mem2.size(), 0);
+  assert.equal(mem2.offsetAt(5, 5), 0);
+});

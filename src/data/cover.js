@@ -10,8 +10,13 @@ export const COVER_TYPES = Object.freeze({
   sandbag: { id: 'sandbag', key: 'cover.sandbag', level: 2, dmgReduction: 0.4, accPenalty: 0.3, suppression: 0.25, directional: true },
   trench: { id: 'trench', key: 'cover.trench', level: 3, dmgReduction: 0.55, accPenalty: 0.45, suppression: 0.4 },
   fortified: { id: 'fortified', key: 'cover.fortified', level: 3, dmgReduction: 0.65, accPenalty: 0.5, suppression: 0.5 },
+  // Phase 2 fortifications (appended: ids stored per soldier stay stable)
+  low_wall: { id: 'low_wall', key: 'cover.low_wall', level: 1, dmgReduction: 0.2, accPenalty: 0.15, suppression: 0.1, directional: true },
+  breastwork: { id: 'breastwork', key: 'cover.breastwork', level: 2, dmgReduction: 0.38, accPenalty: 0.3, suppression: 0.25, directional: true },
+  timber: { id: 'timber', key: 'cover.timber', level: 3, dmgReduction: 0.5, accPenalty: 0.4, suppression: 0.35, directional: true },
+  bone: { id: 'bone', key: 'cover.bone', level: 2, dmgReduction: 0.35, accPenalty: 0.3, suppression: 0.2, directional: true },
 });
 
 // Stable numeric ids (stored per soldier for HUD / serialization).
-export const COVER_IDS = ['none', 'forest', 'crater', 'ruins', 'sandbag', 'trench', 'fortified'];
+export const COVER_IDS = ['none', 'forest', 'crater', 'ruins', 'sandbag', 'trench', 'fortified', 'low_wall', 'breastwork', 'timber', 'bone'];
 export const COVER_INDEX = Object.freeze(Object.fromEntries(COVER_IDS.map((id, i) => [id, i])));

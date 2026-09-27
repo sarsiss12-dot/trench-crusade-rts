@@ -11,6 +11,7 @@ import { createFortificationRenderer } from './fortifications_renderer.js';
 import { createFx } from './fx.js';
 import { createOverlays } from './overlays.js';
 import { createStructureMemory } from './fog_memory.js';
+import { createCraterMemory } from './craters.js';
 import { createCanvasSizer } from './viewport.js';
 import { updateCamera, viewFootprint } from './camera.js';
 import { mat4, aabbInFrustum, mat4LookAt, mat4Mul, mat4Invert, mat4Ortho, frustumPlanes, transformPoint4 } from './math3d.js';
@@ -127,7 +128,11 @@ export function createRenderer(canvas, opts = {}) {
     r.viewGrid = createStructGrid(world.width, world.height, 8);
     structGridRebuild(r.viewGrid, known);
     r.viewSig = knownSignature(known);
-    r.terrain = createTerrainRenderer(gl, world, known, quality);
+    // shell craters as the viewer last saw them (carved ground + presentation height)
+    r.craters = createCraterMemory(memory && memory.craters);
+    r.craters.update(sim, viewer, r.fogEnabled);
+    r.craterSig = r.craters.signature();
+    r.terrain = createTerrainRenderer(gl, world, known, quality, r.craters.list());
     r.heightTex = createHeightTexture(gl, world);
     r.water = createWaterMesh(gl, world);
     r.skirt = createSkirtMesh(gl, world);
@@ -154,7 +159,7 @@ export function createRenderer(canvas, opts = {}) {
   };
 
   /** The viewer's knowledge for a save / a renderer rebuild (presentation only; not GameState). */
-  r.exportMemory = () => ({ ...r.memory.exportState(), corpses: r.units ? r.units.exportCorpses() : [] });
+  r.exportMemory = () => ({ ...r.memory.exportState(), corpses: r.units ? r.units.exportCorpses() : [], craters: r.craters ? r.craters.exportState() : [] });
 
   function knownSignature(list) {
     let h = list.length;
@@ -238,7 +243,7 @@ export function createRenderer(canvas, opts = {}) {
   r.shadowsOn = true;
 
   // presentation ground (camera, soldiers, marks, VFX): carved only by trenches the viewer knows
-  r.groundAt = (x, z) => groundHeightAt(r.world, r.viewGrid, x, z);
+  r.groundAt = (x, z) => groundHeightAt(r.world, r.viewGrid, x, z) + (r.craters ? r.craters.offsetAt(x, z) : 0);
 
   /** Presentation event (already fog-filtered): show flags from perception.eventVisibility. */
   r.onEvent = (ev, show) => {
@@ -357,11 +362,15 @@ export function createRenderer(canvas, opts = {}) {
     r.memory.update(sim, r.viewer);
     const known = r.memory.list(sim, r.viewer);
     const vsig = knownSignature(known);
-    if (vsig !== r.viewSig) {
+    r.craters.update(sim, r.viewer, r.fogEnabled);
+    const csig = r.craters.signature();
+    if (vsig !== r.viewSig || csig !== r.craterSig) {
+      const craterChange = csig !== r.craterSig;
       r.viewSig = vsig;
+      r.craterSig = csig;
       structGridRebuild(r.viewGrid, known);
-      // terrain carving follows KNOWN trenches; only the changed patch is rebuilt
-      r.terrain.update(known);
+      // terrain carving follows KNOWN trenches and craters; only the changed patch is rebuilt
+      r.terrain.update(known, craterChange ? r.craters.list() : null);
     }
     syncFow(false, dt);
     infTimer -= realDt;

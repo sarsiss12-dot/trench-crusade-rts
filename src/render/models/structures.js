@@ -3,6 +3,7 @@
 import { MeshBuilder, MAT } from './meshbuilder.js';
 import { C, mix } from './palette.js';
 import { hash32 } from '../../core/rng.js';
+import { STRUCTURE_MODELS_P2 } from './structures_p2.js';
 
 function rnd(seed, i) {
   return hash32(seed, i, 313) / 4294967296;
@@ -569,5 +570,7 @@ export const STRUCTURE_MODELS = {
   obs_post: (lod) => buildObsPost(lod),
   supply_cache: (lod) => buildSupplyCache(lod),
   grail_altar: (lod) => buildGrailAltar(lod),
+  // Phase 2: new buildings + the reworked Altar of Beelzebub (overrides the Phase 1 altar)
+  ...STRUCTURE_MODELS_P2,
 };
 

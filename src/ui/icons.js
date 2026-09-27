@@ -10,7 +10,23 @@ export const ICONS = {
   thrall: S(`<path ${st} d="M12 4 a3 3 0 1 1 0 .1 M8 21 l2-7 -3-3 M16 21 l-2-7 3-3 M10 14 h4 M7 11 l-3 2 M17 11 l3 2"/>`),
   guard: S(`<path ${st} d="M12 3 a3 3 0 1 1 0 .1 M7 21 v-9 l5-3 5 3 v9 M9 12 h6 M18 8 l3-2 v6 l-3 1"/>`),
   knight: S(`<path ${st} d="M12 2 l3 4 v4 h-6 v-4 z M6 12 h12 l-2 9 h-8 z M4 8 l3 4 M20 8 l-3 4"/>`),
+  gang: S(`<path ${st} d="M7 5 a2.2 2.2 0 1 1 0 .1 M15 7 a2.2 2.2 0 1 1 0 .1 M4 20 l2-6 3 1 3-3 M12 20 l2-5 3 1 3-2 M6 14 l-2-2 M10 11 h6"/>`),
   // structures
+  low_sandbags: S(`<path ${st} d="M3 18 h18 M4 18 c0-3 7-3 7 0 M13 18 c0-3 7-3 7 0"/>`),
+  breastwork: S(`<path ${st} d="M2 19 h20 M4 19 l3-6 h10 l3 6 M7 13 v-3 M12 13 v-4 M17 13 v-3"/>`),
+  timber_wall: S(`<path ${st} d="M3 19 h18 M5 19 v-9 M19 19 v-9 M3 10 h18 M7 15 c0-2 4-2 4 0 M13 15 c0-2 4-2 4 0"/>`),
+  fortified_wall: S(`<path ${st} d="M3 20 v-12 h3 v2 h3 v-2 h3 v2 h3 v-2 h3 v2 h3 v10 z M3 14 h18 M10 20 v-3 h4 v3"/>`),
+  aid_station: S(`<path ${st} d="M3 19 l9-12 9 12 z"/><path ${st} stroke-width="2.4" d="M12 10 v7 M9 13 h6"/>`),
+  workshop: S(`<path ${st} d="M3 20 v-9 l9-5 9 5 v9 M8 20 v-5 h8 v5 M16 8 v-4 h2 v5"/>`),
+  ammo_dump: S(`<path ${st} d="M4 20 h16 M6 20 v-9 l1.5-4 1.5 4 v9 M11 20 v-9 l1.5-4 1.5 4 v9 M16 20 v-9 l1.5-4 1.5 4 v9"/>`),
+  signal_post: S(`<path ${st} d="M12 21 v-17 M7 6 h10 M8 9 h8 M12 13 l6 3 M18 14 v4"/>`),
+  muster_point: S(`<path ${st} d="M6 21 v-17 M6 4 h10 v7 h-10 M3 21 h18 M10 6 v3 M8.5 7.5 h3"/>`),
+  corpse_mound: S(`<path ${st} d="M3 19 c2-8 16-8 18 0 z M7 15 a1.5 1.5 0 1 1 0 .1 M12 12 h5 M10 16 h6"/>`),
+  plague_pit: S(`<ellipse cx="12" cy="16" rx="8" ry="3" ${st}/><path ${st} d="M5 15 c1-6 4-9 7-9 s6 3 7 9 M12 6 v-2 M10 13 a1 1 0 1 1 0 .1 M14 14 a1 1 0 1 1 0 .1"/>`),
+  fly_nest: S(`<path ${st} d="M12 3 c4 5 5 11 3 18 h-6 c-2-7 -1-13 3-18 z M11 10 a1 1 0 1 1 0 .1 M13 14 a1 1 0 1 1 0 .1 M18 6 l2-1 M19 9 l2 1"/>`),
+  bone_barricade: S(`<path ${st} d="M3 19 h18 M5 19 l3-9 M10 19 l2-11 M15 19 l2-9 M19 19 l1-6 M6 9 a1.2 1.2 0 1 1 0 .1 M12 7 a1.2 1.2 0 1 1 0 .1"/>`),
+  mortar_barrage: S(`<path ${st} d="M6 20 l5-9 M9 11 l4 2 M4 20 h8 M15 5 a1.5 1.5 0 1 1 0 .1 M19 9 a1.5 1.5 0 1 1 0 .1 M16 13 a1.5 1.5 0 1 1 0 .1"/>`),
+  infection: S(`<circle cx="12" cy="12" r="4" ${st}/><path ${st} d="M12 3 v5 M12 16 v5 M3 12 h5 M16 12 h5 M6 6 l3 3 M15 15 l3 3 M18 6 l-3 3 M6 18 l3-3"/>`),
   trench: S(`<path ${st} d="M2 9 h5 l2 6 h6 l2 -6 h5 M9 15 v3 M15 15 v3 M4 7 h3 M17 7 h3"/>`),
   sandbags: S(`<path ${st} d="M3 18 h18 M4 18 c0-3 7-3 7 0 M13 18 c0-3 7-3 7 0 M8 14 c0-3 7-3 7 0"/>`),
   wire: S(`<path ${st} d="M3 12 c2-4 4 4 6 0 s4 4 6 0 s4 4 6 0 M5 6 v12 M19 6 v12 M11 10 l2 4 M13 10 l-2 4"/>`),
@@ -75,5 +91,6 @@ export function iconForUnit(def) {
 
 export function iconForStructure(id) {
   const map = { grail_altar: 'altar', supply_depot: 'depot', field: 'food' };
+  if (!ICONS[map[id] || id]) return 'build';
   return map[id] || id;
 }

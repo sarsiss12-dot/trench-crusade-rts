@@ -8,6 +8,7 @@ import { CELL_FLAG } from '../world/terrain.js';
 import { valueNoise } from '../core/noise.js';
 import { trenchDepth } from '../construction/trench.js';
 import { pointSegment } from '../core/dmath.js';
+import { craterOffset, craterBowl, craterReach } from './craters.js';
 
 export const CHUNK = 32; // cells per chunk side
 const STRIDE = 24;
@@ -53,7 +54,7 @@ export function terrainInfluenceBox(t, s) {
  * later only `region` (vertex box) is recomputed into the existing fields `f` — digging a trench
  * touches a few dozen vertices, not the 46k of the map (no hitch on phones).
  */
-export function computeTerrainFields(world, structures, f = null, region = null) {
+export function computeTerrainFields(world, structures, f = null, region = null, craters = null) {
   const t = world.terrain;
   const nv = t.vcols * t.vrows;
   if (!f) {
@@ -100,6 +101,32 @@ export function computeTerrainFields(world, structures, f = null, region = null)
       }
     }
   }
+  // known shell craters: carved bowl + raised rim (offset grid one vertex wider for normals)
+  const EW = RW + 2, EH = R.z1 - R.z0 + 3;
+  let coff = null, cbowl = null;
+  if (craters && craters.length) {
+    for (const c of craters) {
+      const reach = craterReach(c);
+      const x0 = Math.max(R.x0 - 1, Math.floor((c.x - reach) / t.cell)), x1 = Math.min(R.x1 + 1, Math.ceil((c.x + reach) / t.cell));
+      const z0 = Math.max(R.z0 - 1, Math.floor((c.z - reach) / t.cell)), z1 = Math.min(R.z1 + 1, Math.ceil((c.z + reach) / t.cell));
+      if (x0 > x1 || z0 > z1) continue;
+      if (!coff) { coff = new Float32Array(EW * EH); cbowl = new Float32Array(EW * EH); }
+      for (let vz = z0; vz <= z1; vz++) {
+        for (let vx = x0; vx <= x1; vx++) {
+          const e = (vz - R.z0 + 1) * EW + (vx - R.x0 + 1);
+          coff[e] += craterOffset(c, vx * t.cell, vz * t.cell);
+          const bw = craterBowl(c, vx * t.cell, vz * t.cell);
+          if (bw > cbowl[e]) cbowl[e] = bw;
+        }
+      }
+    }
+  }
+  const offAt = (vx, vz) => {
+    if (!coff) return 0;
+    const ex = vx - R.x0 + 1, ez = vz - R.z0 + 1;
+    if (ex < 0 || ez < 0 || ex >= EW || ez >= EH) return 0;
+    return coff[ez * EW + ex];
+  };
   for (const h of world.houses) {
     const r = Math.max(h.w, h.d) * 0.5 + 2.5;
     const x0 = Math.max(R.x0, Math.floor((h.x - r) / t.cell)), x1 = Math.min(R.x1, Math.ceil((h.x + r) / t.cell));
@@ -114,10 +141,11 @@ export function computeTerrainFields(world, structures, f = null, region = null)
       const i = vz * t.vcols + vx;
       const li = ri(vx, vz);
       const h = t.heights[i];
-      f.height[i] = h - carve[li];
-      // normal from base heights (carved band is hidden under trench geometry)
-      const hl = vtxHeight(t, vx - 1, vz), hr = vtxHeight(t, vx + 1, vz);
-      const hd = vtxHeight(t, vx, vz - 1), hu = vtxHeight(t, vx, vz + 1);
+      const co = offAt(vx, vz);
+      f.height[i] = h - carve[li] + co;
+      // normal from base heights (carved band is hidden under trench geometry) + crater bowls
+      const hl = vtxHeight(t, vx - 1, vz) + offAt(vx - 1, vz), hr = vtxHeight(t, vx + 1, vz) + offAt(vx + 1, vz);
+      const hd = vtxHeight(t, vx, vz - 1) + offAt(vx, vz - 1), hu = vtxHeight(t, vx, vz + 1) + offAt(vx, vz + 1);
       let nx = hl - hr, ny = 2 * t.cell, nz = hd - hu;
       const nl = Math.hypot(nx, ny, nz);
       nx /= nl; ny /= nl; nz /= nl;
@@ -143,6 +171,15 @@ export function computeTerrainFields(world, structures, f = null, region = null)
       }
       r /= 4; g /= 4; b /= 4; wet /= 4; field /= 4; road /= 4; crater /= 4; rock /= 4; grass /= 4;
       if (churn[li] > 0) grass *= 1 - churn[li];
+      const bowl = cbowl ? cbowl[(vz - R.z0 + 1) * EW + (vx - R.x0 + 1)] : 0;
+      if (bowl > 0 || co > 0.05) {
+        // fresh shell hole: churned, scorched, dark centre, no grass
+        grass *= Math.max(0, 1 - bowl * 3 - co * 4);
+        const dk = 1 - 0.5 * bowl;
+        r = r * dk * 0.9; g = g * dk * 0.86; b = b * dk * 0.85;
+        crater = Math.max(crater, Math.min(1, bowl * 2));
+        wet = Math.min(1, wet + bowl * 0.4);
+      }
       f.normal[i * 4 + 3] = Math.round(Math.min(1, grass) * 127);
       // macro tint noise (baked) + slope darkening on rock faces
       const n = valueNoise(vx * 0.09, vz * 0.09, seed + 5);
@@ -160,7 +197,7 @@ export function computeTerrainFields(world, structures, f = null, region = null)
       }
       // concavity AO (crater bowls, ditches) + contact shadow of buildings
       const avg = (hl + hr + hd + hu) * 0.25;
-      let ao = 1 + (h - avg) * 0.35;
+      let ao = 1 + (h + co - avg) * 0.35;
       ao -= contact[li] * 0.35;
       ao = Math.max(0.45, Math.min(1.08, ao));
       if (rock > 0) ao *= 0.95 + 0.1 * n2;
@@ -232,17 +269,22 @@ function terrainLayout(buffer) {
   };
 }
 
+function craterKey(c) {
+  return c.x.toFixed(2) + ':' + c.z.toFixed(2) + ':' + c.r.toFixed(2) + ':' + c.d;
+}
+
 /** What of a structure shapes the terrain (changes of anything else never trigger a rebuild). */
 function terrainKey(s) {
   if (s.type === 'trench') return 't' + Math.round(trenchDepth(s) * 50) + ':' + Math.round(Math.min(1, s.progress * 2) * 20);
   return STRUCTURES[s.type].kind === 'building' ? (s.built ? 'B' : 'b') : null;
 }
 
-export function createTerrainRenderer(gl, world, structures, quality) {
+export function createTerrainRenderer(gl, world, structures, quality, craters = []) {
   const t = world.terrain;
   const step = quality === 'low' ? 2 : 1;
   const tr = { chunks: [], fields: null, step, lastRegion: null };
-  tr.fields = computeTerrainFields(world, structures);
+  tr.fields = computeTerrainFields(world, structures, null, null, craters);
+  let seenCraters = new Map(craters.map((c) => [c.id, craterKey(c)]));
   let seen = new Map(); // structure id -> { key, box }
   for (const s of structures) {
     const k = terrainKey(s);
@@ -258,10 +300,29 @@ export function createTerrainRenderer(gl, world, structures, quality) {
     }
   }
   const grow = (r, b) => (!b ? r : !r ? { ...b } : { x0: Math.min(r.x0, b.x0), z0: Math.min(r.z0, b.z0), x1: Math.max(r.x1, b.x1), z1: Math.max(r.z1, b.z1) });
-  /** Re-shape only where known structures changed (added, removed, dug deeper, completed). */
-  tr.update = (structs) => {
+  const craterBox = (c) => {
+    const R = craterReach(c) + t.cell;
+    return {
+      x0: Math.max(0, Math.floor((c.x - R) / t.cell)), z0: Math.max(0, Math.floor((c.z - R) / t.cell)),
+      x1: Math.min(t.vcols - 1, Math.ceil((c.x + R) / t.cell)), z1: Math.min(t.vrows - 1, Math.ceil((c.z + R) / t.cell)),
+    };
+  };
+  let lastCraters = craters.slice();
+  /** Re-shape only where known structures / craters changed (added, removed, dug deeper, completed). */
+  tr.update = (structs, craterList = null) => {
     const now = new Map();
     let region = null;
+    if (craterList) {
+      const nowC = new Map();
+      for (const c of craterList) {
+        const k = craterKey(c);
+        nowC.set(c.id, k);
+        if (seenCraters.get(c.id) !== k) region = grow(region, craterBox(c));
+      }
+      for (const c of lastCraters) if (!nowC.has(c.id) || nowC.get(c.id) !== craterKey(c)) region = grow(region, craterBox(c));
+      seenCraters = nowC;
+      lastCraters = craterList.slice();
+    }
     for (const s of structs) {
       const k = terrainKey(s);
       if (!k) continue;
@@ -274,7 +335,7 @@ export function createTerrainRenderer(gl, world, structures, quality) {
     seen = now;
     tr.lastRegion = region;
     if (!region) return 0;
-    computeTerrainFields(world, structs, tr.fields, region);
+    computeTerrainFields(world, structs, tr.fields, region, lastCraters);
     let rebuilt = 0;
     for (const ch of tr.chunks) {
       if (region.x1 < ch.cx || region.x0 > ch.cx + CHUNK || region.z1 < ch.cz || region.z0 > ch.cz + CHUNK) continue;

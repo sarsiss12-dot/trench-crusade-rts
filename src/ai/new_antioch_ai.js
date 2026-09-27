@@ -3,8 +3,12 @@
 //    observation post, supply cache) through the normal BUILD pipeline; repair damage; salvage
 //  - rifle squads garrison trenches (auto-slot occupancy), spread across segments
 //  - heavy squads form a reserve that counter-attacks breaches near the objective
-//  - depleted squads walk back for replacements; bastion trains new squads when affordable
-//  - artillery barrage on visible massed attackers in front of the line
+//  - depleted squads request replacements (they hold their ground; replacements walk to them);
+//    bastion trains new squads when affordable
+//  - artillery barrage on visible massed attackers in front of the line; mortar barrage pins
+//    smaller groups closing on the wire
+//  - Phase 2 plan items (aid station, ammunition dump, muster point, signal post, walls,
+//    workshop) come from the same map defence plan; the reserve holds facing the front
 import { unitDef, hasRole } from '../data/units.js';
 import { ABILITIES } from '../data/abilities.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -53,6 +57,7 @@ export const newAntiochAI = {
       this.reinforce(sim, fid, ai, squads);
       this.train(sim, fid, ai, squads);
       this.artillery(sim, fid, ai, squads);
+      this.mortar(sim, fid, ai, squads);
     }
   },
 
@@ -183,7 +188,8 @@ export const newAntiochAI = {
           if (!sq.engaged) aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: [id], tk: 'squad', tid: threat.id });
         }
       } else if (sq.order.t === 'idle' && dist(sq.x, sq.z, home[0], home[1]) > 12) {
-        aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [id], x: home[0], z: home[1] });
+        // back to the reserve position, facing the front (north: PI)
+        aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [id], x: home[0], z: home[1], face: Math.PI });
       }
     }
   },
@@ -191,11 +197,16 @@ export const newAntiochAI = {
   reinforce(sim, fid, ai, squads) {
     const f = sim.state.factions[fid];
     if ((f.resources.manpower || 0) < 2) return;
+    // ammunition first: replacements are only requested while supply stays above the ammo reserve
+    if ((f.resources.supply || 0) < 55) return;
+    if (sim.state.tick - (ai.lastReinf || -1e9) < 40) return;
+    ai.lastReinf = sim.state.tick;
     for (const sq of squads) {
       const def = unitDef(sq.type);
-      if (!def.combatUnit || sq.engaged || sq.order.t === 'reinforce') continue;
-      if (sim.state.tick - sq.lastHitTick < 20 * 8) continue;
-      if (alive(sq) >= Math.ceil(def.squadSize * 0.6)) continue;
+      // the squad keeps holding its post; replacements walk up to it (even under fire)
+      if (!def.combatUnit || sq.reinf) continue;
+      if (sim.state.tick - sq.lastHitTick < 20 * 3) continue;
+      if (sq.members.length >= Math.ceil(def.squadSize * 0.75)) continue;
       aiIssue(sim, { type: CMD.REINFORCE, faction: fid, squadIds: [sq.id] });
     }
   },
@@ -246,5 +257,31 @@ export const newAntiochAI = {
       if (n > bestN) { bestN = n; best = e; }
     }
     if (best) aiIssue(sim, { type: CMD.USE_ABILITY, faction: fid, ability: 'artillery_barrage', x: best.cx, z: best.cz });
+  },
+
+  /** Mortar: smaller, closer groups approaching the line (suppression / area denial). */
+  mortar(sim, fid, ai, squads) {
+    const { state } = sim;
+    const f = state.factions[fid];
+    const ab = ABILITIES.mortar_barrage;
+    const st = f.abilities.mortar_barrage;
+    if (!st || st.readyTick > state.tick || (f.resources.supply || 0) < ab.cost.supply + 50) return;
+    if (state.tick - (ai.lastMortar || -1e9) < 30) return;
+    ai.lastMortar = state.tick;
+    const bit = 1 << FACTIONS[fid].index;
+    const objective = state.structures.find((s) => s.objective && s.faction === fid);
+    if (!objective) return;
+    let best = null, bestN = 5;
+    for (const e of state.squads) {
+      if (!areHostile(fid, e.faction) || !(e.visibleTo & bit)) continue;
+      const d = dist(e.cx, e.cz, objective.x, objective.z);
+      if (d > 110 || d < 30) continue;
+      let close = false;
+      for (const s of squads) if (dist(s.cx, s.cz, e.cx, e.cz) < ab.radius + 6) { close = true; break; }
+      if (close) continue;
+      const n = alive(e);
+      if (n > bestN) { bestN = n; best = e; }
+    }
+    if (best) aiIssue(sim, { type: CMD.USE_ABILITY, faction: fid, ability: 'mortar_barrage', x: best.cx, z: best.cz });
   },
 };

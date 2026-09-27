@@ -6,7 +6,8 @@ import { FACTIONS, areHostile } from '../data/factions.js';
 import { EV } from '../core/events.js';
 import { rngFloat } from '../core/rng.js';
 import { dist, dsin, dcos } from '../core/dmath.js';
-import { TICK_RATE, INFECTION_MAX } from './constants.js';
+import { TICK_RATE, INFECTION_MAX, MAX_CRATERS, MAX_CRATER_R } from './constants.js';
+import { COVER_TYPES, COVER_IDS } from '../data/cover.js';
 import { canAfford, pay } from '../economy/economy.js';
 import { isVisibleAt } from '../world/fog.js';
 import { damageSoldier, damageStructure } from '../combat/combat.js';
@@ -34,12 +35,33 @@ export function validateAbility(sim, faction, abilityId, x, z) {
   return null;
 }
 
+/**
+ * Cooldown multiplier from support structures (fly nest -> swarm, signal post -> artillery):
+ * the best standing, built structure applies; several do not stack.
+ */
+export function supportMult(sim, faction, key) {
+  if (!key) return 1;
+  let m = 1;
+  for (const st of sim.state.structures) {
+    if (st.faction !== faction || !st.built || st.hp <= 0) continue;
+    const sp = STRUCTURES[st.type].support;
+    if (sp && sp[key] && sp[key] < m) m = sp[key];
+  }
+  return m;
+}
+
+/** Effective cooldown in seconds (data cooldown x support). */
+export function abilityCooldown(sim, faction, abilityId) {
+  const def = ABILITIES[abilityId];
+  return def.cooldown * supportMult(sim, faction, def.supportKey);
+}
+
 export function castAbility(sim, faction, abilityId, x, z) {
   const { state } = sim;
   const def = ABILITIES[abilityId];
   const fs = state.factions[faction];
   pay(fs.resources, def.cost);
-  fs.abilities[abilityId].readyTick = state.tick + Math.round(def.cooldown * TICK_RATE);
+  fs.abilities[abilityId].readyTick = state.tick + Math.round(abilityCooldown(sim, faction, abilityId) * TICK_RATE);
   const e = { id: state.nextId++, kind: def.effect, ability: abilityId, faction, x, z, radius: def.radius, start: state.tick };
   if (def.effect === 'swarm') {
     e.end = state.tick + Math.round(def.duration * TICK_RATE);
@@ -49,8 +71,11 @@ export function castAbility(sim, faction, abilityId, x, z) {
     e.shells = def.shells;
   }
   state.effects.push(e);
-  sim.events.push({ type: EV.ABILITY_CAST, faction, ability: abilityId, x, z, radius: def.radius, duration: def.duration || def.delay + def.shells * def.interval, effectId: e.id });
+  sim.events.push({ type: EV.ABILITY_CAST, faction, ability: abilityId, x, z, radius: def.radius, duration: def.duration || def.delay + def.shells * def.interval, effectId: e.id, size: def.size || '' });
 }
+
+const SWARM = { kind: 'swarm', infect: 0 };
+const BLAST = { kind: 'explosive', infect: 0 };
 
 function swarmTick(sim, e, def) {
   const { state } = sim;
@@ -61,43 +86,80 @@ function swarmTick(sim, e, def) {
     if (dist(sq.cx, sq.cz, e.x, e.z) > e.radius + 12) continue;
     let touched = false;
     for (const m of sq.members) {
-      if (m.state !== 'alive') continue;
+      if (m.state !== 'alive' && m.state !== 'joining') continue;
       const dx = m.x - e.x, dz = m.z - e.z;
       if (dx * dx + dz * dz > r2) continue;
       touched = true;
-      if (doInfect) m.infection = Math.min(INFECTION_MAX, m.infection + 1);
-      damageSoldier(sim, sq, m, def.dps * 0.5, e.faction, null, 0, 0); // ignores cover
+      if (doInfect && sq.faction !== 'black_grail') m.infection = Math.min(INFECTION_MAX, m.infection + 1);
+      damageSoldier(sim, sq, m, def.dps * 0.5, e.faction, SWARM, 0, 0); // ignores cover
     }
     if (touched) sq.debuffUntil = state.tick + 14;
   }
 }
 
-function explode(sim, e, def, x, z) {
+/**
+ * One detonation. def: { blastRadius, damage, structureDamage, size, craters, suppress }.
+ * force (1 at the centre -> 0 at the edge) travels with damage so presentation can scale gore.
+ */
+export function explode(sim, faction, def, x, z, ability = '') {
   const { state } = sim;
   const R = def.blastRadius;
-  sim.events.push({ type: EV.EXPLOSION, x, z, size: 'heavy', faction: e.faction, ability: e.ability });
+  sim.events.push({ type: EV.EXPLOSION, x, z, size: def.size || 'heavy', faction, ability, r: R });
+  if (def.craters) addCrater(sim, x, z, R * 0.62);
   for (const sq of state.squads) {
     if (dist(sq.cx, sq.cz, x, z) > R + 10) continue;
-    const friendly = !areHostile(e.faction, sq.faction);
+    const friendly = !def.indiscriminate && !areHostile(faction, sq.faction);
     for (const m of sq.members) {
-      if (m.state !== 'alive') continue;
+      if (m.state !== 'alive' && m.state !== 'joining') continue;
       const d = dist(m.x, m.z, x, z);
       if (d > R) continue;
-      let dmg = def.damage * (1 - d / R) * (0.8 + 0.4 * rngFloat(state.rng.main));
+      const force = 1 - d / R;
+      let dmg = def.damage * force * (0.8 + 0.4 * rngFloat(state.rng.main));
       if (m.postId) dmg *= 0.45; // trench protects against blast
+      else if (m.cover >= 7) dmg *= 1 - 0.3 * (COVER_TYPES[COVER_IDS[m.cover]].level / 3); // walls absorb part
       if (friendly) dmg *= 0.5;
       const dd = d || 1;
-      damageSoldier(sim, sq, m, dmg, e.faction, null, (m.x - x) / dd, (m.z - z) / dd);
+      damageSoldier(sim, sq, m, dmg, faction, BLAST, (m.x - x) / dd, (m.z - z) / dd, 0, force);
+    }
+    if (def.suppress && !friendly && dist(sq.cx, sq.cz, x, z) <= R + 4) {
+      sq.suppressUntil = Math.max(sq.suppressUntil || 0, state.tick + Math.round(def.suppress.seconds * TICK_RATE));
     }
   }
   for (const st of state.structures.slice()) {
-    if (!areHostile(e.faction, st.faction)) continue;
+    if (!def.indiscriminate && !areHostile(faction, st.faction)) continue;
     const d = distanceToStructure(st, x, z);
     if (d > R) continue;
     const sd = STRUCTURES[st.type];
-    const mult = sd.kind === 'linear' ? 0.6 : 1;
-    damageStructure(sim, st, def.structureDamage * (1 - d / R) * mult, e.faction);
+    let mult = sd.kind === 'linear' ? 0.6 : 1;
+    if (sd.blastResist) mult *= 1 - sd.blastResist;
+    damageStructure(sim, st, def.structureDamage * (1 - d / R) * mult, faction);
   }
+}
+
+/**
+ * Persistent shell craters (gameplay: light cover; presentation: carved ground). Bounded: a new
+ * crater close to an old one deepens / widens it instead; past MAX_CRATERS the oldest is recycled.
+ */
+export function addCrater(sim, x, z, r) {
+  const { state } = sim;
+  const list = state.craters || (state.craters = []);
+  for (const c of list) {
+    if (dist(c.x, c.z, x, z) < (c.r + r) * 0.55) {
+      c.r = Math.min(MAX_CRATER_R, Math.max(c.r, r) + 0.35);
+      c.d = Math.min(3, c.d + 1);
+      c.tick = state.tick;
+      c.seenBy = 0; // changed: every side has to look again
+      return c;
+    }
+  }
+  const c = { id: state.nextId++, x, z, r: Math.min(MAX_CRATER_R, r), d: 1, tick: state.tick, seenBy: 0 };
+  if (list.length >= MAX_CRATERS) {
+    let oldest = 0;
+    for (let i = 1; i < list.length; i++) if (list[i].tick < list[oldest].tick) oldest = i;
+    list.splice(oldest, 1);
+  }
+  list.push(c);
+  return c;
 }
 
 export function updateEffects(sim) {
@@ -111,11 +173,16 @@ export function updateEffects(sim) {
         e.next = state.tick + 10;
         swarmTick(sim, e, def);
       }
+    } else if (e.kind === 'detonation') {
+      if (state.tick >= e.next) {
+        explode(sim, e.faction, e.blast, e.x, e.z, 'detonation');
+        state.effects.splice(i, 1);
+      }
     } else if (e.kind === 'barrage') {
       if (state.tick >= e.next && e.shells > 0) {
         const a = rngFloat(state.rng.main) * 6.283185307179586;
         const r = e.radius * Math.sqrt(rngFloat(state.rng.main));
-        explode(sim, e, def, e.x + dsin(a) * r, e.z + dcos(a) * r);
+        explode(sim, e.faction, def, e.x + dsin(a) * r, e.z + dcos(a) * r, e.ability);
         e.shells--;
         e.next = state.tick + Math.round(def.interval * TICK_RATE);
       }
