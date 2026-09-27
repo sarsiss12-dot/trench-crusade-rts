@@ -90,6 +90,18 @@ olarak işaretlidir; kuralın kendisi (bonuslar, açtıkları) yine oyun soyutla
 | Büyük Veba | Kara Kâse III | abstraction | — |
 | Tümörler Lordu | Kara Kâse III | canon-inspired | Lord of Tumours resmî lider |
 
+## Faz 4 eklemeleri
+
+| Varlık | Durum | Doğrulanan | Proje yorumu |
+|---|---|---|---|
+| Sahra Topu Mevzii | canon-inspired | Resmî lore: "titanik topçu parçaları Yeni Antakya'nın dökümhanelerinde yapılır"; belirli bir sahra topu adı bulunamadı | Kanon adı yok; menzil, ikmal, en az menzil, mürettebat soyutlama |
+| İç Organ Topu Yuvası | canon-inspired | Viscera Cannon — resmî Kara Kâse ağır silahı | Yere kök salmış organik yuva ve hastalık saçan atış soyutlama |
+| Yozlaşma Püskürtücü Yuvası | canon-inspired | Corruption Belcher — resmî silah sözlüğünde geçer (taraf ataması doğrulanmadı) | Gaz bulutlu kısa menzil yuva soyutlama |
+| Komutan: Teğmen / HATTI TUT | canon (birim) / abstraction (yetenek) | Lieutenant resmî Yeni Antakya lideri | Aura + zamanlı alan, ölüm cezası soyutlama |
+| Komutan: Tümörler Efendisi / VEBA KUTSAMASI | canon (birim) / abstraction (yetenek) | Lord of Tumours resmî Kara Kâse lideri | Aynı |
+| Harabe garnizonları | abstraction | — | Savaşın yıktığı evler; kapasite ve siper kuralları soyutlama |
+| Operasyonel duraklama | abstraction | — | Cephe ritmi için oynanış mekaniği |
+
 ## Bilinçli olarak eklenmeyenler
 
 Tanklar, alev makineli tanklar, Communicant'lar, Hounds / Fly Thrall gibi birimler resmî kaynaklarda var ancak henüz
@@ -105,3 +117,6 @@ ayrıldı; kaynakla doğrulanmadan içerik eklenmeyecek.
 - [Trench Companion — New Antioch warband](https://trench-companion.com/compendium/warbands/new-antioch)
 - [Trench Companion — Cult of the Black Grail warband](https://trench-companion.com/compendium/warbands/cult-of-the-black-grail)
 - [Wikipedia — Trench Crusade](https://en.wikipedia.org/wiki/Trench_Crusade)
+- [Trench Crusade — The Armaments of the Great War (resmî lore)](https://www.trenchcrusade.com/lore/the-armaments-of-the-great-war/)
+- [New Recruit Wiki — Viscera Cannon](https://www.newrecruit.eu/wiki/trenchcrusade/trench-crusade/black-grail/9eea-4e25-e838-01e4/viscera-cannon)
+- [Trench Companion — Battlekit glossary (Corruption Belcher)](https://trench-companion.com/compendium/battlekit/ranged)

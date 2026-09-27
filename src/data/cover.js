@@ -15,8 +15,10 @@ export const COVER_TYPES = Object.freeze({
   breastwork: { id: 'breastwork', key: 'cover.breastwork', level: 2, dmgReduction: 0.38, accPenalty: 0.3, suppression: 0.25, directional: true },
   timber: { id: 'timber', key: 'cover.timber', level: 3, dmgReduction: 0.5, accPenalty: 0.4, suppression: 0.35, directional: true },
   bone: { id: 'bone', key: 'cover.bone', level: 2, dmgReduction: 0.35, accPenalty: 0.3, suppression: 0.2, directional: true },
+  // Phase 4: inside a garrisoned ruin (thick walls, loopholes) — strong against small arms only
+  garrison: { id: 'garrison', key: 'cover.garrison', level: 3, dmgReduction: 0.6, accPenalty: 0.5, suppression: 0.45 },
 });
 
 // Stable numeric ids (stored per soldier for HUD / serialization).
-export const COVER_IDS = ['none', 'forest', 'crater', 'ruins', 'sandbag', 'trench', 'fortified', 'low_wall', 'breastwork', 'timber', 'bone'];
+export const COVER_IDS = ['none', 'forest', 'crater', 'ruins', 'sandbag', 'trench', 'fortified', 'low_wall', 'breastwork', 'timber', 'bone', 'garrison'];
 export const COVER_INDEX = Object.freeze(Object.fromEntries(COVER_IDS.map((id, i) => [id, i])));

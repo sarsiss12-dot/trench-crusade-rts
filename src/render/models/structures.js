@@ -5,6 +5,7 @@ import { C, mix } from './palette.js';
 import { hash32 } from '../../core/rng.js';
 import { STRUCTURE_MODELS_P2 } from './structures_p2.js';
 import { STRUCTURE_MODELS_P3 } from './structures_p3.js';
+import { STRUCTURE_MODELS_P4 } from './structures_p4.js';
 
 function rnd(seed, i) {
   return hash32(seed, i, 313) / 4294967296;
@@ -575,5 +576,7 @@ export const STRUCTURE_MODELS = {
   ...STRUCTURE_MODELS_P2,
   // Phase 3: settlement, farm, livestock pen, quarry, pillbox
   ...STRUCTURE_MODELS_P3,
+  // Phase 4: field gun (+ separate recoiling barrel), Viscera Cannon nest, Corruption Belcher nest
+  ...STRUCTURE_MODELS_P4,
 };
 

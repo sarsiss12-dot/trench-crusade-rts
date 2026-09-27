@@ -24,18 +24,20 @@ export const SCENARIOS = {
     objective: { type: 'siege', structureType: 'bastion', defender: 'new_antioch', attacker: 'black_grail' },
     resources: {
       new_antioch: { material: 280, supply: 320, manpower: 24, food: 100 },
-      black_grail: { biomass: 60 },
+      black_grail: { biomass: 110 }, // Phase 4: an early swarm (was 60)
     },
     forces: {
       new_antioch: [
         { unit: 'yeoman_rifle', anchor: 'na_line', count: 6 },
         { unit: 'combat_engineer', anchor: 'na_base', count: 2 },
         { unit: 'mech_heavy', anchor: 'na_reserve', count: 1 },
+        { unit: 'na_lieutenant', anchor: 'na_reserve', count: 1, commander: true }, // Phase 4 commander
       ],
       black_grail: [
         { unit: 'grail_thrall', anchor: 'bg_mass', count: 7 },
         { unit: 'corpse_guard', anchor: 'bg_support', count: 2 },
         { unit: 'plague_knight', anchor: 'bg_elite', count: 2 },
+        { unit: 'lord_of_tumours', anchor: 'bg_elite', count: 1, commander: true }, // Phase 4 commander
       ],
     },
     weather: { type: 'overcast', rain: 0, mud: 0.5 },
@@ -99,3 +101,28 @@ export function scenarioDef(id) {
   if (!d) throw new Error('Unknown scenario: ' + id);
   return d;
 }
+
+/**
+ * OPERATIONAL LULL (Phase 4): the front goes quiet for 45-60 s once or twice per match — both sides
+ * reorganize (build, repair, reinforce, heal / raise, forage, grow). Timing is seeded from the match
+ * seed and hidden from the players (an 8-12 s warning precedes it). Gameplay abstraction of the
+ * pauses between assaults in a long siege; not a canon rule.
+ */
+export const LULL = {
+  lore: { status: 'abstraction', ref: 'Operational pauses between assaults in trench warfare (WWI); gameplay abstraction' },
+  windows: [[0.25, 0.4], [0.55, 0.75]], // share of the war (lull time excluded) where each lull may begin
+  durationSec: [45, 60], // scaled up with war length inside this band
+  warnSec: [8, 12], // "the front is going quiet" before it starts (exact moment still hidden)
+  endWarnSec: 6, // "the front stirs again"
+  graceSec: 8, // fights already joined are settled for this long, then no new engagements
+  ownRadius: 35, // around own structures outside the deployment zone, still own ground
+  selfDefenseTicks: 60, // a squad hit this recently may shoot back at whoever is near
+};
+
+/** Default number of lulls for a war length ('auto' setting): none in the shortest wars. */
+export function lullsFor(warMinutes) {
+  if (warMinutes < 10) return 0;
+  return warMinutes <= 20 ? 1 : 2;
+}
+
+export const LULL_OPTIONS = ['auto', 0, 1, 2];

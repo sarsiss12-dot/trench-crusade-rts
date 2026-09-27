@@ -188,8 +188,9 @@ export function createP3Hud(game, H) {
       tpKey = key;
       clear(tpanel);
       tpanel.appendChild(el('div.tphead', null,
-        el('b', { html: icon('squads', 'sm') + t('hud.trench_squads') }),
-        el('span.tpcap', { text: `${d.used}/${d.total}` }),
+        el('b', { html: icon(d.kind === 'garrison' ? 'garrison' : 'squads', 'sm') + t(d.titleKey || 'hud.trench_squads') }),
+        el('span.tpcap', { text: d.used < 0 ? (d.enemySeen ? t('hud.garrison_enemy') : '?') + `/${d.total}` : `${d.used}/${d.total}` }),
+        d.kind === 'garrison' && d.used > 0 ? button('cmd', icon('cancel') + `<i>${t('hud.ungarrison')}</i>`, () => { game.selection.set(d.cards.map((c) => c.id)); game.actions.ungarrison(); }, t('hud.ungarrison_tip')) : null,
         d.cards.length > 1 ? button('cmd', icon('all') + `<i>${t('hud.all')}</i>`, () => game.selection.set(d.cards.map((c) => c.id)), t('hud.all')) : null,
         button('cmd', icon('cancel'), closeTrenchPanel, t('hud.cancel'))));
       const list = el('div.tplist');
@@ -202,13 +203,13 @@ export function createP3Hud(game, H) {
         card.dataset.id = c.id;
         list.appendChild(card);
       }
-      if (!d.cards.length) list.appendChild(el('div.specnote', { text: '—' }));
+      if (!d.cards.length) list.appendChild(el('div.specnote', { text: d.kind === 'garrison' ? t(d.collapsed ? 'garrison.collapsed' : d.used < 0 ? (d.enemySeen ? 'hud.garrison_enemy_seen' : 'hud.garrison_unknown') : 'hud.garrison_empty') : '—' }));
       tpanel.appendChild(list);
     }
     for (const c of d.cards) {
       const card = tpanel.querySelector(`[data-id="${c.id}"]`);
       if (!card) continue;
-      setText(card.querySelector('.cnt'), `${c.alive}/${c.max}`);
+      setText(card.querySelector('.cnt'), `${c.alive}/${c.max}` + (c.enRoute ? ' ' + t('hud.en_route', { n: c.enRoute }) : ''));
       setWidth(card.querySelector('.hp i'), c.hp);
       const ab = card.querySelector('.ammo');
       toggleClass(ab, 'none', c.ammo < 0);
@@ -241,10 +242,13 @@ export function createP3Hud(game, H) {
   /** Extra buttons for a selected own structure. */
   function structCommands(st, out) {
     const def = STRUCTURES[st.type];
-    if (st.type === 'trench' && (st.faction === viewer || st.faction === 'neutral')) {
+    if ((st.type === 'trench' || STRUCTURES[st.type].garrison) && (st.faction === viewer || st.faction === 'neutral')) {
       const d = trenchPanelData(sim, viewer, st.id);
       if (d) {
-        const b = H.cmd('squads', t('hud.trench_badge', { n: d.count, s: d.used, cap: d.total }), () => (tpSeg === st.id ? closeTrenchPanel() : openTrenchPanel(st.id)), { title: t('hud.trench_squads'), on: tpSeg === st.id });
+        const label = d.kind === 'garrison'
+          ? t('hud.garrison_badge', { n: d.used < 0 ? '?' : d.used, cap: d.total })
+          : t('hud.trench_badge', { n: d.count, s: d.used, cap: d.total });
+        const b = H.cmd(d.kind === 'garrison' ? 'garrison' : 'squads', label, () => (tpSeg === st.id ? closeTrenchPanel() : openTrenchPanel(st.id)), { title: t('hud.trench_squads'), on: tpSeg === st.id });
         b.classList.add('badge');
         out.push(b);
       }
@@ -341,6 +345,13 @@ export function createP3Hud(game, H) {
         break;
       case EV.REVIVED:
         if (ev.faction === viewer) H.notify('notice.revived', 'good', null, 6);
+        break;
+      case EV.REINFORCEMENT_JOINED:
+        // the replacement is now counted: a short ring where he stepped in; a notice for a watched squad
+        if (ev.faction === viewer) {
+          if (game.renderer && game.renderer.overlays) game.renderer.overlays.addMarker('join', ev.x, ev.z);
+          if (game.selection.squads.has(ev.squadId)) H.notify('reinf.joined', 'good', null, 3);
+        }
         break;
       default: break;
     }

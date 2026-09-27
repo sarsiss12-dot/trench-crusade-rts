@@ -12,7 +12,7 @@ export const FACTIONS = {
     economy: 'logistics', logic: 'new_antioch', ai: 'new_antioch',
     resources: ['material', 'supply', 'manpower', 'food'],
     buildList: [
-      'trench', 'low_sandbags', 'sandbags', 'breastwork', 'timber_wall', 'fortified_wall', 'wire', 'fire_post', 'pillbox',
+      'trench', 'low_sandbags', 'sandbags', 'breastwork', 'timber_wall', 'fortified_wall', 'wire', 'fire_post', 'pillbox', 'field_gun',
       'settlement', 'farm', 'livestock_pen', 'quarry', 'supply_depot',
       'observation_post', 'signal_post', 'supply_cache', 'ammo_dump', 'aid_station', 'workshop', 'muster_point',
     ],
@@ -34,7 +34,7 @@ export const FACTIONS = {
     economy: 'plague', logic: 'black_grail', ai: 'black_grail',
     resources: ['biomass'],
     // organic growth raised by Thrall work-gangs (never a human building chain)
-    buildList: ['corpse_mound', 'plague_pit', 'fly_nest', 'bone_barricade', 'grail_altar'],
+    buildList: ['corpse_mound', 'plague_pit', 'fly_nest', 'bone_barricade', 'viscera_nest', 'belcher_nest', 'grail_altar'],
     abilities: ['fly_swarm', 'great_pestilence', 'black_tide'],
     // Phase 3: faction-wide plague momentum meter (factions/pestilence.js), separate from biomass
     pestilence: true,

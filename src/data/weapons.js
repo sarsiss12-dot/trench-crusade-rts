@@ -19,7 +19,7 @@ export const WEAPONS = {
   },
   heavy_mg: {
     id: 'heavy_mg', kind: 'mg', range: 58, damage: 18, reload: 2.2, reloadJitter: 0.25,
-    burst: 7, burstInterval: 0.09, accNear: 0.55, accFar: 0.2, fireWhileMoving: false, structureMult: 0.12,
+    burst: 7, burstInterval: 0.09, accNear: 0.55, accFar: 0.2, fireWhileMoving: false, structureMult: 0.12, antiGarrison: 1,
     ammoPerShot: 1, muzzle: 'mg', tracer: 'mg', sound: 'mg', impact: 'bullet',
     lore: { status: 'canon', note: 'Mechanised Heavy Infantry: machine gun' },
   },

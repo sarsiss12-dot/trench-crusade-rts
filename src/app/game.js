@@ -10,6 +10,8 @@ import { createSelection } from '../input/selection.js';
 import { createInputController } from '../input/controller.js';
 import { EV } from '../core/events.js';
 import { createEngineerHighlights } from '../ui/engineer_highlight.js';
+import { createControlGroups } from '../input/control_groups.js';
+import { unitDef } from '../data/units.js';
 
 function homeView(sim, viewer) {
   const h = factionHome(sim, viewer);
@@ -65,6 +67,16 @@ export function createGame(env, opts) {
   game.actions = createActions(game);
   // auto-dispatched engineers: HUD chip glow + world beam for a few seconds (presentation only)
   game.engineerHighlights = createEngineerHighlights();
+  // control groups 1/2/3 (+ desktop 4..9): presentation state, saved in the save meta
+  game.controlGroups = createControlGroups();
+  if (opts.groups) game.controlGroups.restore(opts.groups);
+  let salvSelV = -1, salvSel = false;
+  function salvagerSelected() {
+    if (salvSelV === game.selection.version) return salvSel;
+    salvSelV = game.selection.version;
+    salvSel = game.selection.ownSquads(sim, viewer).some((sq) => { const g = unitDef(sq.type).gathers; return !!g && g !== 'corpse'; });
+    return salvSel;
+  }
   game.notify = (key, level, params) => { if (game.hud) game.hud.notify(key, level, params); };
 
   game.home = () => {
@@ -161,6 +173,11 @@ export function createGame(env, opts) {
     f.selection = game.selection.squads;
     f.selectedStruct = game.selection.struct;
     f.engineerHighlights = game.engineerHighlights.active(performance.now() / 1000);
+    // ECONOMY VIEW + resource heap glow (gather / salvage targeting, or a salvage crew selected)
+    f.econView = !!game.ui.econView;
+    f.showSectors = f.econView;
+    const gm = game.mode;
+    f.nodeGlow = gm.kind === 'gather' || (gm.kind === 'area' && gm.area === 'salvage') ? 2 : f.econView || salvagerSelected() ? 1 : 0;
     renderer.render(camera, f);
     if (game.hud) game.hud.update(dt);
     if (game.minimap) game.minimap.update(dt);
@@ -190,7 +207,7 @@ export function createGame(env, opts) {
     return env.storage.save(slot, sim.state, game.saveMeta());
   };
   /** Save metadata: the side played and what that player knows (fog memory is not world state). */
-  game.saveMeta = () => ({ faction: viewer, memory: renderer.exportMemory() });
+  game.saveMeta = () => ({ faction: viewer, memory: renderer.exportMemory(), groups: game.controlGroups.export() });
 
   // GPU context loss (mobile app switch, driver reset): the simulation state is intact in memory,
   // so the host rebuilds the presentation around it instead of losing the match.

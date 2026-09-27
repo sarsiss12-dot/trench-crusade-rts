@@ -198,7 +198,8 @@ test('reinforcement in a trench: squad keeps its posts, replacements take the fr
   assert.equal(sq.order.t, 'hold_trench');
   for (let i = 0; i < 2; i++) killSoldier(sim, sq, sq.members[i], 'black_grail', 'rifle', 0, 1);
   run(sim, 2.5);
-  const posts = new Map(sq.members.map((m) => [m.id, m.postId + ':' + m.postSlot]));
+  // (Phase 4: a replacement still walking up holds no post yet — only soldiers present are compared)
+  const posts = new Map(sq.members.filter((m) => m.state === 'alive').map((m) => [m.id, m.postId + ':' + m.postSlot]));
   sq.lastHitTick = -100000;
   enqueueCommand(sim, { type: CMD.REINFORCE, faction: 'new_antioch', squadIds: [sq.id] });
   run(sim, 50);
@@ -469,11 +470,15 @@ test('AI uses the new command set through the normal pipeline (no cheats)', () =
   const byType = (c) => c.faction[0] + ':' + c.type + (c.stype ? ':' + c.stype : '') + (c.ability ? ':' + c.ability : '') + (c.unit ? ':' + c.unit : '') + (c.cid ? ':corpse' : '') + (Number.isFinite(c.face) ? ':face' : '');
   for (let i = 0; i < 20 * 600 && sim.state.match.phase !== 'ENDED'; i++) {
     for (const c of sim.state.pending) { assert.equal(c.source, 'ai'); seen.add(byType(c)); }
+    if (i % 20 === 0 && sim.state.squads.some((sq) => sq.faction === 'new_antioch' && sq.reinf)) seen.add('n:walking_request');
     stepSimulation(sim);
     sim.events.length = 0;
   }
   const has = (k) => [...seen].some((x) => x.startsWith(k));
-  assert.ok(has('n:REINFORCE'), 'New Antioch requests walking replacements');
+  // Phase 4: the AI sets the auto-reinforcement default ("important" squads) and tops up the rest
+  // with explicit REINFORCE; either way replacements must really be requested (walking)
+  assert.ok(has('n:REINFORCE') || has('n:SET_AUTO_REINFORCE_DEFAULT'), 'New Antioch asks for replacements');
+  assert.ok(has('n:walking_request'), 'New Antioch requests walking replacements');
   assert.ok(has('n:BUILD:low_sandbags') || has('n:BUILD:breastwork') || has('n:BUILD:aid_station'), 'New Antioch builds Phase 2 structures');
   assert.ok(has('b:TRAIN:thrall_gang'), 'Black Grail raises work gangs');
   assert.ok(has('b:BUILD:corpse_mound') || has('b:BUILD:fly_nest') || has('b:BUILD:plague_pit'), 'Black Grail builds organic structures');

@@ -1,6 +1,7 @@
 // Area-effect faction abilities (data in data/abilities.js). Effects are plain data in
 // state.effects and are resolved deterministically by the simulation.
 import { ABILITIES } from '../data/abilities.js';
+import { commanderCooldownMult } from './commander.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS, areHostile } from '../data/factions.js';
 import { EV } from '../core/events.js';
@@ -16,6 +17,8 @@ import { cremateCorpse } from './corpses.js';
 import { animalsBlast } from './wildlife.js';
 import { specValue, specRule, unlockedBySpec } from './specialities.js';
 import { addInfection, pestSpend, pestLoss, swarmDpsMult, swarmCooldownMult, cleanseInfection, seedInfection } from '../factions/pestilence.js';
+
+const GARRISON_BLAST = 0.9; // blast damage taken inside a ruin garrison (data: structures garrison.blastTaken)
 
 export function validateAbility(sim, faction, abilityId, x, z) {
   const { state } = sim;
@@ -65,6 +68,7 @@ export function abilityCooldown(sim, faction, abilityId) {
   let cd = def.cooldown * supportMult(sim, faction, def.supportKey);
   if (abilityId === 'artillery_barrage') cd *= specValue(sim.state, faction, 'artilleryCooldown', 1);
   if (abilityId === 'fly_swarm') cd *= swarmCooldownMult(sim.state);
+  cd *= commanderCooldownMult(sim.state, faction); // a fallen commander: the staff is in disarray
   return cd;
 }
 
@@ -189,7 +193,7 @@ function purgeTick(sim, e, def) {
 export function explode(sim, faction, def, x, z, ability = '') {
   const { state } = sim;
   const R = def.blastRadius;
-  sim.events.push({ type: EV.EXPLOSION, x, z, size: def.size || 'heavy', faction, ability, r: R });
+  sim.events.push({ type: EV.EXPLOSION, x, z, size: def.size || 'heavy', faction, ability, r: R, organic: def.organic ? 1 : 0 });
   if (def.craters) addCrater(sim, x, z, R * 0.62);
   animalsBlast(sim, x, z, R, def.damage, faction);
   for (const sq of state.squads) {
@@ -202,17 +206,29 @@ export function explode(sim, faction, def, x, z, ability = '') {
       const force = 1 - d / R;
       let dmg = def.damage * force * (0.8 + 0.4 * rngFloat(state.rng.main));
       if (m.postId) dmg *= 0.45; // trench protects against blast
+      else if (m.gslot >= 0) dmg *= GARRISON_BLAST; // a shell through a ruin's roofless rooms: little shelter
       else if (m.cover >= 7) dmg *= 1 - 0.3 * (COVER_TYPES[COVER_IDS[m.cover]].level / 3); // walls absorb part
       if (friendly) dmg *= 0.5;
       const dd = d || 1;
+      const hp0 = m.hp;
       damageSoldier(sim, sq, m, dmg, faction, BLAST, (m.x - x) / dd, (m.z - z) / dd, 0, force);
+      if (def.infect && !friendly) addInfection(sim, sq, m, def.infect); // viscera shot: diseased offal
+      if (def.gunStat && !friendly && state.factions[faction]) {
+        const gs = state.factions[faction].stats;
+        gs.gunDmg = (gs.gunDmg || 0) + Math.max(0, hp0 - Math.max(0, m.hp));
+        if (m.state !== 'alive' && m.state !== 'joining') gs.gunKills = (gs.gunKills || 0) + 1;
+      }
     }
     if (def.suppress && !friendly && dist(sq.cx, sq.cz, x, z) <= R + 4) {
       sq.suppressUntil = Math.max(sq.suppressUntil || 0, state.tick + Math.round(def.suppress.seconds * TICK_RATE));
     }
   }
   for (const st of state.structures.slice()) {
-    if (!def.indiscriminate && !areHostile(faction, st.faction)) continue;
+    // ruin garrisons: shells batter the walls whoever is (or is not) inside — so a falling hit-point
+    // bar can never tell a shelling side that a hidden enemy holds the ruin
+    const ruin = st.occ && STRUCTURES[st.type].garrison;
+    if (!def.indiscriminate && !areHostile(faction, st.faction) && !ruin) continue;
+    if (st.collapsed) continue;
     const d = distanceToStructure(st, x, z);
     if (d > R) continue;
     const sd = STRUCTURES[st.type];
@@ -274,6 +290,12 @@ export function updateEffects(sim) {
       if (state.tick >= e.end) { state.effects.splice(i, 1); continue; }
     } else if (e.kind === 'tide') {
       if (state.tick >= e.end) { state.effects.splice(i, 1); continue; }
+    } else if (e.kind === 'shell') {
+      // an emplacement round (field gun / viscera cannon) landing after its flight
+      if (state.tick >= e.next) {
+        explode(sim, e.faction, e.blast, e.x, e.z, e.ability);
+        state.effects.splice(i, 1);
+      }
     } else if (e.kind === 'detonation') {
       if (state.tick >= e.next) {
         explode(sim, e.faction, e.blast, e.x, e.z, 'detonation');

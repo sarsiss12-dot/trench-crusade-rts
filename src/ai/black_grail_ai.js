@@ -26,6 +26,7 @@ import { unitCost, unitMaxSquads, specHas, unlockedBySpec } from '../sim/special
 import { aiIssue } from './issue.js';
 import { aiPickSpeciality } from './spec_pick.js';
 import { forageSpot, habitatSpot, raidTarget, convoyNear, clusterTarget, visibleHostiles } from './black_grail_econ.js';
+import { isLull } from '../sim/lull.js';
 
 const LANES = ['west', 'center', 'east'];
 const WAYPOINT_REACHED = 16;
@@ -34,7 +35,8 @@ const RAID_EVERY = 20 * 120; // between raids (x2 while biomass is plentiful)
 const RAID_MAX = 20 * 150; // a raid gives up after this
 
 function combatSquads(sim, fid) {
-  return sim.state.squads.filter((sq) => sq.faction === fid && unitDef(sq.type).combatUnit && sq.members.some((m) => m.state === 'alive' || m.state === 'rising'));
+  // the commander is not a wave member: he follows the horde (command(), Phase 4)
+  return sim.state.squads.filter((sq) => sq.faction === fid && unitDef(sq.type).combatUnit && !unitDef(sq.type).commander && sq.members.some((m) => m.state === 'alive' || m.state === 'rising'));
 }
 
 function aliveCount(sq) {
@@ -198,6 +200,14 @@ export const blackGrailAI = {
       return;
     }
     if (state.match.phase !== 'WAR') return;
+    if (isLull(state)) {
+      // operational lull: pull back and regroup at the staging points, grow the horde, forage,
+      // raise structures; the formed waves launch when the front stirs again
+      this.lullRegroup(sim, fid, ai);
+      this.produce(sim, fid, ai);
+      this.gangs(sim, fid, ai);
+      return;
+    }
     if (ai.phase === 'deploy') {
       ai.phase = 'assault';
       ai.launchedTick = state.tick;
@@ -206,9 +216,34 @@ export const blackGrailAI = {
     this.manageGroups(sim, fid, ai);
     if (!stress) this.raids(sim, fid, ai);
     this.useAbility(sim, fid, ai);
+    this.command(sim, fid, ai);
     this.plague(sim, fid, ai);
     this.produce(sim, fid, ai);
     this.gangs(sim, fid, ai);
+  },
+
+  /** Once per lull: every wave / raid becomes a forming group back at its lane's staging point. */
+  lullRegroup(sim, fid, ai) {
+    const { state, rt } = sim;
+    const l = state.match.lull;
+    if (ai.lullSeen === l.idx + 1) return;
+    ai.lullSeen = l.idx + 1;
+    if (ai.raid) ai.raid = null;
+    for (const g of ai.groups) {
+      if (!g.squadIds.length) continue;
+      g.mode = 'forming';
+      g.formedTick = state.tick;
+      g.stage = 0;
+      const wp = laneWaypoint(sim, g.lane, 0);
+      const ids = [];
+      for (const id of g.squadIds) {
+        const sq = rt.squadById.get(id);
+        if (!sq) continue;
+        ai.stage[id] = 0;
+        ids.push(id);
+      }
+      if (ids.length) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: ids, x: wp[0], z: wp[1] });
+    }
   },
 
   specWeights(sim, fid, tier) {
@@ -345,6 +380,22 @@ export const blackGrailAI = {
         if (d < sd) { sd = d; site = st; }
       }
       if (site) { busy.add(site.id); aiIssue(sim, { type: CMD.ASSIST_BUILD, faction: fid, squadIds: [g.id], sid: site.id }); continue; }
+      // 2a) Phase 4 organic defences: one Viscera Cannon nest, then one Belcher nest over the altar
+      //     approaches, once the war is two minutes old and the biomass is there (with a reserve)
+      if (!placedNow && state.match.phase === 'WAR' && state.tick - (state.match.prepEndTick || 0) > 20 * 120) {
+        for (const type of ['viscera_nest', 'belcher_nest']) {
+          if (state.structures.some((s) => s.faction === fid && s.type === type)) continue;
+          const item = (world.grailPlan || []).find((it) => it.type === type);
+          const cost = STRUCTURES[type].cost.biomass;
+          if (!item || (f.resources.biomass || 0) < cost) break;
+          const params = { x: item.x, z: item.z, rot: item.rot || 0 };
+          if (!validatePlacement(sim, fid, type, params).ok) continue;
+          aiIssue(sim, { type: CMD.BUILD, faction: fid, squadIds: [g.id], stype: type, ...params });
+          placedNow = true;
+          break;
+        }
+        if (placedNow) continue;
+      }
       // 2) next organic plan item: with a surplus, or when one is due (every ~90 s of war the
       //    altars hold back its price — production alone would never leave a surplus)
       if (!placedNow && state.match.phase === 'WAR') {
@@ -423,6 +474,49 @@ export const blackGrailAI = {
     }
   },
 
+  /**
+   * The Lord of Tumours rides BEHIND the strongest advancing wave (22 m back toward the altars),
+   * fights what reaches him, and falls back to an altar when badly hurt: a commander, not a
+   * battering ram (his death costs the whole faction).
+   */
+  escortLord(sim, fid, ai, lord) {
+    const { state } = sim;
+    let hp = 0;
+    for (const m of lord.members) if (m.state === 'alive') hp += m.hp;
+    const altar = state.structures.find((s) => s.faction === fid && s.type === 'grail_altar' && s.built);
+    if (hp < unitDef(lord.type).hp * 0.45 && altar) {
+      if (dist(lord.cx, lord.cz, altar.x, altar.z) > 20 && lord.order.t !== 'move') aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lord.id], x: altar.x, z: altar.z + 14 });
+      return;
+    }
+    let best = null, bn = 0;
+    for (const g of ai.groups) {
+      if (g.mode !== 'advance' || g.squadIds.length <= bn || !groupCentroid(sim, g, C)) continue;
+      bn = g.squadIds.length; best = [C[0], C[1]];
+    }
+    if (!best || lord.engaged || lord.order.t === 'attack') return;
+    const home = altar ? [altar.x, altar.z] : [lord.cx, lord.cz - 30];
+    const dx = home[0] - best[0], dz = home[1] - best[1], d = Math.max(1, dist(0, 0, dx, dz));
+    const tx = best[0] + (dx / d) * 22, tz = best[1] + (dz / d) * 22;
+    if (dist(lord.cx, lord.cz, tx, tz) > 10) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lord.id], x: tx, z: tz, attackMove: true });
+  },
+
+  /** PLAGUE BLESSING when the Lord of Tumours and his horde are in the thick of it. */
+  command(sim, fid, ai) {
+    const { state } = sim;
+    if ((state.tick + 3) % 10 !== 0) return;
+    const c = state.factions[fid].cmdr;
+    if (!c || !c.sq) return;
+    const lord0 = sim.rt.squadById.get(c.sq);
+    if (lord0 && (state.tick + 3) % 40 === 0) this.escortLord(sim, fid, ai, lord0);
+    if (state.tick < c.abReady) return;
+    const lord = lord0;
+    if (!lord || (state.factions[fid].resources.biomass || 0) < 30) return;
+    let engaged = 0;
+    for (const sq of state.squads) if (sq.faction === fid && sq.engaged && dist(sq.cx, sq.cz, lord.cx, lord.cz) < 18) engaged++;
+    if (engaged >= 2) aiIssue(sim, { type: CMD.COMMANDER_ABILITY, faction: fid });
+    void ai;
+  },
+
   manageGroups(sim, fid, ai) {
     const { state, rt } = sim;
     const bit = 1 << FACTIONS[fid].index;
@@ -433,7 +527,10 @@ export const blackGrailAI = {
       if (g.mode === 'forming') {
         // launch the wave when strong enough or after waiting long enough
         if (!g.formedTick) g.formedTick = state.tick;
-        if (g.squadIds.length >= 3 || state.tick - g.formedTick > 20 * 40) {
+        // Phase 4: the first minutes of the war come in smaller, quicker swarms (the horde should be
+        // felt early); later waves gather in strength
+        const early = state.tick - (ai.launchedTick || state.tick) < 20 * 180;
+        if (g.squadIds.length >= (early ? 2 : 3) || state.tick - g.formedTick > 20 * (early ? 25 : 40)) {
           g.lane = safestLane(ai, state.rng.ai);
           this.launch(sim, fid, ai, g);
         } else {

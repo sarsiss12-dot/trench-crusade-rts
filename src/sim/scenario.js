@@ -1,5 +1,7 @@
 // Scenario setup: map-placed structures & resource nodes, starting forces at map anchors,
 // objectives, and the development stress-test force generator.
+import { addRuinGarrisons } from '../units/garrison.js';
+import { claimStartingCommanders } from './commander.js';
 import { STRUCTURES } from '../data/structures.js';
 import { unitDef } from '../data/units.js';
 import { PI } from '../core/dmath.js';
@@ -29,7 +31,8 @@ function placeForces(sim, fid, forces) {
     for (let i = 0; i < f.count; i++) {
       const p = pts[i % pts.length];
       const ring = Math.floor(i / pts.length);
-      addSquad(sim, fid, f.unit, p[0] + (ring % 2 ? 6 : 0), p[1] + back * ring * 14, rot);
+      const side = f.commander ? 10 : 0; // the commander stands beside the reserve, not on it
+      addSquad(sim, fid, f.unit, p[0] + (ring % 2 ? 6 : 0) + side, p[1] + back * ring * 14, rot);
     }
   }
 }
@@ -97,6 +100,10 @@ export function setupScenario(sim, scenario) {
   } else {
     for (const fid in scenario.forces) placeForces(sim, fid, scenario.forces[fid]);
   }
+  claimStartingCommanders(sim);
+  // Phase 4: ruin garrisons (neutral, created last so earlier ids stay as they were); the pure
+  // battle benchmark (stress) stays comparable between phases without them
+  if (scenario.mode !== 'stress') addRuinGarrisons(sim);
   const obj = state.structures.find((s) => s.objective);
   if (obj) {
     state.objectives.push({

@@ -43,6 +43,18 @@ export function createSelection() {
     changed();
   };
 
+  /** Tap on an own squad: additive (Shift / Ctrl / MULTI-SELECT mode) toggles it, else replaces. */
+  sel.tapOwn = (id, additive) => {
+    if (additive) sel.toggle(id);
+    else sel.set([id]);
+  };
+
+  /** Box drag result: additive adds; an empty box clears only outside multi-select mode. */
+  sel.applyBox = (ids, additive, multi) => {
+    if (ids.length) { if (additive) sel.add(ids); else sel.set(ids); }
+    else if (!multi) sel.clear();
+  };
+
   sel.setStruct = (id) => {
     sel.squads.clear();
     sel.struct = id;
@@ -113,4 +125,9 @@ export function squadIdsWithRole(sim, viewer, role) {
     ids.push(sq.id);
   }
   return ids.sort((a, b) => a - b);
+}
+
+/** The MULTI-SELECT quick button's visible state: explicit ON label + class (Phase 4 mobile UX). */
+export function multiSelectView(multiOn) {
+  return { on: !!multiOn, labelKey: multiOn ? 'hud.multi_on' : 'hud.multi_short', icon: 'multi' };
 }

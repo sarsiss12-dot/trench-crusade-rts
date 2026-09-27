@@ -2,6 +2,7 @@
 // through the session (INPUT -> COMMAND -> SIMULATION). Pre-validation here only reads state
 // (same validators the simulation uses) to give instant feedback; the simulation stays the
 // authority and reports rejections as COMMAND_REJECTED events.
+import { canGarrison } from '../units/garrison.js';
 import { CMD } from '../sim/commands.js';
 import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -75,6 +76,21 @@ export function createActions(game) {
       return true;
     },
 
+    /** Auto reinforcement for the selected squads: 1 always, 0 never, -1 follow the default. */
+    autoReinforce(on) {
+      const squads = own();
+      if (!squads.length) return false;
+      session.issue(CMD.SET_AUTO_REINFORCE, { squadIds: squads.map((s) => s.id), on });
+      if (game.audio) game.audio.ui('click');
+      return true;
+    },
+
+    /** Faction-wide default: 'off' | 'important' | 'all'. */
+    autoReinforceDefault(mode) {
+      session.issue(CMD.SET_AUTO_REINFORCE_DEFAULT, { mode });
+      return true;
+    },
+
     reinforce() {
       const squads = own();
       if (!squads.length) return false;
@@ -127,6 +143,29 @@ export function createActions(game) {
       if (st.built && st.hp >= st.maxHp) return fail('cmd.no_damage');
       session.issue(st.built ? CMD.REPAIR : CMD.ASSIST_BUILD, { squadIds: squads.map((s) => s.id), sid: st.id });
       feedback('build', st.x, st.z);
+      return true;
+    },
+
+    /** The commander's ability (the area follows him). */
+    commanderAbility() {
+      session.issue(CMD.COMMANDER_ABILITY, {});
+      return true;
+    },
+
+    /** Occupy a ruin garrison with the selected line squads (nearest entrance, then slots). */
+    garrison(st) {
+      const squads = own().filter((sq) => canGarrison(sq));
+      if (!squads.length) return false;
+      session.issue(CMD.GARRISON, { squadIds: squads.map((s) => s.id), sid: st.id });
+      feedback('rally', st.x, st.z);
+      return true;
+    },
+
+    /** Leave the ruin through the nearest doorway. */
+    ungarrison() {
+      const squads = own().filter((sq) => sq.order.t === 'garrison');
+      if (!squads.length) return false;
+      session.issue(CMD.UNGARRISON, { squadIds: squads.map((s) => s.id) });
       return true;
     },
 
@@ -215,6 +254,16 @@ export function createActions(game) {
       const cmd = { x, z };
       if (squads.length) cmd.squadIds = squads.map((s) => s.id);
       session.issue(CMD.SANITIZE, cmd);
+      feedback('build', x, z);
+      return true;
+    },
+
+    /** SALVAGE AREA: selected engineers (else the nearest free one) strip every known heap around. */
+    salvageArea(x, z) {
+      const squads = own().filter((sq) => unitDef(sq.type).gathers && unitDef(sq.type).gathers !== 'corpse');
+      const cmd = { x, z };
+      if (squads.length) cmd.squadIds = squads.map((s) => s.id);
+      session.issue(CMD.SALVAGE_AREA, cmd);
       feedback('build', x, z);
       return true;
     },

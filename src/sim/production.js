@@ -9,6 +9,7 @@ import { canAfford, pay, refund } from '../economy/economy.js';
 import { createSquad } from './state.js';
 import { setOrder } from '../units/orders.js';
 import { unlockedBySpec, specHas, unitCost, unitTrainTime, unitSquadSize, unitMaxSquads } from './specialities.js';
+import { commanderTrainRefusal } from './commander.js';
 
 export const MAX_QUEUE = 5;
 
@@ -27,8 +28,10 @@ export function canTrain(sim, faction, st, unitType) {
   const u = unitDef(unitType);
   if (u.faction !== faction || !u.cost) return 'train.invalid';
   const state = sim.state;
+  // Phase 4 commander: one on the field; a replacement only after the wait (no doctrine needed)
+  if (u.commander) { const why = commanderTrainRefusal(sim, faction, unitType); if (why) return why; }
   // speciality-gated units / trainers, structure-gated units (flamer teams need a workshop)
-  if (!unlockedBySpec(state, faction, u)) return 'train.spec';
+  if (!u.commander && !unlockedBySpec(state, faction, u)) return 'train.spec';
   if (def.trainsSpec && def.trainsSpec[unitType] && !specHas(state, faction, def.trainsSpec[unitType])) return 'train.spec';
   if (u.requiresStructure && !state.structures.some((s) => s.faction === faction && s.type === u.requiresStructure && s.built)) return 'train.requires';
   if (st.queue.length >= MAX_QUEUE) return 'train.queue_full';

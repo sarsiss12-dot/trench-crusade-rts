@@ -405,6 +405,12 @@ function updateCrew(sim, sq) {
         approachPoint(haven, sq.cx, sq.cz, P, 1.2);
       }
       moveTo(sim, sq, P[0], P[1]);
+      // ALARM (Phase 4): one alarm per home per half minute — HUD notice, bell, marker (own side only)
+      const lastAlarm = home.alarmT === undefined ? -1e9 : home.alarmT;
+      if (state.tick - lastAlarm > 30 * T) {
+        home.alarmT = state.tick;
+        sim.events.push({ type: EV.CIVILIAN_ALARM, faction: fid, sid: home.id, x: home.x, z: home.z, mode: c.mode });
+      }
       return;
     }
   }

@@ -6,6 +6,7 @@ import { structGridQuery } from '../world/structgrid.js';
 import { cellIndex } from '../world/terrain.js';
 import { pointInTrench, trenchCoverStrength } from '../construction/trench.js';
 import { clamp } from '../core/dmath.js';
+import { insideRuin } from '../world/ruin_geometry.js';
 
 const near = [];
 
@@ -45,6 +46,18 @@ function craterCover(sim, x, z) {
   return 0;
 }
 
+/**
+ * Ruin garrison cover (Phase 4) at a point: strength 0..1 (0 = not inside a standing garrison
+ * ruin). Scales with the ruin's remaining hit points (a battered ruin shelters less).
+ */
+export function garrisonCoverAt(sim, s, x, z) {
+  const d = STRUCTURES[s.type];
+  if (!d.garrison || s.collapsed || s.ruin === undefined) return 0;
+  const r = sim.world.ruins[s.ruin];
+  if (!r || !insideRuin(r, x, z, 0.2)) return 0;
+  return clamp(s.hp / s.maxHp + 0.35, 0.4, 1);
+}
+
 /** A wall-family line (sandbags, low sandbags, breastwork, timber / fortified wall, bone barricade). */
 function wallDef(s) {
   const d = STRUCTURES[s.type];
@@ -65,6 +78,10 @@ export function coverAt(sim, x, z) {
   structGridQuery(sim.rt.structGrid, x, z, 2.5, near);
   for (let i = 0; i < near.length; i++) {
     const s = near[i];
+    if (STRUCTURES[s.type].garrison && garrisonCoverAt(sim, s, x, z) > 0) {
+      if (levelOf(COVER_INDEX.garrison) >= levelOf(best)) best = COVER_INDEX.garrison;
+      continue;
+    }
     if (s.type === 'trench') {
       if (pointInTrench(s, x, z) && trenchCoverStrength(s) >= 0.35) {
         if (levelOf(COVER_INDEX.trench) > levelOf(best)) best = COVER_INDEX.trench;
@@ -104,6 +121,15 @@ export function protectionAgainst(sim, x, z, ax, az, out) {
   structGridQuery(sim.rt.structGrid, x, z, 2.5, near);
   for (let i = 0; i < near.length; i++) {
     const s = near[i];
+    if (STRUCTURES[s.type].garrison) {
+      // inside a garrison ruin; an attacker inside the same walls gets no benefit from them
+      const k = garrisonCoverAt(sim, s, x, z);
+      if (k > 0 && garrisonCoverAt(sim, s, ax, az) === 0) {
+        const c = COVER_TYPES.garrison;
+        if (c.dmgReduction * k > dmg) { dmg = c.dmgReduction * k; acc = Math.max(acc, c.accPenalty * k); cov = COVER_INDEX.garrison; }
+      }
+      continue;
+    }
     if (s.type === 'trench') {
       if (!pointInTrench(s, x, z)) continue;
       const k = trenchCoverStrength(s);

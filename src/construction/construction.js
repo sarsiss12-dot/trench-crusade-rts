@@ -324,7 +324,8 @@ export function updateConstruction(sim) {
       if (def.kind === 'linear' && before < 0.3 && s.progress >= 0.3) structuresChanged(sim);
       if (s.progress >= 1 - 1e-9) completeStructure(sim, s);
     } else if (w.repair && s.hp < s.maxHp) {
-      const f = state.factions[s.faction];
+      const f = state.factions[s.faction] || state.factions[w.faction]; // a neutral ruin: the repairing side pays
+      if (s.collapsed) continue;
       const hp = Math.min(s.maxHp - s.hp, eff * 14);
       const cost = hp * 0.05;
       if ((f.resources.material || 0) >= cost) {

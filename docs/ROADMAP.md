@@ -24,7 +24,7 @@ korunur, kayıt sürümü gerekiyorsa artırılır ve göç yazılır.
 - Katmanlı silah sesleri, ses bütçesi, uzak cephe, prosedürel müzik, ayrı müzik/efekt sesi.
 - Kayıt sürümü 2 + göç; 157 Node testi.
 
-## Faz 3 — Yaşayan cephe + asimetrik ekonomi (bu teslim) ✅
+## Faz 3 — Yaşayan cephe + asimetrik ekonomi ✅
 - 10 kaynak bölgesi (maç başına zenginlik), sivil yerleşimler, tarla / ağıl / taş ocağı, nüfus → insan gücü, konvoylar.
 - Görünür siviller: çalışma, sığınma, TAHLİYE; yerleşim kaybı.
 - Otomatik istihkâmcı atama + sıra + merkeze dönüş, HUD istihkâm şeridi, harita vurgusu.
@@ -35,7 +35,13 @@ korunur, kayıt sürümü gerekiyorsa artırılır ve göç yazılır.
 - 3×3 uzmanlık (geri alınamaz, 3 kart + onay), sınırlı kahraman / seçkinler, çok mangalı siper + kartlar.
 - İki AI için yayılma / yiyecek arama / baskın / uzmanlık; kayıt sürümü 3 + göç; 195 Node testi.
 
-## Faz 4 — Gerçek cihaz ve his
+## Faz 4 — Muharebe akışı (bu teslim) ✅
+- Ses kurtarma durum makinesi + telefonda duyulur müzik + ambiyans; takviye düzeltmesi + otomatik takviye.
+- Kontrol grupları 1/2/3, Çoklu Seçim UX, mobil hurda seçimi, HURDA ALANI, EKONOMİ GÖRÜNÜMÜ, sivil alarmı.
+- Operasyonel duraklama, harabe garnizonu, sahra topu, komutanlar, Kara Kâse erken oyun + organik savunmalar.
+- Kayıt sürümü 4 + göç; 235 Node testi.
+
+## Faz 4b — Gerçek cihaz ve his
 - Gerçek Android cihazlarda (Adreno / Mali / PowerVR) profil: GPU zamanlayıcı sorguları, kalite ön ayarı kalibrasyonu.
 - Ölçüme göre: poz dokusu için doku döndürme (2–3 doku), iOS Safari'de `flat` varyasyon maliyeti, gezinme
   katmanlarının yapı değişiminde artımlı güncellenmesi, uzun A* aramalarının tick'lere bölünmesi.

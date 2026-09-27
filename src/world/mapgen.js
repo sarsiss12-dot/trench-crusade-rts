@@ -8,6 +8,7 @@ import { STRUCTURES } from '../data/structures.js';
 import { fbm, valueNoise, ridged } from '../core/noise.js';
 import { createRngState, rngFloat, rngRange, rngInt, hashFloat, hashString } from '../core/rng.js';
 import { dsin, dcos, clamp, lerp, smoothstep, dist, pointSegment } from '../core/dmath.js';
+import { isDoorPiece, ruinEntrances } from './ruin_geometry.js';
 
 const tmp2 = [0, 0];
 
@@ -427,8 +428,8 @@ export function ruinPieces(r, index, seed) {
       const cornerBoost = k === 0 || k === nseg - 1 ? 0.25 : 0;
       let h = baseH * clamp(0.22 + 0.85 * q + cornerBoost, 0, 1.05);
       if (q < 0.2 && cornerBoost === 0) h = 0.35 + q2 * 0.4; // collapsed to a low stub
-      // doorway on the front side
-      if (side === 0 && r.kind !== 'wall' && k === Math.floor(nseg / 2)) h = Math.min(h, 0.3);
+      // doorways: front side (every ruin), back side (chapel) — the garrison entrances
+      if (isDoorPiece(r.kind, side, k, nseg)) h = Math.min(h, 0.3);
       const t0 = k / nseg, t1 = (k + 1) / nseg;
       const p0 = toWorld(lerp(a[0], b[0], t0), lerp(a[1], b[1], t0));
       const p1 = toWorld(lerp(a[0], b[0], t1), lerp(a[1], b[1], t1));
@@ -470,6 +471,16 @@ function placeRuins(world) {
     }
     for (const p of pieces) {
       if (p.h > 1.4) markSegmentCells(t, p.ax, p.az, p.bx, p.bz, (idx) => { t.blocked[idx] = 1; });
+    }
+    // Phase 4: keep every doorway open on the nav grid — a corridor from outside to inside the
+    // walls (the 2 m cells of neighbouring wall pieces used to seal a 2.2 m doorway: squads that
+    // tried to enter a ruin got stuck at the wall)
+    if (r.kind !== 'wall') {
+      for (const e of ruinEntrances(r)) {
+        const nx = e.ix - e.ox, nz = e.iz - e.oz, nl = dist(0, 0, nx, nz) || 1;
+        const px = -nz / nl * 0.6, pz = nx / nl * 0.6;
+        for (const k of [-1, 0, 1]) markSegmentCells(t, e.ox + px * k, e.oz + pz * k, e.ix + px * k, e.iz + pz * k, (idx) => { t.blocked[idx] = 0; });
+      }
     }
   });
 }

@@ -384,3 +384,36 @@ pre.debug {
 @media (max-width: 560px) {
   .engstrip { top: calc(78px * var(--ui) + min(22vh, 150px * var(--ui)) + var(--safe-t)); }
 }
+
+/* ---------------------------------------------------------------- Phase 4 */
+/* control groups 1/2/3: a slim column left of the quick stack (long press = save) */
+.cgroups { position: absolute; right: calc(16px + 50px * var(--ui) + var(--safe-r)); top: calc(50px * var(--ui) + var(--safe-t)); display: flex; flex-direction: column; gap: 6px; }
+.cgroups .cg {
+  width: calc(42px * var(--ui)); min-height: calc(40px * var(--ui)); border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2px; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.cgroups .cg b { font: 700 calc(15px * var(--ui)) var(--serif); line-height: 1; }
+.cgroups .cg i { font-style: normal; display: flex; align-items: center; gap: 1px; font-size: calc(10px * var(--ui)); color: var(--accent); }
+.cgroups .cg i svg { width: calc(11px * var(--ui)); height: calc(11px * var(--ui)); }
+.cgroups .cg.empty { opacity: 0.45; }
+.cgroups .cg.empty b { color: var(--dim); }
+.cgroups .cg.flash { border-color: var(--good); box-shadow: 0 0 10px rgba(157, 179, 107, 0.6); }
+/* commander slot under the groups: portrait + health, the command ability below */
+.cmdr { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.cmdr.none { display: none; }
+.cmdr button { width: calc(42px * var(--ui)); border-radius: 8px; border: 1px solid var(--accent); background: var(--bg); color: var(--text); padding: 3px 2px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.cmdr .cmdr-face svg { width: calc(22px * var(--ui)); height: calc(22px * var(--ui)); }
+.cmdr .cmdr-face .hp { display: block; width: 90%; height: 4px; background: rgba(0,0,0,0.5); border-radius: 2px; overflow: hidden; }
+.cmdr .cmdr-face .hp i { display: block; height: 100%; background: var(--good); }
+.cmdr .cmdr-face.dead { border-color: var(--warn); opacity: 0.6; }
+.cmdr .cmdr-ab svg { width: calc(18px * var(--ui)); height: calc(18px * var(--ui)); }
+.cmdr .cmdr-ab i { font-style: normal; font-size: calc(9px * var(--ui)); line-height: 1.05; text-align: center; color: var(--dim); }
+.cmdr .cmdr-ab.ready { border-color: var(--warn); animation: specpulse 1.4s ease-in-out infinite; }
+.cmdr .cmdr-ab.ready i { color: var(--warn); }
+.cmdr .cmdr-ab.active { background: #3a2f1c; }
+.cmdr .cmdr-ab:disabled { opacity: 0.6; }
+.quick .q.tog.on i { color: #f3e3bb; font-weight: 700; }
+.quick .q.tog i { white-space: normal; line-height: 1.05; font-size: 0.6em; text-align: center; }
+.banner.lull { color: #b9c9d6; }
+.phase.lull { border-color: #7e93a6; }
+@media (max-height: 420px) { .cgroups .cg { min-height: calc(34px * var(--ui)); } }

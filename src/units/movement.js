@@ -2,6 +2,7 @@
 // formation slots, trench posts, work spots, melee chase, separation. Soldiers do not path-find;
 // only a soldier that stops making progress (cut off behind water, a building or a crowd) gets a
 // budgeted rescue detour, and as a last resort rejoins beside its squad anchor.
+import { garrisonSteer, GARRISON_STEER } from './garrison.js';
 import { unitDef } from '../data/units.js';
 import { FACTIONS } from '../data/factions.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -13,6 +14,7 @@ import { trenchSlot } from '../construction/trench.js';
 import { workSpot, approachPoint } from './orders.js';
 import { rebuildSoldierGrid } from '../sim/runtime.js';
 import { specValue } from '../sim/specialities.js';
+import { EV } from '../core/events.js';
 
 const OFF = [0, 0];
 const SPOT = [0, 0];
@@ -127,6 +129,11 @@ function soldierTarget(sim, sq, m, def, aliveIndex, aliveTotal, offs) {
     }
     m.postId = 0; m.postSlot = -1;
   }
+  // 2b. ruin garrison: slot inside the walls, entering / leaving through a doorway
+  if (sq.order.t === 'garrison' || m.gexit || (m.gslot !== undefined && m.gslot !== -1)) {
+    const gh = garrisonSteer(sim, sq, m, OFF);
+    if (gh !== undefined) return gh;
+  }
   // 3. work spots
   const o = sq.order;
   if ((o.t === 'build' || o.t === 'repair') && o.arrived) {
@@ -169,21 +176,50 @@ function soldierTarget(sim, sq, m, def, aliveIndex, aliveTotal, offs) {
   return NaN;
 }
 
-function stepSoldier(sim, sq, m, def, fIdx, tx, tz, facingHint) {
+/**
+ * A walking replacement: it heads for the rear of its squad and JOINS once it is close enough
+ * (deterministic: distance / arrival / timeout on the simulation clock). Only then it becomes
+ * 'alive' — counted, posted in the trench (garrison upkeep), part of the formation.
+ */
+export const JOIN_RADIUS = 4.5;
+function stepJoiner(sim, sq, m, def, fIdx, present) {
+  const { state, rt } = sim;
+  const nav = rt.nav;
+  const back = def.spacing * 2 + 1;
+  const lat = (((m.id % 5) - 2) * def.spacing) * 0.8;
+  const sx = dsin(sq.rot), sz = dcos(sq.rot);
+  const tx = sq.x - sx * back + sz * lat, tz = sq.z - sz * back - sx * lat;
+  passableGoal(nav, sq.x, sq.z, tx, tz, GOAL);
+  const gx = GOAL[0], gz = GOAL[1];
+  const dGoal = dist(m.x, m.z, gx, gz);
+  steeringPoint(m, gx, gz, dGoal, STEER);
+  stepSoldier(sim, sq, m, def, fIdx, STEER[0], STEER[1], NaN);
+  watchProgress(sim, sq, m, dGoal, gx, gz);
+  m.working = 0;
+  const near = present > 0 ? dist(m.x, m.z, sq.cx, sq.cz) <= Math.max(JOIN_RADIUS, def.spacing * 3) : dGoal < 2;
+  if (near || dGoal < 1.5 || state.tick - m.stateTick > JOIN_TIMEOUT_TICKS) {
+    m.state = 'alive';
+    m.stateTick = state.tick;
+    m.dp = null;
+    sim.events.push({ type: EV.REINFORCEMENT_JOINED, faction: sq.faction, squadId: sq.id, id: m.id, x: m.x, z: m.z });
+  }
+}
+
+function stepSoldier(sim, sq, m, def, fIdx, tx, tz, facingHint, free = 0) {
   const nav = sim.rt.nav;
   const px = m.x, pz = m.z;
   const dx = tx - m.x, dz = tz - m.z;
   const d = Math.sqrt(dx * dx + dz * dz);
   if (d > 0.04) {
     let mult = moveSpeedMult(nav, m.x, m.z, sq.faction, fIdx, def.heavy);
-    if (mult <= 0) mult = 0.5; // escape blocked cell
+    if (mult <= 0 || (free && mult < 0.7)) mult = free ? 0.7 : 0.5; // escape blocked cell / wall strip inside a ruin
     let sp = def.speed * DT * mult;
     if (sq.suppressUntil > sim.state.tick) sp *= SUPPRESS_SPEED;
     if (d > 2.5) sp *= 1.3;
     if (sq.melee) sp *= 1.12;
     const step = d < sp ? d : sp;
     const nx = m.x + (dx / d) * step, nz = m.z + (dz / d) * step;
-    if (isPointPassable(nav, nx, nz)) { m.x = nx; m.z = nz; }
+    if (free || isPointPassable(nav, nx, nz)) { m.x = nx; m.z = nz; }
     else if (isPointPassable(nav, nx, m.z)) m.x = nx;
     else if (isPointPassable(nav, m.x, nz)) m.z = nz;
     else if (!isPointPassable(nav, m.x, m.z)) { m.x = nx; m.z = nz; }
@@ -290,33 +326,34 @@ export function updateMovement(sim) {
   for (const sq of state.squads) {
     const def = unitDef(sq.type);
     const fIdx = FACTIONS[sq.faction].index;
-    let aliveTotal = 0;
-    for (const m of sq.members) if (m.state === 'alive' || m.state === 'joining') aliveTotal++;
-    if (aliveTotal === 0) { sq.lag = 0; continue; }
+    // formation / work spots are laid out for the members PRESENT; walking replacements are not
+    // part of the squad until they reach it (Phase 4: no early HP / count / slot / post)
+    let aliveTotal = 0, joiners = 0;
+    for (const m of sq.members) { if (m.state === 'alive') aliveTotal++; else if (m.state === 'joining') joiners++; }
+    if (aliveTotal + joiners === 0) { sq.lag = 0; continue; }
     const offs = formationOffsets(sq.formation, Math.max(1, aliveTotal), def.spacing);
     let idx = 0, lagSum = 0, cx = 0, cz = 0, working = 0, present = 0;
     for (const m of sq.members) {
-      if (m.state !== 'alive' && m.state !== 'joining') continue;
+      if (m.state === 'joining') { stepJoiner(sim, sq, m, def, fIdx, aliveTotal); continue; }
+      if (m.state !== 'alive') continue;
+      GARRISON_STEER.free = 0;
       const hint = soldierTarget(sim, sq, m, def, idx, aliveTotal, offs);
-      passableGoal(nav, sq.x, sq.z, OFF[0], OFF[1], GOAL);
+      const free = GARRISON_STEER.free;
+      if (free) { GOAL[0] = OFF[0]; GOAL[1] = OFF[1]; } else passableGoal(nav, sq.x, sq.z, OFF[0], OFF[1], GOAL);
       const gx = GOAL[0], gz = GOAL[1];
       const dGoal = dist(m.x, m.z, gx, gz);
       steeringPoint(m, gx, gz, dGoal, STEER);
-      stepSoldier(sim, sq, m, def, fIdx, STEER[0], STEER[1], hint);
+      stepSoldier(sim, sq, m, def, fIdx, STEER[0], STEER[1], hint, free);
       watchProgress(sim, sq, m, dGoal, gx, gz);
-      if (m.state === 'joining' && (dGoal < 1.2 || state.tick - m.stateTick > JOIN_TIMEOUT_TICKS)) m.state = 'alive';
       // working flag: at a work spot
       const o = sq.order;
       const atWork = ((o.t === 'build' || o.t === 'repair') && o.arrived) || (o.t === 'gather' && o.phase === 'gathering') ||
         o.t === 'civwork' || (o.t === 'sanitize' && (o.phase === 'burn' || o.phase === 'clean'));
       m.working = atWork && dGoal < 1.3 && m.state === 'alive' ? 1 : 0;
       working += m.working;
-      // replacements still walking up do not hold the squad back nor move its centre
-      if (m.state !== 'joining') {
-        if (!m.postId) lagSum += dGoal;
-        cx += m.x; cz += m.z;
-        present++;
-      }
+      if (!m.postId) lagSum += dGoal;
+      cx += m.x; cz += m.z;
+      present++;
       idx++;
     }
     if (present) {

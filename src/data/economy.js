@@ -87,4 +87,5 @@ export const ENGINEERING = {
   dangerTicks: 60, // hit this recently = COMBAT/DANGER, not "available"
   highlightSec: 3,
   hubSearch: 400,
+  salvageAreaR: 40, // SALVAGE AREA order radius (m), Phase 4
 };

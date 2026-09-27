@@ -78,7 +78,8 @@ export function createStaticRenderer(gl, program, world, sim, opts) {
     props.push({ key, x: p.x, y: y - 0.05, z: p.z, rot: p.rot, s: p.s, tint: (hash32(p.seed, 5) & 255) / 255 });
   }
   const wrecks = []; // render-only remains of destroyed structures (persistent battlefield)
-  const crews = new Map(); // fire post id -> [visual, visual]
+  const crews = new Map(); // fire post id -> [visual, visual]; field gun id -> [layer, loader, spotter]
+  const gunRecoil = new Map(); // field gun id -> recoil 1..0 (presentation only)
   const lodDist = opts.quality === 'low' ? 60 : opts.quality === 'high' ? 140 : 95;
   const clutter = createClutter(gl, world, { density: opts.clutter !== undefined ? opts.clutter : 0.7, quality: opts.quality });
   let clutterSig = null;
@@ -123,7 +124,18 @@ export function createStaticRenderer(gl, program, world, sim, opts) {
       if (!known && !isStructureKnownTo(st, viewer)) continue;
       const y = ground(st.x, st.z);
       const dmg = st.built ? Math.max(0, 1 - st.hp / st.maxHp) : 0;
-      push(key, st.x, y, st.z, st.rot, 1, 0.5, st.built ? 1 : Math.max(0.02, st.progress), dmg, camera);
+      const prog = st.built ? 1 : Math.max(0.02, st.progress);
+      if (st.type === 'field_gun') {
+        // the whole gun traverses (trail shifted); the barrel runs back on recoil and returns
+        const aim = st.aim !== undefined ? st.aim : st.rot;
+        const rc = gunRecoil.get(st.id) || 0;
+        if (rc > 0) gunRecoil.set(st.id, Math.max(0, rc - dt * 2.2));
+        const back = rc > 0.6 ? (1 - rc) * 2.5 * 0.55 : rc * 0.55 / 0.6; // snap back, then slow run-out
+        push(key, st.x, y, st.z, aim, 1, 0.5, prog, dmg, camera);
+        if (prog > 0.6) push('field_gun_barrel', st.x - Math.sin(aim) * back, y, st.z - Math.cos(aim) * back, aim, 1, 0.5, 1, dmg, camera);
+        continue;
+      }
+      push(key, st.x, y, st.z, st.rot, 1, 0.5, prog, dmg, camera);
     }
     for (const n of nodes || sim2.state.nodes) {
       if (n.amount <= 0 || (!nodes && !isNodeKnownTo(n, viewer))) continue;
@@ -199,6 +211,17 @@ export function createStaticRenderer(gl, program, world, sim, opts) {
   }
 
   function onEvent(ev, show, sim2) {
+    if (ev.type === 'RUIN_COLLAPSED' && show) {
+      // the walls come down: heaps of masonry inside the ruin (the wall mesh stays as the stumps)
+      const def = STRUCTURES[ev.stype];
+      const y = ground(ev.x, ev.z);
+      const r = Math.max(def.footprint.w, def.footprint.d);
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * 6.28 + ev.id * 0.7;
+        wrecks.push({ key: i % 2 ? 'rubble_0' : 'rubble_2', x: ev.x + Math.cos(a) * r * 0.22, y, z: ev.z + Math.sin(a) * r * 0.22, rot: a, s: 0.9 + r / 14 });
+      }
+      return;
+    }
     if (ev.type === 'STRUCTURE_DESTROYED' && !ev.cancelled && show) {
       const def = STRUCTURES[ev.stype];
       if (def.kind === 'building') {
@@ -217,6 +240,7 @@ export function createStaticRenderer(gl, program, world, sim, opts) {
     if (ev.type === 'STRUCTURE_FIRE' && (show & 1)) {
       const c = crews.get(ev.struct);
       if (c) c[0].recoil = 1;
+      if (ev.weapon === 'field_gun_shell') gunRecoil.set(ev.struct, 1);
     }
   }
 
@@ -225,6 +249,7 @@ export function createStaticRenderer(gl, program, world, sim, opts) {
   function crewInstances(sim2, viewer, time, dt) {
     out.length = 0;
     for (const st of sim2.state.structures) {
+      if (st.type === 'field_gun' && st.built && isStructureVisibleTo(st, viewer)) { gunCrew(st, time, dt); continue; }
       if (st.type !== 'fire_post' || !st.built || !isStructureVisibleTo(st, viewer)) continue;
       let c = crews.get(st.id);
       if (!c) {
@@ -243,6 +268,25 @@ export function createStaticRenderer(gl, program, world, sim, opts) {
       out.push(gunner, loader);
     }
     return out;
+  }
+
+  /** Field gun crew: the layer at the sight, the loader at the breech, a spotter at the pit edge. */
+  function gunCrew(st, time, dt) {
+    let c = crews.get(st.id);
+    if (!c) { c = [0, 1, 2].map((k) => crewVisual(st, k)); crews.set(st.id, c); }
+    const aim = st.aim !== undefined ? st.aim : st.rot;
+    const y = ground(st.x, st.z);
+    const fx = Math.sin(aim), fz = Math.cos(aim), rx = -Math.cos(aim), rz = Math.sin(aim);
+    const place = (v, f, r, rot, work) => {
+      v.x = st.x + fx * f + rx * r; v.z = st.z + fz * f + rz * r; v.y = y - 0.05;
+      v.rot = rot; v.time = time; v.aim = 0; v.work = work; v.workPhase += dt * (work ? 1.6 : 0);
+    };
+    const rc = gunRecoil.get(st.id) || 0;
+    place(c[0], -0.3, -0.55, aim, 0);
+    place(c[1], -1.1, 0.45, aim + 0.4, rc > 0.2 ? 0.8 : 0.3);
+    place(c[2], -1.9, -1.6, aim - 0.3, 0);
+    c[2].aim = 0;
+    out.push(c[0], c[1], c[2]);
   }
 
   function crewVisual(st, k) {

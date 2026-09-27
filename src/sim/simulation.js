@@ -1,6 +1,9 @@
 // Simulation core: fixed-tick deterministic step over plain-data GameState.
 // Same initial state + seed + commands + ticks => same result (tested).
 // Render / UI / audio never mutate state; they consume sim.events after each tick.
+import { updateGarrisons, addRuinGarrisons } from '../units/garrison.js';
+import { updateEmplacements } from '../combat/emplacements.js';
+import { updateCommanders } from './commander.js';
 import { scenarioDef } from '../data/scenarios.js';
 import { mapDef } from '../data/maps.js';
 import { generateWorld } from '../world/mapgen.js';
@@ -90,6 +93,12 @@ export function simulationFromState(state) {
     setupFactions(sim);
     state.p3init = 1;
   }
+  // a save migrated from Phase 3 has no ruin garrisons yet (they come from the map geometry)
+  if (state.p4init === 0) {
+    reindexAll(sim);
+    if (scenario.mode !== 'stress') addRuinGarrisons(sim);
+    state.p4init = 1;
+  }
   reindexAll(sim);
   structuresChanged(sim);
   rebuildSoldierGrid(sim);
@@ -122,10 +131,13 @@ export function stepSimulation(sim) {
     runAI(sim);
     processPathRequests(sim);
     updateOrders(sim);
+    updateGarrisons(sim);
     updateEngineers(sim);
     updateMovement(sim);
     updateWildlife(sim);
     updateCombat(sim);
+    updateEmplacements(sim);
+    updateCommanders(sim);
     updateConstruction(sim);
     updateProduction(sim);
     updateEffects(sim);

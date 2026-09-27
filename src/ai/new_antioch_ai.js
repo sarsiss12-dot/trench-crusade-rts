@@ -28,6 +28,8 @@ import { aiPickSpeciality } from './spec_pick.js';
 import {
   economyBuild, economyUpkeep, sanitizeSpot, purgeSpot, ownSettlements, exposure, hostilesNear,
 } from './new_antioch_econ.js';
+import { isLull } from '../sim/lull.js';
+import { canGarrison } from '../units/garrison.js';
 
 function squadsOf(sim, fid) {
   return sim.state.squads.filter((sq) => sq.faction === fid && sq.members.some((m) => m.state === 'alive' || m.state === 'joining'));
@@ -35,7 +37,7 @@ function squadsOf(sim, fid) {
 
 function alive(sq) {
   let n = 0;
-  for (const m of sq.members) if (m.state === 'alive' || m.state === 'joining') n++;
+  for (const m of sq.members) if (m.state === 'alive') n++; // fighting strength: replacements count once joined
   return n;
 }
 
@@ -69,14 +71,26 @@ export const newAntiochAI = {
       if ((state.tick + 3) % 20 < 10) economyUpkeep(sim, fid, ai);
       this.engineers(sim, fid, ai, squads);
       this.garrison(sim, fid, ai, squads);
+      this.ruins(sim, fid, ai, squads);
+      this.placeCommander(sim, fid, ai);
       if (state.match.phase === 'WAR') this.guards(sim, fid, ai, squads);
     }
+    // auto reinforcement: the line (trench / garrison / heavy / leader squads) tops itself up
+    if (!stress && !ai.autoReinfSet && state.factions[fid].autoReinf !== 'important') {
+      ai.autoReinfSet = 1;
+      aiIssue(sim, { type: CMD.SET_AUTO_REINFORCE_DEFAULT, faction: fid, mode: 'important' });
+    }
     if (state.match.phase === 'WAR') {
+      const lull = isLull(state);
       this.reserve(sim, fid, ai, squads);
-      this.reinforce(sim, fid, ai, squads);
+      this.reinforce(sim, fid, ai, squads, lull);
       this.train(sim, fid, ai, squads);
-      this.artillery(sim, fid, ai, squads);
-      this.mortar(sim, fid, ai, squads);
+      // operational lull: no fire missions (refused anyway) — repair, reinforce, build, heal instead
+      if (!lull) {
+        this.artillery(sim, fid, ai, squads);
+        this.mortar(sim, fid, ai, squads);
+        this.command(sim, fid, ai);
+      }
       if (!stress) this.purge(sim, fid, ai);
     }
   },
@@ -108,7 +122,8 @@ export const newAntiochAI = {
       if (state.match.phase === 'WAR') {
         let rep = null, worst = 0.72;
         for (const s of state.structures) {
-          if (s.faction !== fid || !s.built || busyTargets.has(s.id)) continue;
+          const ownRuin = STRUCTURES[s.type].garrison && s.holder === fid && !s.collapsed;
+          if ((s.faction !== fid && !ownRuin) || !s.built || busyTargets.has(s.id)) continue;
           const ratio = s.hp / s.maxHp;
           const w = s.objective ? ratio - 0.15 : ratio;
           if (w < worst) {
@@ -144,6 +159,25 @@ export const newAntiochAI = {
         aiIssue(sim, { type: CMD.ASSIST_BUILD, faction: fid, squadIds: [e.id], sid: site.id });
         busyTargets.add(site.id);
         continue;
+      }
+      if (ai.gunSite && state.tick - ai.gunSite > 20 * 5) ai.gunSite = 0;
+      // 2b) Phase 4: the field gun is a priority once the first line stands (it answers the waves in
+      //     no man's land) — placed from the map plan when affordable, one site at a time
+      if (!ai.gunSite && (f.resources.material || 0) >= 135 && !state.structures.some((s) => s.faction === fid && s.type === 'field_gun')) {
+        const gi = world.defensePlan.find((it) => it.type === 'field_gun');
+        // after the first line AND the first settlement (the economy is not starved for a gun)
+        const setts = ownSettlements(state, fid).filter((s) => s.built).length;
+        const warSec = state.match.phase === 'WAR' ? (state.tick - state.match.prepEndTick) / 20 : 0;
+        const firstLine = state.structures.filter((s) => s.faction === fid && s.type === 'trench').length >= 2 &&
+          (setts >= 2 || (setts >= 1 && warSec > 150));
+        if (gi && firstLine) {
+          const params = { x: gi.x, z: gi.z, rot: gi.rot || 0 };
+          if (validatePlacement(sim, fid, 'field_gun', params).ok) {
+            aiIssue(sim, { type: CMD.BUILD, faction: fid, squadIds: [e.id], stype: 'field_gun', ...params });
+            ai.gunSite = state.tick; // one attempt per few seconds (the site appears next tick)
+            continue;
+          }
+        }
       }
       // 3) economy and the defence plan take turns (the first settlement goes up early in the
       //    preparation, right after the first line of trenches)
@@ -202,7 +236,7 @@ export const newAntiochAI = {
     if (!trenches.length) return;
     const line = squads.filter((sq) => {
       const d = unitDef(sq.type);
-      return d.combatUnit && d.canGarrison && !d.heavy && ai.reserveIds.indexOf(sq.id) < 0;
+      return d.combatUnit && d.canGarrison && !d.heavy && !d.commander && ai.reserveIds.indexOf(sq.id) < 0;
     });
     // capacity-aware spread: each squad to the least-filled segment near its position, and only
     // into a network with room for the WHOLE squad (the sim's own rule: no partial squads)
@@ -237,6 +271,80 @@ export const newAntiochAI = {
   },
 
   /**
+   * Phase 4 RUIN GARRISONS: spare line squads (no trench room) hold the ruined houses in front of
+   * and around the line (own half, not deep in no man's land), nearest ruin first; a battered ruin
+   * the side holds is repaired in quiet moments (engineers, see engineers()).
+   */
+  ruins(sim, fid, ai, squads) {
+    const { state, rt } = sim;
+    if ((state.tick + 11) % 40 >= 10 || state.match.phase !== 'WAR') return; // the trenches fill first
+    const objective = state.structures.find((s) => s.objective && s.faction === fid);
+    if (!objective) return;
+    const ruins = state.structures.filter((s) => STRUCTURES[s.type].garrison && !s.collapsed &&
+      (!s.holder || s.holder === fid) && dist(s.x, s.z, objective.x, objective.z) < 140 && s.z > objective.z - 140)
+      .sort((a, b) => dist(a.x, a.z, objective.x, objective.z) - dist(b.x, b.z, objective.x, objective.z) || a.id - b.id);
+    if (!ruins.length) return;
+    const coming = new Map();
+    for (const sq of squads) if (sq.order.t === 'garrison') coming.set(sq.order.sid, (coming.get(sq.order.sid) || 0) + 1);
+    const spare = squads.filter((sq) => {
+      const d = unitDef(sq.type);
+      return canGarrison(sq) && !d.aura && !ai.guards[sq.id] && ai.reserveIds.indexOf(sq.id) < 0 &&
+        sq.order.t === 'idle' && !sq.engaged && state.tick - sq.spawnTick > 20 * 6;
+    });
+    for (const st of ruins) {
+      const cap = st.type === 'ruin_chapel' || STRUCTURES[st.type].footprint.w * STRUCTURES[st.type].footprint.d >= 110 ? 2 : 1;
+      let n = (st.holder === fid ? st.occ.length : 0) + (coming.get(st.id) || 0);
+      while (n < Math.min(cap, 1 + (state.match.phase === 'WAR' ? 1 : 0)) && spare.length) {
+        spare.sort((a, b) => dist(a.cx, a.cz, st.x, st.z) - dist(b.cx, b.cz, st.x, st.z) || a.id - b.id);
+        const sq = spare.shift();
+        aiIssue(sim, { type: CMD.GARRISON, faction: fid, squadIds: [sq.id], sid: st.id });
+        ai.garrisonOrders = (ai.garrisonOrders || 0) + 1;
+        n++;
+      }
+      if (!spare.length) break;
+    }
+    void rt;
+  },
+
+  /** HOLD THE LINE when the Lieutenant's line is under a real assault. */
+  command(sim, fid, ai) {
+    const { state } = sim;
+    if ((state.tick + 5) % 10 !== 0) return;
+    const c = state.factions[fid].cmdr;
+    if (!c || !c.sq || state.tick < c.abReady) return;
+    const lt = sim.rt.squadById.get(c.sq);
+    if (!lt || (state.factions[fid].resources.supply || 0) < 80) return;
+    const bit = 1 << FACTIONS[fid].index;
+    let foes = 0, friends = 0;
+    for (const e of state.squads) {
+      const d = dist(e.cx, e.cz, lt.cx, lt.cz);
+      if (e.faction === fid && d < 20 && e.engaged) friends++;
+      else if (areHostile(fid, e.faction) && (e.visibleTo & bit) && d < 30) foes++;
+    }
+    if (foes >= 2 && friends >= 1) aiIssue(sim, { type: CMD.COMMANDER_ABILITY, faction: fid });
+    void ai;
+  },
+
+  /**
+   * The Lieutenant commands from behind the line (his HOLD THE LINE reaches the trenches), steps
+   * back to the bastion when badly hurt: his death costs the whole faction.
+   */
+  placeCommander(sim, fid, ai) {
+    const { state, world } = sim;
+    if ((state.tick + 13) % 40 !== 0) return;
+    const c = state.factions[fid].cmdr;
+    const lt = c && c.sq ? sim.rt.squadById.get(c.sq) : null;
+    if (!lt || lt.engaged || lt.order.t === 'attack') return;
+    let hp = 0;
+    for (const m of lt.members) if (m.state === 'alive') hp += m.hp;
+    const bastion = state.structures.find((s) => s.objective && s.faction === fid);
+    const hurt = hp < unitDef(lt.type).hp * 0.5;
+    const post = hurt && bastion ? [bastion.x + 16, bastion.z - 14] : (world.anchors.na_base || [[160, 500]])[0];
+    if (dist(lt.cx, lt.cz, post[0], post[1]) > 6 && lt.order.t !== 'move') aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lt.id], x: post[0], z: post[1], face: Math.PI });
+    void ai;
+  },
+
+  /**
    * Spare line squads (no room left in the trenches) guard the most exposed settlements: they
    * stand in front of it on attack-move. One guard per settlement; the dead are replaced.
    */
@@ -255,7 +363,7 @@ export const newAntiochAI = {
     if (!want.length) return;
     const spare = squads.filter((sq) => {
       const d = unitDef(sq.type);
-      return d.combatUnit && d.canGarrison && !d.heavy && !ai.guards[sq.id] && ai.reserveIds.indexOf(sq.id) < 0 &&
+      return d.combatUnit && d.canGarrison && !d.heavy && !d.commander && !ai.guards[sq.id] && ai.reserveIds.indexOf(sq.id) < 0 &&
         sq.order.t === 'idle' && !sq.engaged && state.tick - sq.spawnTick > 20 * 8;
     });
     for (const st of want) {
@@ -300,7 +408,8 @@ export const newAntiochAI = {
       if (!sq) continue;
       if (threat) {
         if (sq.order.t !== 'attack' || sq.order.tid !== threat.id) {
-          if (!sq.engaged) aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: [id], tk: 'squad', tid: threat.id });
+          // (a lull refuses attack orders: the reserve then engages on its own ground by itself)
+          if (!sq.engaged && !isLull(state)) aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: [id], tk: 'squad', tid: threat.id });
         }
       } else if (sq.order.t === 'idle' && dist(sq.x, sq.z, home[0], home[1]) > 12) {
         // back to the reserve position, facing the front (north: PI)
@@ -309,7 +418,7 @@ export const newAntiochAI = {
     }
   },
 
-  reinforce(sim, fid, ai, squads) {
+  reinforce(sim, fid, ai, squads, lull = false) {
     const f = sim.state.factions[fid];
     if ((f.resources.manpower || 0) < 2) return;
     // ammunition first: replacements are only requested while supply stays above the ammo reserve
@@ -321,7 +430,8 @@ export const newAntiochAI = {
       // the squad keeps holding its post; replacements walk up to it (even under fire)
       if (!def.combatUnit || sq.reinf) continue;
       if (sim.state.tick - sq.lastHitTick < 20 * 3) continue;
-      if (sq.members.length >= Math.ceil(def.squadSize * 0.75)) continue;
+      // during a lull every gap is filled; in battle only badly thinned squads call for men
+      if (sq.members.length >= (lull ? def.squadSize : Math.ceil(def.squadSize * 0.75))) continue;
       aiIssue(sim, { type: CMD.REINFORCE, faction: fid, squadIds: [sq.id] });
     }
   },

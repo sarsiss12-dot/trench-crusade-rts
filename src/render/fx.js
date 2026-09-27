@@ -139,6 +139,36 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
     decal({ x, z, size: 1.9 * k, r: 1.1, g: 0.62, b: 0.26, a: 0.35, shape: DSHAPE.LIGHT, life: 0.06, add: true });
   }
 
+  /**
+   * Emplacement discharge (Phase 4): the field gun's heavy muzzle blast (flash, shock-ring of dust,
+   * a lingering smoke bank in front of the shield), the viscera cannon's wet spray, the belcher's
+   * gas cough. The round itself lands later as an EXPLOSION / cloud.
+   */
+  function gunFx(ev) {
+    const dx = ev.tx - ev.x, dz = ev.tz - ev.z, d = Math.hypot(dx, dz) || 1;
+    const ux = dx / d, uz = dz / d;
+    const y = ground(ev.x, ev.z) + 1.1;
+    if (ev.weapon === 'field_gun_shell') {
+      spawn({ x: ev.x + ux * 0.6, y, z: ev.z + uz * 0.6, size: 3.2, r: 6, g: 3.6, b: 1.4, a: 1, life: 0.09, shape: SHAPE.GLOW, add: true });
+      spawn({ x: ev.x + ux * 1.4, y, z: ev.z + uz * 1.4, vx: ux * 14, vz: uz * 14, size: 1.1, r: 5, g: 2.6, b: 0.8, a: 1, life: 0.08, shape: SHAPE.STREAK, add: true, stretch: 2.4 });
+      decal({ x: ev.x, z: ev.z, size: 16, r: 2.2, g: 1.2, b: 0.45, a: 0.7, shape: DSHAPE.LIGHT, life: 0.12, add: true });
+      for (let i = 0; i < 9; i++) {
+        const a = vr.next() * 6.28;
+        spawn({ x: ev.x + ux * 1.6, y: y - 0.2, z: ev.z + uz * 1.6, vx: ux * (2 + vr.next() * 4) + Math.cos(a) * 1.6, vy: 0.3 + vr.next() * 0.8, vz: uz * (2 + vr.next() * 4) + Math.sin(a) * 1.6, size: 0.9 + vr.next() * 0.6, grow: 1.6, r: 0.36, g: 0.34, b: 0.31, a: 0.45, life: 2.6 + vr.next() * 1.4, shape: SHAPE.SOFT, drag: 1.3, fadeIn: 0.05 });
+      }
+      // ground shock: dust thrown up around the trail
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * 6.28;
+        spawn({ x: ev.x, y: y - 1, z: ev.z, vx: Math.cos(a) * 4, vy: 0.4, vz: Math.sin(a) * 4, size: 0.5, grow: 1.4, r: 0.3, g: 0.26, b: 0.2, a: 0.4, life: 1.2, shape: SHAPE.SOFT, drag: 3 });
+      }
+    } else if (ev.weapon === 'viscera_shot') {
+      for (let i = 0; i < 8; i++) spawn({ x: ev.x + ux, y: y - 0.3, z: ev.z + uz, vx: ux * (3 + vr.next() * 4) + (vr.next() - 0.5) * 2, vy: 1 + vr.next() * 2, vz: uz * (3 + vr.next() * 4) + (vr.next() - 0.5) * 2, size: 0.07, r: 0.3, g: 0.07, b: 0.05, a: 1, life: 0.9, shape: SHAPE.CHUNK, grav: 9.8 });
+      spawn({ x: ev.x + ux, y: y - 0.3, z: ev.z + uz, vx: ux * 2, vy: 0.4, vz: uz * 2, size: 0.8, grow: 1.2, r: 0.2, g: 0.22, b: 0.08, a: 0.4, life: 1.6, shape: SHAPE.SOFT, drag: 2 });
+    } else {
+      for (let i = 0; i < 12; i++) spawn({ x: ev.x + ux * 0.8, y: y - 0.2, z: ev.z + uz * 0.8, vx: ux * (3 + vr.next() * 5) + (vr.next() - 0.5) * 2.4, vy: 0.3 + vr.next() * 0.8, vz: uz * (3 + vr.next() * 5) + (vr.next() - 0.5) * 2.4, size: 0.6 + vr.next() * 0.5, grow: 1.8, r: 0.22, g: 0.26, b: 0.09, a: 0.35, life: 2 + vr.next(), shape: SHAPE.SOFT, drag: 1.2 });
+    }
+  }
+
   function tracer(x0, y0, z0, x1, y1, z1, kind) {
     const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
     const d = Math.hypot(dx, dy, dz) || 1;
@@ -319,6 +349,9 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
   function onEvent(ev, show, s) {
     sim = s;
     const SRC = 1, IMP = 2, TGT = 4;
+    if (ev.type === 'RUIN_COLLAPSED' && show) { collapse(ev.x, ev.z, ev.stype); collapse(ev.x + 2, ev.z - 1.5, ev.stype); return; }
+    if (ev.type === 'STRUCTURE_FIRE' && (ev.shell || ev.gas)) { if (show & SRC) gunFx(ev); return; }
+    if (ev.type === 'EXPLOSION' && ev.organic) { if (show) { organicRupture(ev.x, ev.z, 'viscera_nest'); diseaseMotes(ev.x, ground(ev.x, ev.z) + 0.8, ev.z, 6); } return; }
     switch (ev.type) {
       case 'FIRE':
       case 'STRUCTURE_FIRE': {
@@ -639,6 +672,35 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
     }
   }
 
+  // Phase 4 living economy: civilians at work kick up chaff (fields), stone dust (quarry) or straw
+  // (pens); porters on the way home trail a little dust. Only for crews the viewer sees, near the
+  // camera, a few particles per second — cheap and readable at a glance.
+  let workTimer = 0;
+  const CHAFF = [0.62, 0.53, 0.3], STONE = [0.55, 0.53, 0.5], STRAW = [0.5, 0.42, 0.24];
+  function workFx(camera, dt) {
+    workTimer -= dt;
+    if (workTimer > 0 || !sim) return;
+    workTimer = 0.45;
+    const ex = camera.eye[0], ez = camera.eye[2];
+    for (const sq of sim.state.squads) {
+      if (!sq.civ || sq.order.t !== 'civwork' || !isSquadVisibleTo(sq, viewer)) continue;
+      if (Math.abs(sq.cx - ex) + Math.abs(sq.cz - ez) > 260) continue;
+      const st = sim.rt.structById.get(sq.order.sid);
+      if (!st) continue;
+      const d = STRUCTURES[st.type];
+      const C = d.quarry ? STONE : d.pen ? STRAW : CHAFF;
+      let n = 0;
+      for (const m of sq.members) {
+        if (!m.working || m.state !== 'alive' || vr.next() < 0.45) continue;
+        const y = ground(m.x, m.z);
+        const ax = Math.sin(m.rot || 0), az = Math.cos(m.rot || 0);
+        for (let k = 0; k < 2; k++) spawn({ x: m.x + ax * 0.6, y: y + 0.15, z: m.z + az * 0.6, vx: (vr.next() - 0.5) * 0.8 + ax * 0.5, vy: 0.6 + vr.next() * 0.8, vz: (vr.next() - 0.5) * 0.8 + az * 0.5, size: 0.16 + vr.next() * 0.12, grow: 0.7, r: C[0], g: C[1], b: C[2], a: 0.4, life: 0.9 + vr.next() * 0.5, shape: SHAPE.SOFT, drag: 2.4, grav: 0.6 });
+        if (!d.quarry && vr.next() < 0.5) spawn({ x: m.x + ax * 0.5, y: y + 0.4, z: m.z + az * 0.5, vx: (vr.next() - 0.5) * 1.2, vy: 1 + vr.next(), vz: (vr.next() - 0.5) * 1.2, size: 0.035, r: C[0] * 0.8, g: C[1] * 0.8, b: C[2] * 0.6, a: 1, life: 0.9, shape: SHAPE.CHUNK, grav: 4 });
+        if (++n >= 3) break;
+      }
+    }
+  }
+
   let ambientTimer = 0;
   function update(s, camera, v, dt, t) {
     sim = s; viewer = v; time = t;
@@ -657,6 +719,7 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
     }
     swarmFx(dt);
     plagueFx(dt);
+    workFx(camera, dt);
     // pools / stains (bounded) and blood trails of flying limbs
     pools.step(dt);
     if (renderer && renderer.units && renderer.units.limbs) {

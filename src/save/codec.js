@@ -179,6 +179,39 @@ export const MIGRATIONS = {
     s.version = 3;
     return { ...save, version: 3 };
   },
+  // Phase 3 -> Phase 4: auto reinforcement, commanders, operational lulls (off for a migrated
+  // match: its war clock was planned without them), ruin garrisons (created on load from the
+  // map, see sim/simulation.js p4init), garrison fields on soldiers, emplacement fields.
+  3: (save) => {
+    const s = save.state;
+    s.settings = s.settings || {};
+    if (s.settings.lulls === undefined) s.settings.lulls = 0;
+    if (s.match && !s.match.lull) s.match.lull = { plan: [], idx: 0, active: 0, start: 0, end: 0, warned: 0, endWarned: 0, elapsed: 0, ext: 0 };
+    for (const fid in s.factions || {}) {
+      const f = s.factions[fid];
+      if (f.autoReinf === undefined) f.autoReinf = 'off';
+      if (!f.cmdr) {
+        let unit = '';
+        for (const id in UNITS) if (UNITS[id].faction === fid && UNITS[id].commander) unit = id;
+        f.cmdr = { sq: 0, unit, deaths: 0, readyTick: 0, lostUntil: 0, abReady: 0, lastX: 0, lastZ: 0 };
+        // an existing leader of that type becomes the commander
+        const lead = (s.squads || []).find((q) => q.faction === fid && q.type === unit);
+        if (lead) f.cmdr.sq = lead.id;
+      }
+    }
+    for (const sq of s.squads || []) {
+      if (sq.autoReinf === undefined) sq.autoReinf = -1;
+      if (sq.autoReinfT === undefined) sq.autoReinfT = 0;
+      if (sq.garrison === undefined) sq.garrison = 0;
+      for (const m of sq.members) {
+        if (m.gslot === undefined) m.gslot = -1;
+        if (m.gexit === undefined) m.gexit = 0;
+      }
+    }
+    s.p4init = 0; // ruin garrisons are added on load (they need the world geometry)
+    s.version = 4;
+    return { ...save, version: 4 };
+  },
 };
 
 export function migrateSave(save) {

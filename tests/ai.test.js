@@ -18,7 +18,8 @@ test('Black Grail AI: waits/deploys in preparation, assaults immediately when WA
   for (const sq of sim.state.squads) if (sq.faction === 'black_grail') assert.ok(sq.z <= sim.world.zones.black_grail.z1 + 1);
   run(sim, 3.5); // WAR + 3 seconds
   assert.equal(sim.state.match.phase, 'WAR');
-  const bg = sim.state.squads.filter((q) => q.faction === 'black_grail' && unitDef(q.type).combatUnit);
+  // (Phase 4: the commander follows the waves instead of leading them — not part of the assault order)
+  const bg = sim.state.squads.filter((q) => q.faction === 'black_grail' && unitDef(q.type).combatUnit && !unitDef(q.type).commander);
   const ordered = bg.filter((q) => (q.order.t === 'move' && q.order.am) || q.order.t === 'attack');
   assert.equal(ordered.length, bg.length, 'every combat squad has an attack order');
   for (const q of ordered) if (q.order.t === 'move') assert.greater(q.order.z, q.z - 5, 'heading toward the objective (south)');

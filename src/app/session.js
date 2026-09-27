@@ -10,7 +10,7 @@ import { EV } from '../core/events.js';
 
 export const SPEEDS = [0, 1, 2, 4];
 const MAX_FRAME_DT = 0.25;
-const FLOW_EVENTS = new Set([EV.PHASE_CHANGED, EV.MATCH_ENDED]);
+const FLOW_EVENTS = new Set([EV.PHASE_CHANGED, EV.PHASE_WARNING, EV.MATCH_ENDED]);
 
 function nowMs() {
   return typeof performance !== 'undefined' ? performance.now() : 0;
@@ -126,12 +126,13 @@ export function createSession(opts = {}) {
     return true;
   };
 
-  s.phase = () => sim.state.match.phase;
+  s.phase = () => (sim.state.match.lull && sim.state.match.lull.active && sim.state.match.phase === 'WAR' ? 'LULL' : sim.state.match.phase);
 
   /** Seconds remaining in the current phase (preparation countdown / war timer). */
   s.phaseTimeLeft = () => {
     const m = sim.state.match;
     if (m.phase === 'PREPARATION') return Math.max(0, (m.prepEndTick - sim.state.tick) * DT);
+    if (m.phase === 'WAR' && m.lull && m.lull.active) return Math.max(0, (m.lull.end - sim.state.tick) * DT);
     if (m.phase === 'WAR') return Math.max(0, (m.warEndTick - sim.state.tick) * DT);
     return 0;
   };

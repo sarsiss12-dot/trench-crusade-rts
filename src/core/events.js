@@ -45,6 +45,13 @@ export const EV = Object.freeze({
   REVIVED: 'REVIVED', // wounded soldier back on his feet (medic)
   PESTILENCE_TIER: 'PESTILENCE_TIER',
   EVACUATION: 'EVACUATION',
+  // Phase 4
+  REINFORCEMENT_JOINED: 'REINFORCEMENT_JOINED', // a walking replacement reached its squad (now counted)
+  PHASE_WARNING: 'PHASE_WARNING', // the front is going quiet / stirring again (operational lull)
+  CIVILIAN_ALARM: 'CIVILIAN_ALARM', // own civilians run for shelter / flee (own side only)
+  GARRISON_ENTERED: 'GARRISON_ENTERED', // a squad took its slots in a ruin (own side only)
+  RUIN_COLLAPSED: 'RUIN_COLLAPSED', // a garrisoned ruin came down (seen where visible)
+  COMMANDER_FALLEN: 'COMMANDER_FALLEN', // a faction's commander died (own side; others where seen)
 });
 
 /** Impact surface classes used by FIRE/MELEE events for VFX selection. */

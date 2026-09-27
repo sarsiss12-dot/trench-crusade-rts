@@ -249,7 +249,7 @@ export function builderStatus(sim, sq) {
   if (o.t === 'build') return o.arrived && sq.working ? 'building' : 'moving';
   if (o.t === 'repair') return o.arrived && sq.working ? 'repairing' : 'moving';
   if (o.t === 'sanitize') return 'sanitizing';
-  if (o.t === 'gather') return 'hauling';
+  if (o.t === 'gather') return unitDef(sq.type).gathers === 'corpse' ? 'hauling' : 'salvaging';
   if (o.t === 'move') return 'moving';
   return 'idle';
 }

@@ -5,6 +5,8 @@ import { createRngState } from '../core/rng.js';
 import { rotateOffset } from '../core/dmath.js';
 import { FACTIONS, FACTION_ORDER } from '../data/factions.js';
 import { prepSecondsFor } from '../data/scenarios.js';
+import { createLullState } from './lull.js';
+import { createCommanderState } from './commander.js';
 import { unitDef } from '../data/units.js';
 import { structDef } from '../data/structures.js';
 import { createFogState } from '../world/fog.js';
@@ -40,6 +42,7 @@ export function createInitialState({ scenario, settings, seed, world }) {
       warMinutes, prepSeconds, playerFaction, controllers,
       sandbox: !!scenario.sandbox,
       stressSoldiers: settings.stressSoldiers || 0,
+      lulls: settings.lulls !== undefined ? settings.lulls : 'auto',
     },
     tick: 0,
     match: {
@@ -47,6 +50,8 @@ export function createInitialState({ scenario, settings, seed, world }) {
       prepEndTick: Math.round(prepSeconds * TICK_RATE),
       warEndTick: Math.round((prepSeconds + warMinutes * 60) * TICK_RATE),
       winner: null, reason: null, endTick: 0,
+      // Phase 4: operational lulls (seeded plan, hidden from the players)
+      lull: createLullState(seed, warMinutes, scenario.mode === 'siege' ? (settings.lulls !== undefined ? settings.lulls : 'auto') : 0),
     },
     factions: {},
     nextId: 1,
@@ -90,6 +95,9 @@ export function createInitialState({ scenario, settings, seed, world }) {
       spec: [null, null, null],
       econ: { mpAcc: 0, mpPopAcc: 0, growAcc: 0, starveAcc: 0, lastManpowerRate: 0, lastFoodRate: 0, safePop: 0, pop: 0, infCells: 0 },
       timers: { econ: 0, food: 0, reinforce: 0, infection: 0 },
+      // Phase 4: auto reinforcement default ('off' | 'important' | 'all')
+      autoReinf: 'off',
+      cmdr: createCommanderState(fid), // Phase 4 commander (sim/commander.js)
     };
     state.ai[fid] = null;
   }
@@ -119,6 +127,7 @@ export function createSoldier(state, def, slot, x, z, rot, soldierState = 'alive
     hp: def.hp, state: soldierState, stateTick: state.tick,
     cooldown: 0, burst: 0, shots: 0, targetId: 0,
     infection: 0, cover: 0, postId: 0, postSlot: -1, working: 0, killer: '', ready: 0,
+    gslot: -1, gexit: 0, // Phase 4 ruin garrison slot / leaving through a door
     // stuck recovery (units/movement.js): progress window origin, rescue detour, attempts
     wx: x, wz: z, dp: null, di: 0, dgx: 0, dgz: 0, dtry: 0, stk: 0,
     // Phase 3: burning until tick, plague progression slowed until tick (medic), revive progress
@@ -151,6 +160,8 @@ export function createSquad(state, factionId, unitType, x, z, rot, opts = {}) {
     cap: opts.cap || n, bq: null, civ: null, tideUntil: 0, fearUntil: 0,
     // biomass source attribution of what a gang carries; next idle auto-forage check (Grail gangs)
     carryBy: null, autoT: 0,
+    // Phase 4: auto reinforcement override (-1 follow the faction default, 0 never, 1 always)
+    autoReinf: -1, autoReinfT: 0, garrison: 0,
   };
   const offs = formationOffsets(sq.formation, n, def.spacing);
   const tmp = [0, 0];
@@ -196,6 +207,7 @@ export function createStructure(state, type, faction, params) {
   }
   if (def.trains) { s.queue = []; s.rally = null; }
   if (def.weapon || def.specWeapon) { s.cooldown = 0; s.burst = 0; s.targetId = 0; s.shots = 0; }
+  if (def.emplacement) { s.cooldown = 0; s.aim = s.rot; s.targetId = 0; s.tk = ''; s.shots = 0; }
   // Phase 3 economy runtime fields (economy/settlements.js, factions/civilians.js, sim/wildlife.js)
   if (def.settlement) {
     s.pop = 0; s.stock = { food: 0, material: 0, supply: 0 }; s.threat = -100000; s.evac = 0; s.evacAt = 0;

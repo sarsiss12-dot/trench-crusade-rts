@@ -95,20 +95,58 @@ function notice(sim, sq, key) {
   sim.events.push({ type: EV.NOTICE, faction: sq.faction, key, squadId: sq.id, x: sq.cx, z: sq.cz });
 }
 
-/** Automatic top-up: idle / garrisoned squads resting inside a source's reinforce radius. */
+/**
+ * AUTO REINFORCEMENT policy (Phase 4). Faction default f.autoReinf: 'off' | 'important' | 'all';
+ * per-squad override sq.autoReinf: -1 follow the default, 0 never, 1 always. IMPORTANT = squads
+ * holding a trench / garrison, heavies, leaders and auras (the line that must not thin out).
+ */
+export const AUTO_REINF_MODES = ['off', 'important', 'all'];
+export function isImportantSquad(sq) {
+  const def = unitDef(sq.type);
+  return sq.order.t === 'hold_trench' || sq.order.t === 'garrison' || !!def.heavy || !!def.aura || !!def.commander;
+}
+export function wantsAutoReinforce(state, sq) {
+  const o = sq.autoReinf === undefined ? -1 : sq.autoReinf;
+  if (o === 0) return false;
+  if (o === 1) return true;
+  const mode = state.factions[sq.faction].autoReinf || 'off';
+  return mode === 'all' || (mode === 'important' && isImportantSquad(sq));
+}
+
+/**
+ * Automatic top-up: (a) idle / garrisoned squads resting inside a source's reinforce radius (as
+ * before); (b) squads under the AUTO policy anywhere, once at least a quarter is missing (or two
+ * men), with a reachable source and the price of one man in stock — never more than one request
+ * per squad per 20 s (no spam), never while it is being hit this very moment.
+ */
 function autoRequests(sim, fid) {
   const { state } = sim;
+  const f = state.factions[fid];
+  const conf = FACTIONS[fid].reinforcements;
   for (const sq of state.squads) {
-    if (sq.faction !== fid || sq.reinf || missingMembers(sq) <= 0) continue;
-    if (!unitDef(sq.type).combatUnit) continue;
+    if (sq.faction !== fid || sq.reinf) continue;
+    const miss = missingMembers(sq);
+    if (miss <= 0 || !unitDef(sq.type).combatUnit) continue;
     const o = sq.order;
-    if ((o.t !== 'idle' && o.t !== 'hold_trench') || state.tick - sq.lastHitTick <= 200) continue;
-    let near = false;
-    for (const st of state.structures) {
-      if (!isReinforceSource(st, fid, state)) continue;
-      if (distanceToStructure(st, sq.x, sq.z) <= sourceRadius(st)) { near = true; break; }
+    const quiet = state.tick - sq.lastHitTick > 200;
+    if ((o.t === 'idle' || o.t === 'hold_trench') && quiet) {
+      let near = false;
+      for (const st of state.structures) {
+        if (!isReinforceSource(st, fid, state)) continue;
+        if (distanceToStructure(st, sq.x, sq.z) <= sourceRadius(st)) { near = true; break; }
+      }
+      if (near) { requestReinforcement(sim, sq, true); continue; }
     }
-    if (near) requestReinforcement(sim, sq, true);
+    if (!wantsAutoReinforce(state, sq)) continue;
+    const size = Math.max(sq.cap || 0, unitDef(sq.type).squadSize);
+    if (miss < Math.max(1, Math.min(2, Math.ceil(size * 0.25)))) continue;
+    if (state.tick - (sq.autoReinfT || -1e9) < 20 * 20) continue;
+    if (state.tick - sq.lastHitTick < 40) continue;
+    if (f.resources.manpower < conf.manpower || f.resources.supply < conf.supply) continue;
+    const pick = pickSource(sim, sq);
+    if (!pick || !pick.reachable) continue;
+    sq.autoReinfT = state.tick;
+    requestReinforcement(sim, sq, true);
   }
 }
 

@@ -48,7 +48,18 @@ export const ICONS = {
   build: S(`<path ${st} d="M3 21 h18 M6 21 v-8 h12 v8 M9 13 v-4 h6 v4 M12 9 v-5"/>`),
   deselect: S(`<path ${st} d="M6 6 l12 12 M18 6 l-12 12"/>`),
   box: S(`<rect x="4" y="4" width="16" height="16" rx="1" ${st} stroke-dasharray="3 2.5"/>`),
-  multi: S(`<rect x="3" y="7" width="11" height="11" rx="1" ${st}/><path ${st} d="M8 3 h12 v12"/>`),
+  // Phase 4: two soldier silhouettes + a small plus (the old two-rectangle glyph read as "copy")
+  multi: S(`<path ${st} d="M6.5 8 a2 2 0 1 1 0 .1 M13 8 a2 2 0 1 1 0 .1 M3 18 v-3 a3.5 3.5 0 0 1 7 0 v3 M9.5 18 v-3 a3.5 3.5 0 0 1 7 0 v3"/><path ${st} stroke-width="2.2" d="M19.5 3.5 v5 M17 6 h5"/>`),
+  autoreinf: S(`<path ${st} d="M9 4 v8 M5 8 l4-4 4 4 M3 19 h12"/><path ${st} d="M20 11 a4 4 0 1 1 -3 -3.9 M17 5 v2.4 h2.4"/>`),
+  salvage: S(`<path ${st} d="M4 20 l6-6 M8 12 l4 4 M12 8 a3 3 0 1 0 4 4 M15 9 l4-4 M17 3 l4 4"/><path ${st} stroke-dasharray="2 2" d="M3 3 h7 v7 h-7 z"/>`),
+  economy: S(`<path ${st} d="M3 20 h18 M6 20 v-6 M11 20 v-10 M16 20 v-4 M4 9 l5-4 5 3 6-5"/>`),
+  field_gun: S(`<path ${st} d="M3 13 l12-6 1.5 3 -12 6 z M15 9 l5-2 M7 15 a3.2 3.2 0 1 0 0 .1 M10 15 h8 l2 4"/>`),
+  garrison: S(`<path ${st} d="M3 20 v-10 l3-2 v-3 h4 v3 h4 v-3 h4 v3 l3 2 v10 z M8 14 h2 M14 14 h2 M10 20 v-3 h4 v3"/>`),
+  commander: S(`<path ${st} d="M12 3 l2.3 4.6 5 .8 -3.6 3.5 .9 5 -4.6-2.4 -4.6 2.4 .9-5 -3.6-3.5 5-.8 z"/><path ${st} d="M8 21 h8"/>`),
+  hold_line: S(`<path ${st} d="M4 20 v-15 M4 5 h12 l-3 4 3 4 h-12 M9 20 h6"/>`),
+  lull: S(`<path ${st} d="M7 3 h10 M7 21 h10 M8 3 c0 5 8 5 8 9 s-8 4 -8 9 M16 3 c0 5 -8 5 -8 9 s8 4 8 9"/>`),
+  organic_gun: S(`<path ${st} d="M4 18 c0-6 4-9 8-9 h4 l4-3 v8 l-4-2 h-3 c-2 0-3 2-3 6 z M7 18 h-4 M9 13 a1 1 0 1 1 0 .1"/>`),
+  belcher: S(`<path ${st} d="M4 19 c1-7 3-11 7-11 s4 3 4 5 M15 13 c2 0 3-2 5-1 M16 16 c2 0 3 1 5 0 M15 10 c1-2 3-3 5-3 M8 19 h-4"/>`),
   all: S(`<circle cx="6" cy="12" r="2.2" fill="currentColor"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><circle cx="18" cy="12" r="2.2" fill="currentColor"/><path ${st} d="M3 18 h18 M3 6 h18"/>`),
   home: S(`<path ${st} d="M4 11 l8-7 8 7 M6 10 v10 h12 v-10 M10 20 v-6 h4 v6"/>`),
   rally: S(`<path ${st} d="M6 21 v-18 M6 4 h11 l-3 4 3 4 h-11"/>`),
@@ -120,7 +131,7 @@ export function iconForUnit(def) {
 }
 
 export function iconForStructure(id) {
-  const map = { grail_altar: 'altar', supply_depot: 'depot', field: 'food', observation_post: 'observation_post' };
+  const map = { grail_altar: 'altar', supply_depot: 'depot', field: 'food', observation_post: 'observation_post', ruin_house: 'garrison', ruin_chapel: 'garrison', viscera_nest: 'organic_gun', belcher_nest: 'belcher' };
   if (!ICONS[map[id] || id]) return 'build';
   return map[id] || id;
 }

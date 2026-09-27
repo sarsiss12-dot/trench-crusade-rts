@@ -94,6 +94,8 @@ export const UNITS = {
     model: 'na_lieutenant', icon: 'officer',
     cost: { manpower: 2, supply: 120 }, trainTime: 30, maxSquads: 1, requiresSpec: ['na_elite'],
     aura: { radius: 16, accBonus: 0.15, suppressResist: 1, fearImmune: 1 },
+    // Phase 4: the faction's COMMANDER (one on the field; see sim/commander.js)
+    commander: { ability: 'hold_the_line', replaceSec: 150, replaceCostMult: 2, maxReplacements: 1, penalty: { sec: 60, cooldownMult: 1.3, shockR: 35, shockSec: 6 } },
   },
   // Civilians of the principality: autonomous workers of a settlement (never commanded, never in
   // "All"); the settlement's population is aggregate, these crews are its visible workforce
@@ -116,7 +118,7 @@ export const UNITS = {
     },
     // Phase 3 swarm identity: cheap, slow, weak alone, many to a squad (performance-bounded)
     combatUnit: true, roles: ['horde'], squadSize: 12,
-    hp: 62, armor: 0.15, speed: 2.3, vision: 36, radius: 0.44,
+    hp: 58, armor: 0.15, speed: 2.3, vision: 36, radius: 0.44, // Phase 4: weaker alone (62 -> 58)
     weapon: null, melee: 'thrall_claws', ammoPerSoldier: 0,
     // canon-inspired: "strengthened by proximity to other Thralls" (other Grail squads count half)
     hordeBonus: { radius: 16, perSquad: 0.07, other: 0.5, max: 0.28 },
@@ -125,7 +127,8 @@ export const UNITS = {
     corpseBiomass: 3,
     specCostKey: 'thrallCost', specTrainKey: 'thrallTrain', specSizeKey: 'thrallSize', specDamageKey: 'thrallDamage',
     model: 'bg_thrall', icon: 'thrall',
-    cost: { biomass: 60 }, trainTime: 14, raisedFromCorpses: true,
+    // Phase 4 early swarm: cheaper and faster to raise (60 / 14 s -> 50 / 11 s)
+    cost: { biomass: 50 }, trainTime: 11, raisedFromCorpses: true,
   },
   // Grail Thralls used as expendable labour: cheap, slow, weak, numerous. They raise the Black
   // Grail's organic structures and haul corpses to altars / mounds. Not a generic worker caste.
@@ -199,6 +202,7 @@ export const UNITS = {
     model: 'bg_lord', icon: 'lord',
     cost: { biomass: 200 }, trainTime: 36, maxSquads: 1, requiresSpec: ['bg_lord'],
     aura: { radius: 14, regen: 2, meleeBonus: 0.15, infectRadius: 6, infectEverySec: 4 },
+    commander: { ability: 'plague_blessing', replaceSec: 150, replaceCostMult: 2, maxReplacements: 1, penalty: { sec: 60, cooldownMult: 1.3, shockR: 35, shockSec: 5 } },
   },
 };
 

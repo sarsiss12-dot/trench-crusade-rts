@@ -5,6 +5,7 @@ import { EV } from '../core/events.js';
 import { UNITS } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTION_ORDER } from '../data/factions.js';
+import { updateLull } from './lull.js';
 
 export function factionByRole(state, role) {
   for (const fid of FACTION_ORDER) if (state.factions[fid].role === role) return fid;
@@ -28,6 +29,7 @@ export function updateMatch(sim) {
     m.phase = 'WAR';
     sim.events.push({ type: EV.PHASE_CHANGED, phase: 'WAR' });
   }
+  updateLull(sim);
 }
 
 function cheapestUnitCost(fid, resource) {

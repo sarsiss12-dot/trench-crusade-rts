@@ -3,7 +3,7 @@
 // with taps (no right-click assumption); mouse + keyboard add shortcuts on desktop.
 // Interaction modes: normal | place (construction) | ability | rally | repair | gather | attackMove.
 import { createGestures } from './gestures.js';
-import { pickSquad, pickStructure, pickNode, boxSelect, squadsOfTypeOnScreen } from './pick.js';
+import { pickSquad, pickStructure, pickNodeAt, boxSelect, squadsOfTypeOnScreen } from './pick.js';
 import { allCombatSquadIds, squadIdsWithRole } from './selection.js';
 import { pickGround, panCamera, zoomAt, cameraPitch, worldPerPixel } from '../render/camera.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -13,9 +13,10 @@ import { PLAYER_FORMATIONS } from '../units/formation.js';
 import { snapToTrenchEndpoint } from '../construction/trench.js';
 import { isPointVisibleTo } from '../sim/perception.js';
 import { specValue } from '../sim/specialities.js';
+import { ENGINEERING } from '../data/economy.js';
 
 // area commands (Phase 3): radius shown while choosing the spot (the simulation owns the rule)
-const AREA_R = { forage: 34, sanitize: 16 };
+const AREA_R = { forage: 34, sanitize: 16, salvage: ENGINEERING.salvageAreaR };
 
 const TAP_RADIUS_CSS = 26;
 const G = [0, 0, 0];
@@ -27,7 +28,6 @@ export function createInputController(canvas, game) {
   const keys = new Set();
   const ui = game.ui; // shared UI toggles { boxMode, multi, attackMove }
   let pxScale = 1; // device px per CSS px
-  const groups = new Map(); // control groups (desktop)
 
   const ground = (x, z) => game.renderer.groundAt(x, z);
   const known = () => game.renderer.knownStructures();
@@ -190,6 +190,12 @@ export function createInputController(canvas, game) {
   }
 
   // ------------------------------------------------------------------ taps
+  /** Resource heap under a tap: generous for fingers (Phase 4 mobile salvage UX). */
+  function nodeAt(sx, sy, gx, gz, info, wide) {
+    const touch = !info || info.type !== 'mouse';
+    return pickNodeAt(sim, viewer, cam, ground, sx, sy, gx, gz, touch || wide, pxScale, game.settings.touchAssist);
+  }
+
   function radiusPx() {
     return TAP_RADIUS_CSS * pxScale * (game.settings.touchAssist ? 1.3 : 1);
   }
@@ -207,8 +213,8 @@ export function createInputController(canvas, game) {
     if (hit) {
       const sq = hit.sq;
       if (sq.faction === viewer) {
-        if (additive) { game.selection.toggle(sq.id); if (game.audio) game.audio.ui('select'); }
-        else selectSquads([sq.id], false);
+        game.selection.tapOwn(sq.id, additive);
+        if (game.audio) game.audio.ui('select');
       } else if (own.length && !ui.inspect) {
         game.actions.attack('squad', sq.id, sq.cx, sq.cz);
         ui.attackMove = false;
@@ -235,6 +241,11 @@ export function createInputController(canvas, game) {
       if (st.faction === 'neutral') {
         if (own.length) {
           if (st.type === 'trench' && game.actions.enterTrench(st.id, gx, gz)) return;
+          if (def.garrison) {
+            // a ruin: line squads garrison it, engineers repair it, others just walk there
+            if (game.actions.garrison(st)) return;
+            if (hasCapability('repairer') && st.hp < st.maxHp && !st.collapsed && game.actions.assist(st)) return;
+          }
           game.actions.moveTo(gx, gz, ui.attackMove);
           ui.attackMove = false;
           return;
@@ -255,8 +266,8 @@ export function createInputController(canvas, game) {
     }
     const body = own.length ? pickCorpse(gx, gz) : null;
     if (body) { game.actions.haul(body); return; }
-    const node = pickNode(sim, viewer, gx, gz);
-    if (node && own.length && hasCapability('gatherer')) { game.actions.gather(node); return; }
+    const node = own.length && hasCapability('gatherer') ? nodeAt(sx, sy, gx, gz, info) : null;
+    if (node) { game.actions.gather(node); return; }
     if (own.length) {
       game.actions.moveTo(gx, gz, ui.attackMove);
       ui.attackMove = false;
@@ -299,7 +310,7 @@ export function createInputController(canvas, game) {
         const g = groundAt(sx, sy);
         const c = g ? pickCorpse(g[0], g[2]) : null;
         if (c) { if (game.actions.haul(c)) setMode(null); return; }
-        const n = g ? pickNode(sim, viewer, g[0], g[2], 6) : null;
+        const n = nodeAt(sx, sy, g ? g[0] : undefined, g ? g[2] : undefined, info, true);
         if (n && game.actions.gather(n)) setMode(null);
         return;
       }
@@ -309,6 +320,7 @@ export function createInputController(canvas, game) {
         let ok = false;
         if (m.area === 'forage') ok = game.actions.forage(g[0], g[2]);
         else if (m.area === 'sanitize') ok = game.actions.sanitize(g[0], g[2]);
+        else if (m.area === 'salvage') ok = game.actions.salvageArea(g[0], g[2]);
         else if (m.area === 'herd') {
           const st = sim.rt.structById.get(m.sid);
           ok = !!st && game.actions.herdArea(st, g[0], g[2]);
@@ -458,8 +470,8 @@ export function createInputController(canvas, game) {
     onBoxEnd(x0, y0, x1, y1) {
       if (game.hud) game.hud.hideBox();
       const ids = boxSelect(sim, viewer, cam, ground, x0, y0, x1, y1);
-      if (ids.length) selectSquads(ids, ui.multi || keys.has('Shift'));
-      else if (!ui.multi) game.selection.clear();
+      game.selection.applyBox(ids, ui.multi || keys.has('Shift'), ui.multi);
+      if (ids.length && game.audio) game.audio.ui('select');
     },
     onPinchStart() {
       cam.vx = 0; cam.vz = 0;
@@ -503,11 +515,12 @@ export function createInputController(canvas, game) {
     if (st && st.memory) { game.actions.moveTo(st.x, st.z, true); return; }
     if (st && st.faction !== viewer && st.faction !== 'neutral') { game.actions.attack('struct', st.id, st.x, st.z); return; }
     if (st && (st.type === 'trench') && game.actions.enterTrench(st.id, g[0], g[2])) return;
+    if (st && STRUCTURES[st.type].garrison && game.actions.garrison(st)) return;
     if (st && st.faction === viewer && (!st.built || st.hp < st.maxHp) && game.actions.assist(st)) return;
     const body = pickCorpse(g[0], g[2]);
     if (body) { game.actions.haul(body); return; }
-    const node = pickNode(sim, viewer, g[0], g[2]);
-    if (node && hasCapability('gatherer')) { game.actions.gather(node); return; }
+    const node = hasCapability('gatherer') ? nodeAt(sx, sy, g[0], g[2], { type: 'mouse' }) : null;
+    if (node) { game.actions.gather(node); return; }
     game.actions.moveTo(g[0], g[2], ui.attackMove);
     ui.attackMove = false;
   }
@@ -568,9 +581,21 @@ export function createInputController(canvas, game) {
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     const own = game.selection.ownSquads(sim, viewer);
     if (/^[1-9]$/.test(k)) {
-      const n = Number(k);
-      if (e.ctrlKey || e.metaKey) { groups.set(n, own.map((s) => s.id)); e.preventDefault(); }
-      else if (groups.has(n)) selectSquads(groups.get(n).filter((id) => sim.rt.squadById.has(id)), e.shiftKey);
+      // control groups (shared with the HUD slots 1/2/3): Ctrl+N saves, N selects, N twice focuses
+      const i = Number(k) - 1;
+      const cg = game.controlGroups;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const n = cg.save(i, own.map((s) => s.id), sim, viewer);
+        if (n && game.hud) game.hud.notify('cg.saved', 'good', { n: i + 1 });
+        if (game.hud && game.hud.onGroupsChanged) game.hud.onGroupsChanged();
+      } else {
+        const r = cg.tap(i, performance.now());
+        if (r !== 'empty') {
+          selectSquads(cg.ids(i, sim, viewer), e.shiftKey);
+          if (r === 'focus') { const c = cg.center(i, sim, viewer); if (c) game.lookAt(c[0], c[1]); }
+        }
+      }
       return;
     }
     switch (k) {

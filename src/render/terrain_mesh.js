@@ -39,7 +39,7 @@ export function terrainInfluenceBox(t, s) {
     const reach = def.width * 0.5 + 3.2;
     x0 = Math.min(s.x1, s.x2) - reach; x1 = Math.max(s.x1, s.x2) + reach;
     z0 = Math.min(s.z1, s.z2) - reach; z1 = Math.max(s.z1, s.z2) + reach;
-  } else if (def.kind === 'building') {
+  } else if (def.kind === 'building' && !def.garrison) {
     const r = Math.max(def.footprint.w, def.footprint.d) * 0.5 + 3.5;
     x0 = s.x - r; x1 = s.x + r; z0 = s.z - r; z1 = s.z + r;
   } else return null;
@@ -91,7 +91,7 @@ export function computeTerrainFields(world, structures, f = null, region = null,
           if (d < reach) churn[i] = Math.max(churn[i], (1 - d / reach) * Math.min(1, s.progress * 2));
         }
       }
-    } else if (def.kind === 'building' && s.built) {
+    } else if (def.kind === 'building' && s.built && !def.garrison) {
       const r = Math.max(def.footprint.w, def.footprint.d) * 0.5 + 3.5;
       const x0 = Math.max(R.x0, Math.floor((s.x - r) / t.cell)), x1 = Math.min(R.x1, Math.ceil((s.x + r) / t.cell));
       const z0 = Math.max(R.z0, Math.floor((s.z - r) / t.cell)), z1 = Math.min(R.z1, Math.ceil((s.z + r) / t.cell));

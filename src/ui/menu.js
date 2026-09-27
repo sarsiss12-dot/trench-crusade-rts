@@ -4,7 +4,8 @@
 import { el, clear, button } from './dom.js';
 import { icon } from './icons.js';
 import { t, formatClock, getLanguage } from './i18n.js';
-import { MATCH_LENGTH_OPTIONS } from '../data/scenarios.js';
+import { MATCH_LENGTH_OPTIONS, LULL_OPTIONS } from '../data/scenarios.js';
+import { AUTO_REINF_MODES } from '../factions/reinforcement.js';
 import { UNITS } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS } from '../data/factions.js';
@@ -92,7 +93,7 @@ export function createMenu(env) {
 
   // ------------------------------------------------------------------ new war
   function showNewGame() {
-    const cfg = { faction: S.lastFaction || 'new_antioch', warMinutes: S.warMinutes || 15, quality: S.quality || 'balanced' };
+    const cfg = { faction: S.lastFaction || 'new_antioch', warMinutes: S.warMinutes || 15, quality: S.quality || 'balanced', lulls: S.lulls !== undefined ? S.lulls : 'auto' };
     show('new', (p) => {
       p.append(header(t('menu.new_game'), showMain));
       const cards = el('div.cards');
@@ -109,11 +110,12 @@ export function createMenu(env) {
       }
       p.append(el('div.choice', null, el('label', { text: t('menu.faction') })), cards);
       p.append(choice(t('menu.length'), MATCH_LENGTH_OPTIONS.map((m) => [m, t('menu.minutes', { n: m })]), cfg.warMinutes, (v) => { cfg.warMinutes = v; }));
+      p.append(choice(t('menu.lulls'), LULL_OPTIONS.map((v) => [v, t('lulls.' + v)]), cfg.lulls, (v) => { cfg.lulls = v; }));
       p.append(choice(t('menu.quality'), ['low', 'balanced', 'high'].map((q) => [q, t('quality.' + q)]), cfg.quality, (v) => { cfg.quality = v; }));
       p.append(el('div.mlist', null, button('big primary', icon('play') + t('menu.start'), () => {
-        S.lastFaction = cfg.faction; S.warMinutes = cfg.warMinutes; S.quality = cfg.quality;
+        S.lastFaction = cfg.faction; S.warMinutes = cfg.warMinutes; S.quality = cfg.quality; S.lulls = cfg.lulls;
         env.saveSettings();
-        env.startMatch({ faction: cfg.faction, warMinutes: cfg.warMinutes });
+        env.startMatch({ faction: cfg.faction, warMinutes: cfg.warMinutes, lulls: cfg.lulls });
       })));
     });
   }
@@ -218,6 +220,20 @@ export function createMenu(env) {
         button('big', icon('save') + t('menu.load'), () => showLoad(() => showPause(game))),
         button('big', icon('menu') + t('menu.settings'), () => showSettings(() => showPause(game))),
         button('big', icon('move') + t('menu.help'), () => showHelp(() => showPause(game))),
+      );
+      // auto reinforcement default of the player's side (a match command: applies on resume)
+      const f = game.sim.state.factions[game.viewer];
+      if (game.actions.autoReinforceDefault && f && FACTIONS[game.viewer].reinforcements && game.sim.state.match.phase !== 'ENDED') {
+        let mode = game.ui.autoReinfPending || f.autoReinf || 'off';
+        const b = button('big', icon('autoreinf') + t('menu.autoreinf') + ': <b>' + t('autoreinf.' + mode) + '</b>', () => {
+          mode = AUTO_REINF_MODES[(AUTO_REINF_MODES.indexOf(mode) + 1) % AUTO_REINF_MODES.length];
+          game.ui.autoReinfPending = mode;
+          game.actions.autoReinforceDefault(mode);
+          b.innerHTML = icon('autoreinf') + t('menu.autoreinf') + ': <b>' + t('autoreinf.' + mode) + '</b>';
+        });
+        list.append(b);
+      }
+      list.append(
         button('big danger', icon('cancel') + t('menu.quit'), () => env.quit()),
       );
       p.append(list);

@@ -18,6 +18,8 @@ export function makeSim(opts = {}) {
       playerFaction: 'new_antioch',
       controllers: opts.controllers || { new_antioch: 'player', black_grail: 'player' },
       stressSoldiers: opts.stressSoldiers,
+      // older regression tests measure mechanics without operational lulls; Phase 4 tests opt in
+      lulls: opts.lulls !== undefined ? opts.lulls : 0,
     },
   });
   if (!opts.living) stripLivingWorld(sim);

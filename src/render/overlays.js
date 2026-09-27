@@ -28,6 +28,11 @@ const SECTOR_COL = {
 };
 const FORAGE_COL = [0.55, 0.62, 0.2];
 const SANITIZE_COL = [0.95, 0.55, 0.2];
+const SALVAGE_COL = [0.98, 0.82, 0.36];
+const HUB_COL = [0.62, 0.8, 0.95];
+const ALARM_COL = [0.95, 0.3, 0.2];
+const CMD_COL = [0.95, 0.8, 0.4];
+const SHELTER_COL = [0.95, 0.7, 0.3];
 const HERD_COL = [0.7, 0.62, 0.42];
 const ENG_COL = [1.0, 0.82, 0.4];
 
@@ -158,6 +163,7 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
   /** Phase 3 world overlays: sectors, settlement reach, auto-engineer beams, work areas. */
   function economyOverlays(sim, frame, viewer, t, sst) {
     const { state, rt } = sim;
+    const sel0 = frame.selection;
     const pl = frame.placement;
     const pdef = pl && STRUCTURES[pl.stype];
     const econPlacing = !!(pdef && (pdef.requiresSector || pdef.requiresSettlement || pdef.requiresSectorKind));
@@ -174,7 +180,56 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
         for (let k = 0; k <= sec.rich; k++) mark(sec.x + (k - sec.rich / 2) * 1.4 * zoomK, sec.z, y, 0.5 * zoomK, 0, col[0], col[1], col[2], a + 0.1, DS.DOT);
       }
     }
-    if (econPlacing || settlementSel) {
+    // resource heaps glow while targeting gather / salvage (2) or in ECONOMY VIEW / with a salvage
+    // crew selected (1): a finger finds them at a glance. Heaps as last seen (fog memory).
+    if (frame.nodeGlow) {
+      const list = renderer.memory ? renderer.memory.nodes() : state.nodes;
+      const strong = frame.nodeGlow >= 2;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+      for (const n of list) {
+        if (n.amount <= 0 || (!renderer.memory && !isNodeKnownTo(n, viewer))) continue;
+        const y = ground(n.x, n.z);
+        mark(n.x, n.z, y, (strong ? 3.4 + pulse * 0.9 : 3) * Math.max(1, zoomK * 0.8), 0, SALVAGE_COL[0], SALVAGE_COL[1], SALVAGE_COL[2], strong ? 0.95 : 0.5, DS.RING);
+        if (strong || frame.econView) {
+          const pips = Math.min(5, Math.max(1, Math.round(n.amount / 60)));
+          for (let k = 0; k < pips; k++) mark(n.x + (k - (pips - 1) / 2) * 1.1 * zoomK, n.z + 2.6, y, 0.42 * zoomK, 0, SALVAGE_COL[0], SALVAGE_COL[1], SALVAGE_COL[2], 0.9, DS.DOT);
+        }
+      }
+      // selected salvage crews: their SALVAGE AREA
+      if (sel0 && sel0.size) {
+        for (const id of sel0) {
+          const sq = rt.squadById.get(id);
+          if (sq && sq.faction === viewer && sq.order.t === 'gather' && sq.order.area) circle(sq.order.fx, sq.order.fz, sq.order.fr, SALVAGE_COL, 0.55, 2.6, (t * 0.5) % 1);
+        }
+      }
+    }
+    // civilian ALARM (own people only): runners pulse red, a sheltering home shows an amber ring
+    {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 7);
+      for (const sq of state.squads) {
+        if (!sq.civ || sq.faction !== viewer) continue;
+        const md = sq.civ.mode;
+        if (md === 'flee' || md === 'shelter') {
+          mark(sq.cx, sq.cz, ground(sq.cx, sq.cz), 1.6 + pulse * 0.8, 0, ALARM_COL[0], ALARM_COL[1], ALARM_COL[2], 0.75, DS.RING);
+        } else if (md === 'hidden') {
+          const home = rt.structById.get(sq.civ.home);
+          if (home) mark(home.x, home.z, ground(home.x, home.z), 5.5, 0, SHELTER_COL[0], SHELTER_COL[1], SHELTER_COL[2], 0.35 + pulse * 0.2, DS.RING);
+        }
+      }
+    }
+    // own commander's HOLD THE LINE / BLESSING area (follows him)
+    for (const e of state.effects) {
+      if (e.kind === 'command' && e.faction === viewer) circle(e.x, e.z, e.radius, CMD_COL, 0.7, 2.4, (t * 0.4) % 1);
+    }
+    // ECONOMY VIEW: drop-off hubs and every own settlement's working reach
+    if (frame.econView) {
+      for (const st of state.structures) {
+        if (st.faction !== viewer || !st.built) continue;
+        const d = STRUCTURES[st.type];
+        if (d.hub || d.dropOff) mark(st.x, st.z, ground(st.x, st.z), Math.max(d.footprint ? d.footprint.w : 4, 4) * 0.75, 0, HUB_COL[0], HUB_COL[1], HUB_COL[2], 0.55, DS.RING);
+      }
+    }
+    if (econPlacing || settlementSel || frame.econView) {
       for (const st of state.structures) {
         if (st.faction !== viewer || !STRUCTURES[st.type].settlement) continue;
         circle(st.x, st.z, STRUCTURES[st.type].settlement.econRadius, OWN_RING, st === sst ? 0.7 : 0.4, 2.6);
@@ -200,7 +255,7 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     // area targeting modes (forage / sanitize / herd): the area under the pointer
     const at = frame.areaTarget;
     if (at && typeof at.x === 'number') {
-      const col = at.kind === 'forage' ? FORAGE_COL : at.kind === 'sanitize' ? SANITIZE_COL : HERD_COL;
+      const col = at.kind === 'forage' ? FORAGE_COL : at.kind === 'sanitize' ? SANITIZE_COL : at.kind === 'salvage' ? SALVAGE_COL : HERD_COL;
       circle(at.x, at.z, at.r, at.valid === false ? INVALID : col, 0.9, 2, (t * 0.8) % 1);
       mark(at.x, at.z, ground(at.x, at.z), 1.2, 0, col[0], col[1], col[2], 0.9, DS.MARKER, 0.2);
     }
@@ -221,7 +276,7 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
 
   /** Public: transient order marker at a ground point (called by input on command issue). */
   function addMarker(kind, x, z) {
-    markers.push({ kind, x, z, t0: renderer ? renderer.time : 0, life: kind === 'attack' ? 0.9 : 0.75 });
+    markers.push({ kind, x, z, t0: renderer ? renderer.time : 0, life: kind === 'attack' ? 0.9 : kind === 'alarm' ? 3 : 0.75 });
     if (markers.length > 24) markers.shift();
   }
 
@@ -347,7 +402,7 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     const engaged = !!sq.target && sq.engaged;
     let hp = 0, alive = 0, lvl = 0;
     for (const m of sq.members) {
-      if (m.state !== 'alive' && m.state !== 'joining' && m.state !== 'rising') continue;
+      if (m.state !== 'alive' && m.state !== 'rising') continue; // replacements count once they join
       hp += Math.max(0, m.hp);
       alive++;
       const l = coverLevel(m.cover || 0);
@@ -501,6 +556,8 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
       if (m.kind === 'attack') mark(m.x, m.z, y, 1.8, 0, 0.92, 0.25, 0.16, 1 - u, DS.ATTACK, 0, t * 2.5);
       else if (m.kind === 'build') mark(m.x, m.z, y, 1.9, 0, 0.92, 0.7, 0.3, 1, DS.MARKER, u);
       else if (m.kind === 'rally') mark(m.x, m.z, y, 1.6, 0, OWN_RING[0], OWN_RING[1], OWN_RING[2], 1, DS.MARKER, u);
+      else if (m.kind === 'join') mark(m.x, m.z, y, 1.2 + u, 0, 0.62, 0.8, 0.45, 1 - u, DS.RING);
+      else if (m.kind === 'alarm') { for (let k = 0; k < 3; k++) { const uu = (u * 3 + k / 3) % 1; mark(m.x, m.z, y, 3 + uu * 14, 0, ALARM_COL[0], ALARM_COL[1], ALARM_COL[2], (1 - uu) * (1 - u) * 0.9, DS.RING); } }
       else mark(m.x, m.z, y, 1.7, 0, 0.9, 0.86, 0.66, 1, DS.MARKER, u);
     }
 

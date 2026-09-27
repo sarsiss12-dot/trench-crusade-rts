@@ -7,6 +7,7 @@ import { dist, dsin, dcos, clamp, lerp } from '../core/dmath.js';
 import { findPath } from '../world/nav.js';
 import { PATHS_PER_TICK, PATH_WORK_PER_TICK, REPATH_TICKS, MELEE_CHARGE_RANGE } from '../sim/constants.js';
 import { WEAPONS } from '../data/weapons.js';
+import { ENGINEERING } from '../data/economy.js';
 import { factionBit, isPointVisibleTo, visibleCentroid } from '../sim/perception.js';
 import { removeCorpse } from '../sim/corpses.js';
 import { forageAnimal, damageAnimal, animalById } from '../sim/wildlife.js';
@@ -162,7 +163,7 @@ export function connectedTrenches(sim, seg, faction, maxCount = 12) {
 
 function presentCount(sq) {
   let n = 0;
-  for (const m of sq.members) if (m.state === 'alive' || m.state === 'joining') n++;
+  for (const m of sq.members) if (m.state === 'alive') n++; // replacements on the way are not in yet
   return n;
 }
 
@@ -217,7 +218,7 @@ export function assignTrenchPosts(sim, sq, seg, px, pz) {
   let ci = 0;
   let assigned = 0;
   for (const m of sq.members) {
-    if (m.state !== 'alive' && m.state !== 'joining') continue;
+    if (m.state !== 'alive') continue;
     if (ci >= cands.length) break;
     const c = cands[ci++];
     const s = sim.rt.structById.get(c.sid);
@@ -235,7 +236,7 @@ export function assignTrenchPosts(sim, sq, seg, px, pz) {
  */
 export function fillTrenchPosts(sim, sq, seg) {
   let need = 0;
-  for (const m of sq.members) if ((m.state === 'alive' || m.state === 'joining') && !m.postId) need++;
+  for (const m of sq.members) if (m.state === 'alive' && !m.postId) need++;
   if (!need) return 0;
   const segs = connectedTrenches(sim, seg, sq.faction);
   cands.length = 0;
@@ -251,7 +252,7 @@ export function fillTrenchPosts(sim, sq, seg) {
   cands.sort((a, b) => a.d - b.d || a.sid - b.sid || a.k - b.k);
   let ci = 0, assigned = 0;
   for (const m of sq.members) {
-    if ((m.state !== 'alive' && m.state !== 'joining') || m.postId) continue;
+    if (m.state !== 'alive' || m.postId) continue;
     if (ci >= cands.length) break;
     const c = cands[ci++];
     const s = sim.rt.structById.get(c.sid);
@@ -409,7 +410,7 @@ export function updateOrders(sim) {
       case 'build':
       case 'repair': {
         const st = rt.structById.get(o.sid);
-        if (!st || (o.t === 'build' && st.built) || (o.t === 'repair' && st.hp >= st.maxHp)) {
+        if (!st || (o.t === 'build' && st.built) || (o.t === 'repair' && (st.hp >= st.maxHp || st.collapsed))) {
           for (const m of sq.members) m.working = 0;
           // job done: units/engineers.js continues with the queue, a nearby site or a hub
           sq.order = { t: 'idle', done: 1 };
@@ -560,6 +561,25 @@ function updateHunt(sim, sq, def, o, cap) {
   else if (sq.pathState === 'failed' && tick - sq.pathReqTick > 30) { o.phase = 'seek'; o.aid = 0; clearPath(sq); }
 }
 
+/** Salvage radius of the engineers' SALVAGE AREA order (m). */
+export const SALVAGE_AREA_R = ENGINEERING.salvageAreaR;
+
+/**
+ * Next salvage heap for a SALVAGE AREA order: known to the faction, not depleted, inside the area;
+ * nearest to the crew first (ties by id — deterministic). Returns the node or null.
+ */
+export function nextAreaNode(sim, sq, o) {
+  const bit = factionBit(sq.faction);
+  let best = null, bd = Infinity;
+  for (const n of sim.state.nodes) {
+    if (n.amount <= 0 || !(n.seenBy & bit)) continue;
+    if (dist(n.x, n.z, o.fx, o.fz) > (o.fr || SALVAGE_AREA_R)) continue;
+    const d = dist(n.x, n.z, sq.cx, sq.cz);
+    if (d < bd || (d === bd && best && n.id < best.id)) { bd = d; best = n; }
+  }
+  return best;
+}
+
 function updateGather(sim, sq, def, o) {
   const { state, rt } = sim;
   const corpseMode = def.gathers === 'corpse';
@@ -567,7 +587,13 @@ function updateGather(sim, sq, def, o) {
   for (const m of sq.members) if (m.state === 'alive') alive++;
   const cap = alive * (def.carryCapacity || 0);
   if (corpseMode && o.mode === 'forage' && (o.phase === 'seek' || o.phase === 'hunt')) { updateHunt(sim, sq, def, o, cap); return; }
-  const node = corpseMode ? corpseTarget(sim, sq, o) : rt.nodeById.get(o.nid);
+  let node = corpseMode ? corpseTarget(sim, sq, o) : rt.nodeById.get(o.nid);
+  // SALVAGE AREA (engineers, Phase 4): an emptied heap hands over to the next known heap inside
+  // the area; when the area is empty the crew delivers and heads home to a hub (engineer queue)
+  if (!corpseMode && o.area && (!node || node.amount <= 0) && o.phase !== 'to_drop') {
+    const next = nextAreaNode(sim, sq, o);
+    if (next) { node = next; o.nid = next.id; if (o.phase === 'gathering') { o.phase = 'to_node'; clearPath(sq); return; } }
+  }
   const amountOf = (n) => (corpseMode ? n.biomass : n.amount);
   const forage = o.mode === 'forage';
   const finished = () => { sq.order = forage && o.auto ? { t: 'idle', ready: 1 } : { t: 'idle', done: 1 }; clearPath(sq); };
@@ -634,6 +660,7 @@ function updateGather(sim, sq, def, o) {
       clearPath(sq);
       if (forage) o.phase = 'seek';
       else if (node && amountOf(node) > 0) o.phase = 'to_node';
+      else if (o.area && nextAreaNode(sim, sq, o)) o.phase = 'to_node';
       else finished();
       return;
     }

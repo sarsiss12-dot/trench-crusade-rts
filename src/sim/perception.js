@@ -310,10 +310,17 @@ export function eventVisibility(sim, ev, viewer) {
       const st = rt.structById.get(ev.id);
       return st && isStructureVisibleTo(st, viewer) ? SHOW.ALL : SHOW.NONE;
     }
+    case EV.COMMANDER_FALLEN:
+      if (ev.faction === viewer) return SHOW.ALL;
+      return isPointVisibleTo(sim, viewer, ev.x, ev.z) ? SHOW.ALL : SHOW.NONE;
+    case EV.RUIN_COLLAPSED:
+      if (ev.holder === viewer) return SHOW.ALL;
+      return isPointVisibleTo(sim, viewer, ev.x, ev.z) ? SHOW.ALL : SHOW.NONE;
     case EV.STRUCTURE_DESTROYED:
       if (ev.faction === viewer) return SHOW.ALL;
       return isPointVisibleTo(sim, viewer, ev.x, ev.z) ? SHOW.ALL : SHOW.NONE;
     case EV.PHASE_CHANGED:
+    case EV.PHASE_WARNING:
     case EV.MATCH_ENDED:
       return SHOW.ALL;
     default:

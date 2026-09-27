@@ -12,9 +12,11 @@ import {
   TICK_RATE, TARGET_INTERVAL, DYING_TICKS, RISING_TICKS, MAX_CORPSES, CORPSE_DECAY_TICKS,
   MELEE_CHARGE_RANGE, ACQUIRE_EXTRA, INFECTION_MAX,
 } from '../sim/constants.js';
-import { protectionAgainst, coverAt } from './cover.js';
+import { protectionAgainst, coverAt, garrisonCoverAt } from './cover.js';
+import { COVER_INDEX } from '../data/cover.js';
+import { garrisonCanFire, garrisonAt, releaseGarrison } from '../units/garrison.js';
 import { soldierDetectedBy } from '../sim/perception.js';
-import { distanceToStructure, releaseSoldierPost, engageRange } from '../units/orders.js';
+import { distanceToStructure, releaseSoldierPost, engageRange, clearPath } from '../units/orders.js';
 import { structuresChanged } from '../sim/runtime.js';
 import { endMatch, factionByRole } from '../sim/match.js';
 import { cellIndex } from '../world/terrain.js';
@@ -26,8 +28,10 @@ import { specValue, specRule } from '../sim/specialities.js';
 import { damageAnimal, releasePen } from '../sim/wildlife.js';
 import { onSettlementLost } from '../economy/settlements.js';
 import { rebuildAuras, auraValue } from '../sim/auras.js';
+import { lullQuiet, lullAllowsTarget } from '../sim/lull.js';
 
 const PROT = { dmg: 0, acc: 0, cover: 0 };
+const GARRISON_FLAME = 1.3; // flame vs a ruin garrison (data: structures.js garrison.flameTaken)
 const STRUCT_EFFECTIVE = 0.3; // weapons below this structure multiplier do not auto-engage structures
 const ticks = (sec) => Math.max(1, Math.round(sec * TICK_RATE));
 
@@ -79,12 +83,14 @@ function acquireTarget(sim, sq) {
   if (ranged) range = passive ? ranged.range * 0.8 : ranged.range + ACQUIRE_EXTRA;
   else range = passive ? 4 : MELEE_CHARGE_RANGE;
   let best = null, bestD = 1e9;
+  const quiet = lullQuiet(state);
   for (const e of state.squads) {
     if (!areHostile(sq.faction, e.faction)) continue;
     if (!(e.visibleTo & myBit)) continue;
     if (!hasAlive(e)) continue;
     const d = dist(sq.x, sq.z, e.cx, e.cz);
     if (d > range + 3) continue;
+    if (quiet && !lullAllowsTarget(sim, sq.faction, e.cx, e.cz, sq.lastHitTick)) continue;
     // prefer threats already shooting at us, then proximity
     const score = d - (state.tick - sq.lastHitTick < 60 && e.target && e.target.id === sq.id ? 10 : 0);
     if (score < bestD) { bestD = score; best = e; }
@@ -112,6 +118,7 @@ function acquireTarget(sim, sq) {
     if (!areHostile(sq.faction, st.faction)) continue;
     if (!(st.visibleTo & myBit)) continue;
     if (st.type === 'field') continue;
+    if (quiet && !lullAllowsTarget(sim, sq.faction, st.x, st.z)) continue;
     const d = distanceToStructure(st, sq.x, sq.z);
     if (d > sRange) continue;
     const score = d - (st.objective ? 25 : 0) - (st.type === 'wire' && d < 4 ? 8 : 0);
@@ -161,6 +168,7 @@ export function damageSoldier(sim, vsq, v, amount, attackerFaction, weapon, dx, 
   let d = amount * (1 - vdef.armor);
   if (vsq.hordeBonus) d *= 1 - vsq.hordeBonus * 0.6;
   if (v.postId && specRule(sim.state, vsq.faction, 'trenchStand')) d *= 0.75; // Elite Defense: they hold
+  if (sim.rt.auras) d *= 1 - auraValue(sim, vsq.faction, v.x, v.z, 'holdLine'); // HOLD THE LINE
   v.hp -= d;
   vsq.lastHitTick = sim.state.tick;
   if (weapon && weapon.infect) addInfection(sim, vsq, v, weapon.infect);
@@ -319,6 +327,13 @@ function rangedShot(sim, sq, m, weapon, esq, e) {
   const d = dist(m.x, m.z, e.x, e.z);
   let acc = lerp(weapon.accNear, weapon.accFar, clamp((d - 6) / Math.max(1, weapon.range - 6), 0, 1));
   protectionAgainst(sim, e.x, e.z, m.x, m.z, PROT);
+  let chipRuin = null;
+  if (PROT.cover === COVER_INDEX.garrison && weapon.antiGarrison) {
+    // heavy guns chew through ruin walls: half the cover, and the walls themselves take the hits
+    const st = garrisonAt(sim, e.x, e.z);
+    const gd = st ? STRUCTURES[st.type].garrison : null;
+    if (gd) { PROT.dmg *= gd.heavyCoverMult; PROT.acc *= gd.heavyCoverMult; chipRuin = st; }
+  }
   acc *= 1 - PROT.acc;
   if (e.vx * e.vx + e.vz * e.vz > 0.0004) acc *= 0.9;
   if (sq.debuffUntil > state.tick) acc *= 0.65;
@@ -347,6 +362,7 @@ function rangedShot(sim, sq, m, weapon, esq, e) {
     const dd = d || 1;
     damageSoldier(sim, esq, e, dmg, sq.faction, weapon, (e.x - m.x) / dd, (e.z - m.z) / dd, sq.id);
   }
+  if (chipRuin) damageStructure(sim, chipRuin, weapon.damage * 0.6, sq.faction);
 }
 
 function shotAtStructure(sim, sq, m, weapon, st, isMelee) {
@@ -417,6 +433,7 @@ function flameGout(sim, sq, m, w, ax, az, tst) {
       if (d > R) continue;
       let dmg = w.damage * (0.85 + 0.3 * rngFloat(state.rng.main)) * (1 - 0.35 * (d / R));
       if (e.postId) dmg *= 0.75; // fire pours into trenches
+      else if (e.gslot >= 0) dmg *= GARRISON_FLAME; // and fills a ruin's rooms
       e.burn = Math.max(e.burn || 0, state.tick + Math.round(w.burnSec * TICK_RATE));
       const dd = dist(m.x, m.z, e.x, e.z) || 1;
       damageSoldier(sim, esq, e, dmg, sq.faction, FIRE, (e.x - m.x) / dd, (e.z - m.z) / dd, sq.id, 0.2);
@@ -512,7 +529,8 @@ function squadFire(sim, sq) {
       continue;
     }
     if (!ranged) continue;
-    // 3) ranged
+    // 3) ranged (a garrison soldier only from a firing slot: loophole / broken wall)
+    if (m.gslot >= 0 && !garrisonCanFire(sim, sq, m)) { m.burst = 0; continue; }
     const moving = m.vx * m.vx + m.vz * m.vz > 0.0004;
     if (moving && !ranged.fireWhileMoving) { m.burst = 0; continue; }
     let e = null;
@@ -549,12 +567,52 @@ function squadFire(sim, sq) {
 export function damageStructure(sim, st, amount, attackerFaction) {
   if (st.hp <= 0) return;
   st.hp -= amount;
+  if (st.occ && STRUCTURES[st.type].garrison) {
+    // a ruin garrison is never removed: at 0 hp it COLLAPSES on whoever holds it
+    if (st.hp <= 0) collapseRuin(sim, st, attackerFaction);
+    else if (sim.state.tick - (st.lastDamageTick || -1000) >= 6) {
+      st.lastDamageTick = sim.state.tick;
+      sim.events.push({ type: EV.STRUCTURE_DAMAGED, id: st.id, stype: st.type, faction: st.faction, x: st.x, z: st.z, hp: st.hp, maxHp: st.maxHp });
+    }
+    return;
+  }
   const tick = sim.state.tick;
   if (tick - (st.lastDamageTick || -1000) >= 6 || st.hp <= 0) {
     st.lastDamageTick = tick;
     sim.events.push({ type: EV.STRUCTURE_DAMAGED, id: st.id, stype: st.type, faction: st.faction, x: st.x, z: st.z, hp: st.hp, maxHp: st.maxHp });
   }
   if (st.hp <= 0) destroyStructure(sim, st, attackerFaction);
+}
+
+/**
+ * RUIN COLLAPSE (Phase 4): the walls come down on the garrison. Each soldier inside dies with the
+ * data chance collapseKill (deterministic hash per soldier / ruin), the survivors are suppressed,
+ * thrown out of the garrison and walk out of the rubble. The ruin stays as rubble (no garrison).
+ */
+export function collapseRuin(sim, st, attackerFaction) {
+  const { state, rt } = sim;
+  const gd = STRUCTURES[st.type].garrison;
+  const holder = st.holder;
+  st.hp = 0;
+  st.collapsed = 1;
+  let killed = 0;
+  for (const id of st.occ.slice()) {
+    const sq = rt.squadById.get(id);
+    if (!sq) continue;
+    for (const m of sq.members) {
+      if (m.state !== 'alive' && m.state !== 'joining') continue;
+      if (garrisonCoverAt(sim, st, m.x, m.z) === 0 && m.gslot < 0) continue;
+      if ((hash32(m.id, st.id, 91) % 1000) / 1000 < gd.collapseKill) { killSoldier(sim, sq, m, attackerFaction || '', 'collapse', 0, 0, 0, 0, 0.6); killed++; }
+    }
+    sq.suppressUntil = Math.max(sq.suppressUntil || 0, state.tick + Math.round(gd.suppressSec * TICK_RATE));
+    releaseGarrison(sim, st, sq);
+    sq.order = { t: 'idle' };
+    clearPath(sq);
+  }
+  st.occ.length = 0;
+  st.holder = '';
+  sim.events.push({ type: EV.RUIN_COLLAPSED, id: st.id, stype: st.type, holder, faction: 'neutral', x: st.x, z: st.z, killed, attacker: attackerFaction || '' });
+  sim.events.push({ type: EV.STRUCTURE_DAMAGED, id: st.id, stype: st.type, faction: st.faction, x: st.x, z: st.z, hp: 0, maxHp: st.maxHp });
 }
 
 export function destroyStructure(sim, st, attackerFaction) {
@@ -613,10 +671,12 @@ function structureFire(sim, st, sw) {
   if (!tsq || (state.tick + st.id) % TARGET_INTERVAL === 0 || !hasAlive(tsq) || !(tsq.visibleTo & myBit)) {
     tsq = null;
     let bestD = w.range + 2;
+    const quiet = lullQuiet(state);
     for (const e of state.squads) {
       if (!areHostile(st.faction, e.faction) || !(e.visibleTo & myBit) || !hasAlive(e)) continue;
       const d = dist(gx, gz, e.cx, e.cz);
       if (d > bestD) continue;
+      if (quiet && !lullAllowsTarget(sim, st.faction, e.cx, e.cz, st.lastHitTick)) continue;
       const ang = Math.abs(wrapAngle(headingOf(e.cx - gx, e.cz - gz) - st.rot));
       if (ang > halfArc) continue;
       bestD = d; tsq = e;

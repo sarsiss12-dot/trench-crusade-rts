@@ -2,6 +2,7 @@
 // livestock, Grail forage, the cheap Thrall swarm, Pestilence, plague reanimation, medics /
 // clerics / flamers / sanitation, specialities, auto engineers, multi-squad trenches, fog, AI,
 // determinism. Each test drives the real systems through commands where a player would.
+import { STATE_VERSION as STATE_VERSION_NOW } from '../src/sim/constants.js';
 import { test, assert } from './harness.js';
 import { enqueueCommand, CMD } from '../src/sim/commands.js';
 import { EV } from '../src/core/events.js';
@@ -439,8 +440,11 @@ test('infected corpse -> Thrall: a sufficiently infected soldier turns where he 
   const rise = ev.find((e) => e.type === EV.SOLDIER_RISING && e.corpseId === c.id);
   assert.ok(rise, 'the body rose (no Grail anywhere near)');
   assert.equal(rise.turned, 1);
-  const thr = sim.state.squads.find((q) => q.faction === BG && q.type === 'grail_thrall');
-  assert.ok(thr && dist(thr.cx, thr.cz, c.x, c.z) < 3, 'a Thrall stands where he fell');
+  // the risen Thrall appears where the man fell (the rifle squad beside him may shoot it down
+  // before the end of the run, so the rise itself is checked, then the squad if it still stands)
+  const risen = sim.rt.squadById.get(rise.sq);
+  assert.ok(dist(rise.x, rise.z, c.x, c.z) < 0.01, 'rose where he fell');
+  if (risen) assert.ok(risen.type === 'grail_thrall' && dist(risen.cx, risen.cz, c.x, c.z) < 3, 'a Thrall stands where he fell');
 });
 
 test('corpse burning prevents the rise; a cleric\'s consecrated ground stops it too', () => {
@@ -836,7 +840,7 @@ test('save v2 -> v3 migration: Phase 2 saves load and get the living world', () 
     loaded = deserializeSave(JSON.stringify({ ...hdr, version: 2, state: s }));
   }
   const st = loaded.state;
-  assert.equal(st.version, 3);
+  assert.equal(st.version, STATE_VERSION_NOW); // migrates through every step to the current version
   const sim2 = simulationFromState(st);
   assert.ok(sim2.state.sectors.length >= 8, 'sectors built on load');
   assert.ok(sim2.state.factions[NA].spec && sim2.state.factions[NA].spec.length === 3);

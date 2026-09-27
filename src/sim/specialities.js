@@ -2,6 +2,7 @@
 // (faction.spec = [tierI|null, tierII|null, tierIII|null]) and are made ONLY through the
 // CHOOSE_SPECIALITY command (plain serializable data -> lockstep / replay friendly).
 // Everything else reads the choices through the pure helpers below.
+import { commanderCostMult } from './commander.js';
 import { SPECIALITIES, SPEC_BY_ID, SPEC_TIERS, SPEC_ADDITIVE, SPEC_MIN } from '../data/specialities.js';
 import { UNITS } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -53,10 +54,12 @@ export function specValue(state, fid, key, dflt) {
 /** Share of the war timer elapsed (0 during preparation). */
 export function matchProgress(state) {
   const m = state.match;
-  const war = Math.max(1, m.warEndTick - m.prepEndTick);
+  // operational lulls freeze the war clock: their time counts neither in the war nor in progress
+  const l = m.lull;
+  const war = Math.max(1, m.warEndTick - m.prepEndTick - (l ? l.ext : 0));
   const t = m.phase === 'ENDED' ? m.endTick : state.tick;
   if (t <= m.prepEndTick) return 0;
-  return clamp((t - m.prepEndTick) / war, 0, 1);
+  return clamp((t - m.prepEndTick - (l ? l.elapsed : 0)) / war, 0, 1);
 }
 
 export function tierUnlocked(state, tier) {
@@ -113,7 +116,7 @@ export function unlockedBySpec(state, fid, def) {
 export function unitCost(state, fid, type) {
   const u = UNITS[type];
   if (!u || !u.cost) return null;
-  const k = u.specCostKey ? specValue(state, fid, u.specCostKey, 1) : 1;
+  const k = (u.specCostKey ? specValue(state, fid, u.specCostKey, 1) : 1) * commanderCostMult(state, fid, type);
   if (k === 1) return u.cost;
   const c = {};
   for (const r in u.cost) c[r] = Math.ceil(u.cost[r] * k);

@@ -144,6 +144,8 @@ export const MAPS = {
       { type: 'sandbags', x1: 106, z1: 484, x2: 116, z2: 482 },
       { type: 'sandbags', x1: 204, z1: 482, x2: 214, z2: 484 },
       { type: 'supply_cache', x: 160, z: 488, rot: 3.141592653589793 },
+      // Phase 4: a field gun behind the line (reaches no man's land; the wire is inside its minimum range)
+      { type: 'field_gun', x: 122, z: 498, rot: 3.141592653589793 },
       { type: 'trench', x1: 108, z1: 481, x2: 122, z2: 479 },
       { type: 'trench', x1: 192, z1: 479, x2: 206, z2: 481 },
       { type: 'wire', x1: 146, z1: 455, x2: 160, z2: 454 },
@@ -198,6 +200,9 @@ export const MAPS = {
     grailPlan: [
       { type: 'corpse_mound', x: 160, z: 200, rot: 0 },
       { type: 'fly_nest', x: 150, z: 212, rot: 0 },
+      // Phase 4 organic defences covering the altar approaches
+      { type: 'viscera_nest', x: 170, z: 228, rot: 0 },
+      { type: 'belcher_nest', x: 134, z: 218, rot: 0 },
       { type: 'plague_pit', x: 100, z: 205, rot: 0 },
       { type: 'plague_pit', x: 220, z: 200, rot: 0 },
       { type: 'corpse_mound', x: 120, z: 160, rot: 0 },

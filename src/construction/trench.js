@@ -164,7 +164,7 @@ export function networkCapacity(state, segs, faction, exceptSquad) {
     }
     const o = sq.order;
     if (o.t !== 'move' || !o.trench || !ids.has(o.trench)) continue;
-    for (const m of sq.members) if ((m.state === 'alive' || m.state === 'joining') && !m.postId) reserved++;
+    for (const m of sq.members) if (m.state === 'alive' && !m.postId) reserved++;
   }
   return { total, used, reserved, free: total - used - reserved };
 }

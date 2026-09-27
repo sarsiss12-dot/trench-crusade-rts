@@ -17,10 +17,11 @@ import { isSquadAlive } from '../sim/state.js';
 import { isCorpseKnownTo, isStructureVisibleTo, isSoldierVisibleTo } from '../sim/perception.js';
 import { canAfford } from '../economy/economy.js';
 import { trenchSlotCount, trenchCoverStrength, trenchNetwork, networkCapacity } from '../construction/trench.js';
-import { allCombatSquadIds, squadIdsWithRole } from '../input/selection.js';
+import { allCombatSquadIds, squadIdsWithRole, multiSelectView } from '../input/selection.js';
 import { unitCost, unlockedBySpec } from '../sim/specialities.js';
 import { structureCost } from '../construction/construction.js';
 import { createP3Hud } from './hud_p3.js';
+import { createP4Hud } from './hud_p4.js';
 
 function costText(cost) {
   if (!cost) return '';
@@ -37,6 +38,7 @@ export function createHud(game) {
   const fdef = FACTIONS[viewer];
   const root = el('div.hud' + (viewer === 'black_grail' ? '.bg' : '.na'));
   let p3 = null; // Phase 3 panels (created at the end, see hud_p3.js)
+  let p4 = null; // Phase 4 parts (control groups, auto reinforcement, lull banners — hud_p4.js)
   game.env.root.appendChild(root);
 
   // ------------------------------------------------------------------ top bar
@@ -78,8 +80,10 @@ export function createHud(game) {
   const qAll = button('q', icon('all') + `<i>${t('hud.all')}</i>`, () => selectIds(allCombatSquadIds(sim, viewer)), t('hud.all'));
   const bg = viewer === 'black_grail';
   const qEng = fdef.buildList.length ? button('q', icon(bg ? 'gang' : 'engineer') + `<i>${t(bg ? 'hud.gangs' : 'hud.engineers')}</i>`, () => selectIds(squadIdsWithRole(sim, viewer, 'builder')), t(bg ? 'hud.gangs' : 'hud.engineers')) : null;
-  const qBox = button('q tog', icon('box'), () => { game.ui.boxMode = !game.ui.boxMode; refreshToggles(); }, t('hud.box'));
-  const qMulti = button('q tog', icon('multi'), () => { game.ui.multi = !game.ui.multi; refreshToggles(); }, t('hud.multi'));
+  // box / multi-select modes carry a label and an explicit ON state (Phase 4: the old multi-select
+  // glyph was read as a "copy" button)
+  const qBox = button('q tog', icon('box') + `<i>${t('hud.box_short')}</i>`, () => { game.ui.boxMode = !game.ui.boxMode; refreshToggles(); }, t('hud.box'));
+  const qMulti = button('q tog', icon('multi') + `<i>${t('hud.multi_short')}</i>`, () => { game.ui.multi = !game.ui.multi; refreshToggles(); }, t('hud.multi_tip'));
   const qHome = button('q', icon('home'), () => game.home(), t('hud.home'));
   quick.append(qAll);
   if (qEng) quick.append(qEng);
@@ -92,7 +96,10 @@ export function createHud(game) {
   }
   function refreshToggles() {
     toggleClass(qBox, 'on', game.ui.boxMode);
-    toggleClass(qMulti, 'on', game.ui.multi);
+    const mv = multiSelectView(game.ui.multi);
+    toggleClass(qMulti, 'on', mv.on);
+    setText(qBox.querySelector('i'), game.ui.boxMode ? t('hud.on') : t('hud.box_short'));
+    setText(qMulti.querySelector('i'), t(mv.labelKey));
     dirty = true;
   }
 
@@ -225,6 +232,7 @@ export function createHud(game) {
         cmds.append(cmd('gather', t(gang ? 'hud.haul' : 'hud.gather'), () => game.input.startGather(), { title: t(gang ? 'hud.haul_tip' : 'hud.gather') }));
       }
       if (p3) { const extra = []; p3.squadCommands(own, extra); cmds.append(...extra); }
+      if (p4) { const extra = []; p4.squadCommands(own, extra); cmds.append(...extra); }
       cmds.append(cmd('deselect', '', () => game.selection.clear(), { title: t('hud.deselect') }));
       return;
     }
@@ -325,7 +333,7 @@ export function createHud(game) {
     else if (m.kind === 'rally') text = t('hud.rally_hint');
     else if (m.kind === 'repair') text = t('hud.repair_hint');
     else if (m.kind === 'gather') text = t(game.selection.ownSquads(sim, viewer).some((sq) => unitDef(sq.type).gathers === 'corpse') ? 'hud.haul_hint' : 'hud.gather_hint');
-    else if (m.kind === 'area') text = t(m.area === 'forage' ? 'hud.forage_hint' : m.area === 'sanitize' ? 'hud.sanitize_hint' : 'hud.herd_hint');
+    else if (m.kind === 'area') text = t(m.area === 'forage' ? 'hud.forage_hint' : m.area === 'sanitize' ? 'hud.sanitize_hint' : m.area === 'salvage' ? 'hud.salvage_hint' : 'hud.herd_hint');
     else if (game.ui.attackMove) text = t('hud.attack_move');
     if (!text) { toggleClass(modebar, 'open', false); return; }
     toggleClass(modebar, 'open', true);
@@ -382,7 +390,7 @@ export function createHud(game) {
     }
     if (st) {
       const def = STRUCTURES[st.type];
-      const nameKey = st.faction === 'neutral' ? (st.type === 'trench' ? 'struct.neutral_trench' : 'struct.neutral_wire') : 'struct.' + st.type;
+      const nameKey = st.faction === 'neutral' && !def.garrison ? (st.type === 'trench' ? 'struct.neutral_trench' : 'struct.neutral_wire') : 'struct.' + st.type;
       const head = el('div.ih', { html: `${icon(iconForStructure(st.type))}<span class="nm">${t(nameKey)}</span>` }, el('span.st'));
       if (st.faction !== viewer && st.faction !== 'neutral') head.classList.add('enemy');
       info.append(head, el('div.row', null, el('div.bar.hp', null, el('i'))));
@@ -405,14 +413,15 @@ export function createHud(game) {
       const sq = sim.rt.squadById.get(Number(info.dataset.id));
       if (!sq) return;
       const def = unitDef(sq.type);
-      let hp = 0, alive = 0, lvl = 0, idx = 0;
+      let hp = 0, alive = 0, lvl = 0, idx = 0, enRoute = 0;
       for (const m of sq.members) {
-        if (m.state !== 'alive' && m.state !== 'joining' && m.state !== 'rising') continue;
+        if (m.state === 'joining') { enRoute++; continue; } // walking replacements: "+N en route"
+        if (m.state !== 'alive' && m.state !== 'rising') continue;
         alive++; hp += Math.max(0, m.hp);
         const l = coverLevel(m.cover);
         if (l > lvl) { lvl = l; idx = m.cover; }
       }
-      setText(info.querySelector('.cnt'), `${alive}/${def.squadSize}`);
+      setText(info.querySelector('.cnt'), `${alive}/${def.squadSize}` + (enRoute && sq.faction === viewer ? ' ' + t('hud.en_route', { n: enRoute }) : ''));
       setText(info.querySelector('.st'), sq.faction === viewer ? statusOf(sq) : t('hud.enemy'));
       setWidth(info.querySelector('.hp i'), hp / (def.hp * def.squadSize));
       const ammo = info.querySelector('.ammo i');
@@ -429,7 +438,7 @@ export function createHud(game) {
       if (ib) {
         let n = 0, stacks = 0, seen = 0;
         for (const m of sq.members) {
-          if (m.state !== 'alive' && m.state !== 'joining') continue;
+          if (m.state !== 'alive') continue;
           if (sq.faction !== viewer && !isSoldierVisibleTo(sim, sq, m, viewer)) continue;
           seen++;
           if (m.infection > 0) { n++; stacks += m.infection; }
@@ -510,6 +519,7 @@ export function createHud(game) {
     setText(phaseTime, ph === 'ENDED' ? '' : formatClock(session.phaseTimeLeft()));
     toggleClass(phaseBox, 'prep', ph === 'PREPARATION');
     toggleClass(phaseBox, 'war', ph === 'WAR');
+    toggleClass(phaseBox, 'lull', ph === 'LULL');
     // affordability of train / build / ability buttons
     for (const b of cmds.querySelectorAll('.train')) b.classList.toggle('poor', b.classList.contains('locked') || !canAfford(f.resources, unitCost(sim.state, viewer, b.dataset.unit)));
     for (const b of cmds.querySelectorAll('.ability')) {
@@ -581,7 +591,7 @@ export function createHud(game) {
   function onEvent(ev) {
     switch (ev.type) {
       case EV.PHASE_CHANGED:
-        if (ev.phase === 'WAR') showBanner(t('notice.war_begins'), 'war');
+        if (ev.phase === 'WAR' && !ev.afterLull) showBanner(t('notice.war_begins'), 'war');
         dirty = true;
         break;
       case EV.COMMAND_REJECTED:
@@ -621,6 +631,7 @@ export function createHud(game) {
       default: break;
     }
     if (p3) p3.onEvent(ev);
+    if (p4) p4.onEvent(ev);
   }
 
   // ------------------------------------------------------------------ box selection rectangle
@@ -663,6 +674,7 @@ export function createHud(game) {
       if (game.mode.kind === 'place') renderModebarLive();
     }
     if (p3) p3.update(dt);
+    if (p4) p4.update(dt);
     if (!prepHintShown && session.phase() === 'PREPARATION') {
       prepHintShown = true;
       setText(hint, t(viewer === 'black_grail' ? 'hud.prep_hint_bg' : 'hud.prep_hint'));
@@ -692,11 +704,16 @@ export function createHud(game) {
     root, resBox, quick, bottom, notify, cmd, showBanner,
     markDirty() { dirty = true; },
   });
+  p4 = createP4Hud(game, {
+    root, resBox, quick, bottom, notify, cmd, showBanner,
+    markDirty() { dirty = true; },
+  });
 
   return {
     root, minimapSlot, update, onEvent, notify, showBox, hideBox, destroy,
     onModeChanged() { dirty = true; if (game.mode.kind !== 'normal') { buildOpen = false; } },
     onSpeedChanged: refreshSpeed,
+    onGroupsChanged() { if (p4) p4.onGroupsChanged(); },
     toggleBuildMenu,
     showBanner,
   };

@@ -66,7 +66,9 @@ export function pickStructure(sim, viewer, wx, wz, margin = 0.8, filter, list) {
       // inverse of the model rotation used by the renderer: local = R(-rot) * d
       const lx = c * dx - s * dz, lz = s * dx + c * dz;
       if (Math.abs(lx) > fp.w * 0.5 + margin || Math.abs(lz) > fp.d * 0.5 + margin) continue;
-      d = Math.hypot(lx, lz) * 0.25; // buildings win over linear structures under them
+      // buildings win over linear structures under them — except a ruin garrison, a large walled
+      // area whose trenches / wire / posts inside stay pickable
+      d = def.garrison ? Math.hypot(lx, lz) + 2.5 : Math.hypot(lx, lz) * 0.25;
     }
     if (d < bestD) { bestD = d; best = st; }
   }
@@ -79,6 +81,30 @@ export function pickNode(sim, viewer, wx, wz, radius = 4.5) {
   for (const n of sim.state.nodes) {
     if (n.amount <= 0 || !isNodeKnownTo(n, viewer)) continue;
     const d = Math.hypot(n.x - wx, n.z - wz);
+    if (d < bestD) { bestD = d; best = n; }
+  }
+  return best;
+}
+
+/** Resource-node pick tolerances (Phase 4): fingers need a much larger target than a mouse. */
+export const NODE_PICK = { mouseM: 4.5, touchM: 8, mousePx: 24, touchPx: 52, assist: 1.3 };
+
+/**
+ * Resource node for a tap: world distance around the ground point OR the heap's projected screen
+ * position (a heap seen at a low angle covers little ground but a lot of screen). touch: finger
+ * input; pxScale: canvas px per CSS px. Returns the node or null.
+ */
+export function pickNodeAt(sim, viewer, camera, groundFn, sx, sy, wx, wz, touch, pxScale = 1, assist = false) {
+  const k = assist ? NODE_PICK.assist : 1;
+  const worldR = (touch ? NODE_PICK.touchM : NODE_PICK.mouseM) * k;
+  const near = wx === undefined ? null : pickNode(sim, viewer, wx, wz, worldR);
+  if (near) return near;
+  let best = null, bestD = (touch ? NODE_PICK.touchPx : NODE_PICK.mousePx) * k * pxScale;
+  for (const n of sim.state.nodes) {
+    if (n.amount <= 0 || !isNodeKnownTo(n, viewer)) continue;
+    projectToScreen(camera, n.x, groundFn(n.x, n.z) + 0.8, n.z, P);
+    if (!P[3]) continue;
+    const d = Math.hypot(P[0] - sx, P[1] - sy);
     if (d < bestD) { bestD = d; best = n; }
   }
   return best;

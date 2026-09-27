@@ -24,7 +24,7 @@ Gereksinim yok (sıfır bağımlılık). Node.js ≥ 18 yalnızca geliştirme su
 
 ```bash
 node tools/serve.js            # http://localhost:8080  (aynı ağdaki telefon için LAN adresi de yazdırılır)
-npm test                       # = node tests/run.js      — 195 Node testi
+npm test                       # = node tests/run.js      — 235 Node testi
 npm run build                  # = node tools/build.js    — dist/index.html (tek dosya, çevrimdışı çalışır)
 npm run balance                # = node tools/balance.js  — AI'ya karşı AI deterministik maçlar + Faz 3 denge ölçümleri
                                #   (--seeds 1,2,…  --minutes 15  --verbose  --json çıktı.json)
@@ -178,6 +178,36 @@ yazılmadan eklendi:
   çatırtı, veba, tahliye çanı, kademe borazanı). Harici varlık yok.
 - **Kayıt:** sürüm 3 + 2→3 göçü (eski kayıt, tohumundan deterministik olarak yaşayan dünyayı kazanır).
 
+## 2d. Faz 04 — Muharebe akışı, komutan, garnizon, sahra topu, ses kurtarma, mobil gruplar
+
+- **Ses kurtarma:** `src/audio/recovery.js` durum makinesi (askıya alınmış / kesintiye uğramış / kapalı bağlam,
+  görünürlük, odak, dokunuş), 1 Hz bekçi, tek grafik / tek müzik (çift başlatma yok), durmuş zamanlayıcıyı atlatma.
+  Müzik orta frekans katmanlarıyla (yaylı ped, çekme, boru, davul gövdesi) telefonda duyulur olacak şekilde yeniden
+  yazıldı; ayrı müzik ses düzeyi; uzak cephe ambiyansı (konumsuz). *Kurtarma mantığı Node'da sahte Web Audio ile test
+  edildi; gerçek Android'de dinlenmedi.*
+- **Takviye:** yürüyen yedek, varana kadar HP / canlı sayısı / siper yuvası / güç hesabına girmez; "+N YOLDA";
+  vardığında deterministik KATILMA olayı. Otomatik takviye: manga başına anahtar + taraf varsayılanı (Kapalı / Önemli / Tümü).
+- **Kontrol grupları 1/2/3:** uzun bas = kaydet, dokun = seç, çift dokun = seç + kamera; masaüstü Ctrl+1..9 / 1..9;
+  ölüler düşer; kayıt meta verisinde saklanır. Çoklu Seçim düğmesi etiketli ve AÇIK durumu belirgin.
+- **Kaynak / hurda:** parmak için geniş hurda seçim yarıçapı (dünya + ekran izdüşümü), toplama modunda parlayan yığınlar,
+  HURDA ALANI emri (alan boşalınca merkeze dönüş), EKONOMİ GÖRÜNÜMÜ, tarla / taş ocağı çalışma tozu, sivil ALARM
+  (bildirim, zil, işaret, sığınan yerleşim halkası).
+- **Operasyonel duraklama:** SAVAŞ I → YENİDEN ÖRGÜTLENME → SAVAŞ II…; tohumlu zamanlama (%25–40, %55–75), 8–12 sn
+  uyarı, 45–60 sn; saldırı emirleri reddedilir, kendi bölgesinde öz savunma; maç ayarı Otomatik / Kapalı / 1 / 2.
+- **Harabe garnizonu:** 11 harabe (10 ev + şapel) gerçek garnizon yapısı: giriş kapıları (şapelde iki), iç ve atış
+  yuvaları, kapasite (küçük ev 1, büyük ev / şapel 2 manga); en yakın kapıdan giriş (kapı hücreleri artık açık);
+  yüksek siper, ama patlama / alev / ağır makineli tehlikeli; ÇÖKME kayıp + bastırma; siper paneli yeniden kullanıldı;
+  düşman garnizonu sisle boş harabeden ayırt edilemez.
+- **Sahra Topu Mevzii** (kanon adı yok): uzun menzil, yavaş atış, atış başına ikmal, 28 m en az menzil, yavaş dönüş,
+  yakın düşman mürettebatı susturur; mermi uçuş süresi, krater, enkaz, duman, büyük bastırma; geri tepen namlu modeli.
+- **Komutan:** Yeni Antakya Teğmeni (HATTI TUT) ve Tümörler Efendisi (VEBA KUTSAMASI) maça sahada başlar; sınır 1;
+  ölünce aura gider, çevrede moral şoku, 60 sn yetenek dolum cezası, 150 sn sonra iki kat bedelle bir kez yenilenebilir.
+- **Kara Kâse:** Köle 50 biyokütle / 11 sn (daha zayıf tek tek), başlangıç biyokütlesi 110, sunak geliri 0.17/sn,
+  savaşın ilk 3 dakikasında daha küçük ve sık dalgalar; Sinek Sürüsü uyarısı; İç Organ Topu Yuvası (Viscera Cannon
+  adına dayanır) ve Yozlaşma Püskürtücü Yuvası (Corruption Belcher adına dayanır) — ikisi de soyutlama, kanon iddiası yok.
+- **Kayıt sürümü 4** + v3→v4 göçü (harabeler yüklemede haritadan kurulur, eski liderler komutan olur, göç edilen maçta
+  duraklama yok).
+
 ## 3. Mimari
 
 Tek kaynak ağacı, alan (domain) bazlı modüller, **döngüsel bağımlılık yok** (test ile zorunlu), dev `game.js` yok.
@@ -272,7 +302,7 @@ src/
 
 ## 5. Testler
 
-`npm test` — 195 test (Node, sıfır bağımlılık): mimari (döngü yok, katman kuralları, yasak API'ler, import konumu,
+`npm test` — 235 test (Node, sıfır bağımlılık; Faz 4: `tests/phase4.test.js` 31 + `tests/audio.test.js` 9): mimari (döngü yok, katman kuralları, yasak API'ler, import konumu,
 DOM'suz modüller), simülasyon, savaş, hareket (sıkışma kurtarma, cepler, katılma), inşa/siper, ekonomi, AI,
 kayıt/yükleme + göç, determinizm (kayıt → yükle → devam = kesintisiz), sis (asker bazlı görünürlük, kör atış yok,
 olay temizleme, düşen askerin mangasını açığa çıkarmaması), yol bulma (A* iş bütçesi, önbellekten bağımsızlık), mobil
@@ -343,8 +373,11 @@ katmanının yeniden kurulması — Faz 1'den bilinen). Faz 3 için de gerçek c
 - Yapı yerleştirme / tamamlanmasında gezinme katmanları ve bağlantı bileşenleri tüm harita için yeniden kuruluyor
   (masaüstünde birkaç ms; nadir olay) — artımlı güncelleme sonraki faz.
 - Denge yalnızca AI'ya karşı AI ile ölçüldü (16 tohum, 15 dk: Faz 1'de Yeni Antakya 6 / Kara Kâse 10; Faz 2
-  sonrası 5 / 11; Faz 3 sonrası 10 / 6 — ayar değişikliklerinde 8/8 ile 10/6 arasında oynadı, yani tohuma ve küçük
-  değişikliklere duyarlı); insan oyuncuyla denge testi yok. Faz 3 ölçümleri: `npm run balance`.
+  sonrası 5 / 11; Faz 3 sonrası 10 / 6; Faz 4 sonrası 10 / 6 — Faz 4 ayarları sırasında 16/0 ile 6/10 arasında oynadı,
+  yani AI önceliklerine çok duyarlı); insan oyuncuyla denge testi yok. Ölçümler: `npm run balance`.
+- Faz 4: Kara Kâse organik savunmaları AI'ya karşı AI'da neredeyse hiç ateş etmedi (Yeni Antakya AI'sı derin karşı
+  saldırı yapmıyor); sahra topu 16 maçın 10'unda devreye girdi. Harabe çöküşünde duvar modeli değişmiyor (moloz yığını +
+  toz eklenir). Sesin gerçek telefonda dinleme testi yapılmadı.
 - Faz 3: Kâse biyokütlesinde hayvan payı düşük (%2–12, toplamda ≈ %4) — tasarım gereği hayvan değeri düşük; sunak
   pasif payı ≈ %21 (%14–39). AI'ya karşı AI'da konvoylar hiç yağmalanmadı (202 varış / 0 kayıp) — konvoy baskını
   kodu var ama AI nadiren fırsat buluyor. Yeni Antakya AI'sı yerleşimlerin yaklaşık yarısını kaybediyor (38 kuruldu,

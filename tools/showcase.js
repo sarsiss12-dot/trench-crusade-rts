@@ -211,5 +211,40 @@ await scene('p3_convoy', base + '?autostart=1&seed=3&prep=900&fog=0', `(async ()
   g.lookAt(160, 440); g.camera.dist = 40; g.camera.yaw = 0.2;
 })()`, [['cart', 120], ['cart_close', 30, () => { const c = TC.game.sim.state.convoys[0]; if (c) { TC.game.lookAt(c.x, c.z); TC.game.camera.dist = 14; TC.game.camera.yaw = 1.2; } }]]);
 
+// ---------------------------------------------------------------- Phase 4
+await scene('p4_gun', base + '?autostart=1&seed=3&prep=0&fog=0', `(async () => { ${HELPERS}
+  const gun = __add('field_gun', 'new_antioch', { x: 160, z: 462, rot: Math.PI });
+  sim.state.factions.new_antioch.resources.supply = 900;
+  for (const q of sim.state.squads.slice()) if (q.faction === 'black_grail') { q.x = q.cx = 150 + (q.id % 5) * 6; q.z = q.cz = 372; for (const m of q.members) { m.x = q.x + (m.id % 4); m.z = q.z + (m.id % 3); } q.order = { t: 'idle' }; }
+  setInterval(() => { for (const q of sim.state.squads) if (q.faction === 'black_grail') q.visibleTo |= 1; }, 30);
+  g.lookAt(160, 458); g.camera.dist = 16; g.camera.yaw = 2.4;
+})()`, [['gun', 40], ['recoil', 1, () => {}], ['impact', 30, () => { TC.game.lookAt(155, 380); TC.game.camera.dist = 40; TC.game.camera.yaw = 0.3; }]]);
+
+await scene('p4_nests', base + '?autostart=1&seed=3&prep=900&fog=0', `(async () => { ${HELPERS}
+  __add('viscera_nest', 'black_grail', { x: 156, z: 214, rot: 0 });
+  __add('belcher_nest', 'black_grail', { x: 168, z: 214, rot: 0 });
+  __add('field_gun', 'new_antioch', { x: 146, z: 214, rot: 0 });
+  g.lookAt(158, 216); g.camera.dist = 22; g.camera.yaw = 0.5;
+})()`, [['models', 20]]);
+
+await scene('p4_ruin', base + '?autostart=1&seed=3&prep=900&fog=0', `(async () => { ${HELPERS}
+  const ch = sim.state.structures.find((s) => s.type === 'ruin_chapel');
+  const a = __spawn('new_antioch', 'yeoman_rifle', ch.x + 6, ch.z + 22, Math.PI);
+  const b = __spawn('new_antioch', 'yeoman_rifle', ch.x - 8, ch.z + 24, Math.PI);
+  __cmd({ type: 'GARRISON', faction: 'new_antioch', squadIds: [a.id, b.id], sid: ch.id });
+  g.lookAt(ch.x, ch.z + 6); g.camera.dist = 30; g.camera.yaw = 0.2;
+})()`, [['entering', 60], ['inside', 240], ['panel', 20, () => { const ch = TC.game.sim.state.structures.find((s) => s.type === 'ruin_chapel'); TC.game.selection.setStruct(ch.id); setTimeout(() => { const bt = document.querySelector('.cmd.badge'); if (bt) bt.click(); }, 400); }]]);
+
+await scene('p4_hud', base + '?autostart=1&seed=3&prep=900&fog=0', `(async () => { ${HELPERS}
+  const own = sim.state.squads.filter((q) => q.faction === 'new_antioch' && q.type === 'yeoman_rifle').map((q) => q.id);
+  g.controlGroups.save(0, own.slice(0, 2), sim, 'new_antioch');
+  g.controlGroups.save(1, own.slice(2, 5), sim, 'new_antioch');
+  g.hud.onGroupsChanged();
+  g.ui.econView = true; g.ui.multi = true;
+  const eng = sim.state.squads.find((q) => q.type === 'combat_engineer');
+  g.selection.set([eng.id]);
+  g.lookAt(120, 440); g.camera.dist = 70; g.camera.yaw = 0;
+})()`, [['econ', 20]]);
+
 await browser.close();
 server.close();

@@ -160,12 +160,12 @@ function startFailed(opts, env, e) {
   app.appendChild(box);
 }
 
-function startMatch({ faction, warMinutes, seed, prepSeconds, controllers }) {
-  lastStart = () => startMatch({ faction, warMinutes, seed, prepSeconds, controllers });
+function startMatch({ faction, warMinutes, seed, prepSeconds, controllers, lulls }) {
+  lastStart = () => startMatch({ faction, warMinutes, seed, prepSeconds, controllers, lulls });
   startGame({
     scenarioId: 'siege_default',
     seed: seed !== undefined ? seed : (Date.now() >>> 0) % 1000000,
-    settings: { playerFaction: faction, warMinutes, prepSeconds, controllers },
+    settings: { playerFaction: faction, warMinutes, prepSeconds, controllers, lulls: lulls !== undefined ? lulls : 'auto' },
   }, { after: urlAfter });
 }
 
@@ -220,7 +220,7 @@ function loadSlot(slot) {
   const res = storage.load(slot);
   if (!res) { flash(t('notice.save_failed')); return; }
   lastStart = againLike(res.state);
-  startGame({ state: res.state, memory: res.meta.memory }, { after: (g) => { g.notify('notice.loaded', 'good'); urlAfter(g); } });
+  startGame({ state: res.state, memory: res.meta.memory, groups: res.meta.groups }, { after: (g) => { g.notify('notice.loaded', 'good'); urlAfter(g); } });
 }
 
 /** Resume a match from a serialized save string (hot reload of the hosting page). */
@@ -228,7 +228,7 @@ function resumeFrom(str) {
   try {
     const res = deserializeSave(str);
     lastStart = againLike(res.state);
-    startGame({ state: res.state, memory: res.meta.memory }, { after: (g) => g.notify('notice.loaded', 'good') });
+    startGame({ state: res.state, memory: res.meta.memory, groups: res.meta.groups }, { after: (g) => g.notify('notice.loaded', 'good') });
     return true;
   } catch {
     return false;
@@ -244,13 +244,14 @@ function recoverFromContextLoss(lost) {
   const state = lost.sim.state;
   let memory = null;
   try { memory = lost.renderer.exportMemory(); } catch { /* keep going without it */ }
+  const groups = lost.controlGroups ? lost.controlGroups.export() : null;
   const speed = lost.session.speed;
   const wasPaused = menu.current === 'pause';
   const cam = { tx: lost.camera.tx, tz: lost.camera.tz, dist: lost.camera.dist, yaw: lost.camera.yaw };
   stopGame();
   const note = el('div.loading', { text: t('app.gpu_recovering') });
   app.appendChild(note);
-  const opts = { state, memory };
+  const opts = { state, memory, groups };
   const env = {
     storage: state.settings.sandbox ? sandboxStorage : storage,
     after: (g) => {
@@ -328,7 +329,9 @@ window.TC = { game: null, settings, menu, version: '0.1.0' };
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && game && game.session.speed > 0 && !menu.current) pause();
 });
-window.addEventListener('pointerdown', () => audio.unlock(), { once: false, passive: true });
+// audio lifecycle: taps / keys create or resume sound; hidden page suspends it, visible resumes
+// (the recovery state machine + 1 Hz watchdog live in audio/recovery.js)
+audio.attachLifecycle(window, document);
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && game && menu.current === 'pause') { e.preventDefault(); e.stopImmediatePropagation(); resume(); }
 });

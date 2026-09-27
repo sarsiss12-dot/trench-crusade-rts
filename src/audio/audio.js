@@ -16,12 +16,13 @@ import { WEAPONS } from '../data/weapons.js';
 import { projectToScreen } from '../render/camera.js';
 import { isSquadVisibleTo, isAnimalVisibleTo } from '../sim/perception.js';
 import { createMusic } from './music.js';
+import { createAudioRecovery } from './recovery.js';
 
 const VOICE_SOFT = 22; // ordinary sounds stop here
 const VOICE_HARD = 34; // priority sounds may use the reserve up to here
 const PRI = { LOW: 0, NORMAL: 1, HIGH: 2, TOP: 3 };
 
-export function createAudio(settings = {}) {
+export function createAudio(settings = {}, env = {}) {
   let ctx = null;
   let master = null, sfx = null, amb = null, ui = null, verb = null, musicBus = null;
   let noise = null, noiseLong = null, pink = null;
@@ -29,52 +30,103 @@ export function createAudio(settings = {}) {
   let volume = settings.volume !== undefined ? settings.volume : 0.8;
   let sfxVol = settings.sfxVolume !== undefined ? settings.sfxVolume : 1;
   let musicVol = settings.musicVolume !== undefined ? settings.musicVolume : 0.5;
+  // voice budget: end times on the AUDIO clock (a suspended context cannot leak the budget, and
+  // browser timer throttling in the background cannot either)
+  const voiceEnds = [];
   let voices = 0;
   const lastPlay = new Map();
-  const ambient = { wind: null, flies: null, dig: null, crackle: null, rumble: null, rumbleT: 6 };
+  const ambient = { wind: null, flies: null, dig: null, crackle: null, rumble: null, rumbleT: 6, farT: 3, metalT: 9, screamT: 40 };
   const distant = { shots: 0, booms: 0 }; // aggregated far-away fighting (decays)
   const P = [0, 0, 0, 0];
   let music = null;
   let shaper = null;
+  let errors = 0, lastError = '';
   // audio-only variation generator (xorshift) — independent of the simulation
   let vs = 0x2545f491;
   const vrand = () => { vs ^= vs << 13; vs ^= vs >>> 17; vs ^= vs << 5; return ((vs >>> 0) % 100000) / 100000; };
   const jit = (amt) => 1 + (vrand() - 0.5) * 2 * amt;
+  const MUSIC_BUS = 0.95; // music bus level at music volume 1 (Phase 4: was 0.55 — inaudible on phones)
 
+  function contextClass() {
+    if (env.createContext) return env.createContext;
+    if (typeof window === 'undefined') return null;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    return AC ? () => new AC({ latencyHint: 'interactive' }) : null;
+  }
+
+  /** The whole graph, built exactly once per AudioContext (never twice for the same context). */
+  function buildGraph() {
+    const make = contextClass();
+    if (!make) { enabled = false; return; }
+    ctx = make();
+    master = ctx.createGain();
+    master.gain.value = volume;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -20; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.22;
+    // brick-wall-ish limiter: nothing clips on small speakers
+    const lim = ctx.createDynamicsCompressor();
+    lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.08;
+    master.connect(comp); comp.connect(lim); lim.connect(ctx.destination);
+    sfx = ctx.createGain(); sfx.gain.value = 0.9 * sfxVol; sfx.connect(master);
+    amb = ctx.createGain(); amb.gain.value = 0.55 * sfxVol; amb.connect(master);
+    ui = ctx.createGain(); ui.gain.value = 0.5; ui.connect(master);
+    // the score skips the gunfire compressor: its own level, never pumped flat by a firefight
+    musicBus = ctx.createGain(); musicBus.gain.value = musicVol * MUSIC_BUS; musicBus.connect(lim);
+    // cheap "field" reverb: filtered feedback delay network of two taps
+    verb = ctx.createGain(); verb.gain.value = 0.22;
+    const d1 = ctx.createDelay(1), d2 = ctx.createDelay(1), fb = ctx.createGain(), lp = ctx.createBiquadFilter();
+    d1.delayTime.value = 0.13; d2.delayTime.value = 0.21; fb.gain.value = 0.38; lp.type = 'lowpass'; lp.frequency.value = 1400;
+    verb.connect(d1); d1.connect(lp); lp.connect(d2); d2.connect(fb); fb.connect(d1); d2.connect(master); lp.connect(master);
+    noise = makeNoise(1.0, 'white');
+    noiseLong = makeNoise(4.0, 'brown');
+    pink = makeNoise(2.0, 'pink');
+    shaper = makeShaper(2.2);
+    music = createMusic(ctx, musicBus, verb, { noise, noiseLong, pink });
+    voiceEnds.length = 0; voices = 0;
+    lastPlay.clear();
+    try { ctx.onstatechange = () => recovery.onStateChange(); } catch { /* ignore */ }
+  }
+
+  /** Drop a dead (closed) context and everything built on it; the next build starts clean. */
+  function teardown() {
+    if (music) { try { music.stop(); } catch { /* ignore */ } }
+    for (const k of ['wind', 'flies', 'dig', 'rumble']) ambient[k] = null;
+    if (ctx) { try { ctx.onstatechange = null; } catch { /* ignore */ } try { if (ctx.state !== 'closed') ctx.close(); } catch { /* ignore */ } }
+    ctx = null; master = sfx = amb = ui = verb = musicBus = null; music = null;
+    voiceEnds.length = 0; voices = 0;
+  }
+
+  const recovery = createAudioRecovery({
+    hasContext: () => !!ctx,
+    state: () => (ctx ? ctx.state : 'none'),
+    create: () => { try { buildGraph(); } catch (e) { note(e); teardown(); } },
+    rebuild: () => { teardown(); try { buildGraph(); } catch (e) { note(e); teardown(); } },
+    resume: () => ctx.resume(),
+    suspend: () => ctx.suspend(),
+  }, { enabled });
+
+  function note(e) {
+    errors++;
+    lastError = String((e && e.message) || e).slice(0, 120);
+  }
+
+  /** User gesture (tap / key): create or resume audio. Safe to call any number of times. */
   function unlock() {
     if (!enabled) return;
-    try {
-      if (!ctx) {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) { enabled = false; return; }
-        ctx = new AC({ latencyHint: 'interactive' });
-        master = ctx.createGain();
-        master.gain.value = volume;
-        const comp = ctx.createDynamicsCompressor();
-        comp.threshold.value = -20; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.22;
-        // brick-wall-ish limiter: nothing clips on small speakers
-        const lim = ctx.createDynamicsCompressor();
-        lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.08;
-        master.connect(comp); comp.connect(lim); lim.connect(ctx.destination);
-        sfx = ctx.createGain(); sfx.gain.value = 0.9 * sfxVol; sfx.connect(master);
-        amb = ctx.createGain(); amb.gain.value = 0.55 * sfxVol; amb.connect(master);
-        ui = ctx.createGain(); ui.gain.value = 0.5; ui.connect(master);
-        musicBus = ctx.createGain(); musicBus.gain.value = musicVol * 0.55; musicBus.connect(master);
-        // cheap "field" reverb: filtered feedback delay network of two taps
-        verb = ctx.createGain(); verb.gain.value = 0.22;
-        const d1 = ctx.createDelay(1), d2 = ctx.createDelay(1), fb = ctx.createGain(), lp = ctx.createBiquadFilter();
-        d1.delayTime.value = 0.13; d2.delayTime.value = 0.21; fb.gain.value = 0.38; lp.type = 'lowpass'; lp.frequency.value = 1400;
-        verb.connect(d1); d1.connect(lp); lp.connect(d2); d2.connect(fb); fb.connect(d1); d2.connect(master); lp.connect(master);
-        noise = makeNoise(1.0, 'white');
-        noiseLong = makeNoise(4.0, 'brown');
-        pink = makeNoise(2.0, 'pink');
-        shaper = makeShaper(2.2);
-        music = createMusic(ctx, musicBus, verb, { noise, noiseLong, pink });
-      }
-      if (ctx.state === 'suspended') ctx.resume();
-    } catch {
-      enabled = false;
-    }
+    recovery.onGesture();
+  }
+
+  /** Browser lifecycle hooks (main.js calls this once): gestures, visibility, focus, bfcache. */
+  function attachLifecycle(win, doc) {
+    if (!win || !doc) return () => {};
+    const gesture = () => unlock();
+    const vis = () => recovery.onVisibility(!doc.hidden);
+    const show = () => recovery.onVisibility(true);
+    const focus = () => { if (!doc.hidden) recovery.onVisibility(true); };
+    const list = [[win, 'pointerdown', gesture], [win, 'touchend', gesture], [win, 'keydown', gesture], [doc, 'visibilitychange', vis],
+      [win, 'pageshow', show], [win, 'focus', focus]];
+    for (const [t, type, fn] of list) t.addEventListener(type, fn, { passive: true });
+    return () => { for (const [t, type, fn] of list) t.removeEventListener(type, fn); };
   }
 
   function makeNoise(seconds, kind) {
@@ -106,9 +158,12 @@ export function createAudio(settings = {}) {
   /** Voice budget with priority: ordinary sounds stop at VOICE_SOFT, important ones use the reserve. */
   function voice(dur, pri = PRI.NORMAL) {
     const cap = pri >= PRI.HIGH ? VOICE_HARD : pri === PRI.LOW ? VOICE_SOFT - 6 : VOICE_SOFT;
+    const now = ctx.currentTime;
+    for (let i = voiceEnds.length - 1; i >= 0; i--) if (voiceEnds[i] <= now) voiceEnds.splice(i, 1);
+    voices = voiceEnds.length;
     if (voices >= cap) return false;
+    voiceEnds.push(now + dur + 0.06);
     voices++;
-    setTimeout(() => { voices--; }, dur * 1000 + 60);
     return true;
   }
 
@@ -370,6 +425,41 @@ export function createAudio(settings = {}) {
     tone(bus, t0 + 1.4, 3.5, 'sine', 196, 195.6, 0.5, 0.004);
   }
 
+  /** Emplacement discharge: field gun (deep crack + long rolling tail), viscera cannon, belcher. */
+  function gunReport(game, x, z, weapon) {
+    const s = spatial(game, x, z);
+    if (s[0] < 0.02 || !voice(2.8, PRI.HIGH)) return;
+    const t0 = ctx.currentTime;
+    if (weapon === 'field_gun_shell') {
+      const bus = muffled(out(sfx, Math.min(1, s[0] * 1.25), s[1], 0.55), s[2]);
+      noiseBurst(bus, t0, 0.12, 'lowpass', 2600, 0.7, 0.002, noise, 1); // crack
+      tone(bus, t0, 0.9, 'sine', 95, 38, 1, 0.004); // body
+      tone(bus, t0, 0.5, 'triangle', 190, 70, 0.5, 0.004); // phone-audible punch
+      noiseBurst(bus, t0 + 0.05, 2.4, 'lowpass', 420, 0.8, 0.05, pink, 0.6); // rolling tail
+    } else if (weapon === 'viscera_shot') {
+      const bus = muffled(out(sfx, s[0] * 0.8, s[1], 0.35), s[2]);
+      tone(bus, t0, 0.35, 'sine', 140, 55, 0.9, 0.01);
+      noiseBurst(bus, t0, 0.4, 'bandpass', 520, 1.4, 0.01, pink, 0.7);
+    } else {
+      const bus = muffled(out(sfx, s[0] * 0.6, s[1], 0.3), s[2]);
+      noiseBurst(bus, t0, 1.2, 'bandpass', 700, 0.9, 0.08, noise, 0.6);
+      tone(bus, t0, 0.8, 'sawtooth', 70, 50, 0.25, 0.1);
+    }
+  }
+
+  /** Settlement alarm: a small bell rung fast (own settlements only, positional). */
+  function alarmBell(game, x, z) {
+    const s = spatial(game, x, z);
+    if (!voice(2.2, PRI.HIGH)) return;
+    const t0 = ctx.currentTime + 0.03;
+    const bus = out(sfx, 0.12 + Math.max(0.1, s[0]) * 0.25, s[1], 0.4);
+    for (let i = 0; i < 6; i++) {
+      const ti = t0 + i * 0.28;
+      tone(bus, ti, 0.9, 'sine', 988, 985, 0.5, 0.003);
+      tone(bus, ti, 0.5, 'sine', 988 * 2.4, 988 * 2.39, 0.18, 0.003);
+    }
+  }
+
   function horn(bg) {
     if (!voice(2.5, PRI.HIGH)) return;
     const t0 = ctx.currentTime + 0.05;
@@ -381,6 +471,18 @@ export function createAudio(settings = {}) {
     } else {
       tone(bus, t0, 0.35, 'square', 392, 392, 0.5, 0.02);
       tone(bus, t0 + 0.4, 0.8, 'square', 523, 523, 0.5, 0.02);
+    }
+  }
+
+  /** Officers' trench whistles along the line (lull warning) — tonal, position-free. */
+  function whistleCall() {
+    if (!rate('whistlecall', 3)) return;
+    const t0 = ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const ts = t0 + i * 0.55 + vrand() * 0.1;
+      const bus = out(ui, 0.16, (vrand() - 0.5) * 1.2, 0.4);
+      tone(bus, ts, 0.38, 'sine', 2350 + vrand() * 120, 2280, 0.5, 0.01);
+      tone(bus, ts, 0.38, 'square', 1175, 1140, 0.05, 0.01);
     }
   }
 
@@ -474,11 +576,16 @@ export function createAudio(settings = {}) {
 
   function onEvent(ev, show, game) {
     if (!ready()) return;
+    try { routeEvent(ev, show, game); } catch (e) { note(e); } // a bad sound never breaks the event fan-out
+  }
+
+  function routeEvent(ev, show, game) {
     const SRC = 1, TGT = 4;
     if (music) music.onEvent(ev, show, game);
     switch (ev.type) {
       case 'FIRE':
       case 'STRUCTURE_FIRE':
+        if (ev.shell || ev.gas) { if (show & SRC) gunReport(game, ev.x, ev.z, ev.weapon); break; }
         if (show & SRC) {
           const w = WEAPONS[ev.weapon];
           const pri = ev.type === 'STRUCTURE_FIRE' || (ev.sq && selectedSquad(game, ev.sq)) || (ev.tsq && selectedSquad(game, ev.tsq)) ? PRI.HIGH : PRI.NORMAL;
@@ -511,6 +618,11 @@ export function createAudio(settings = {}) {
         break;
       case 'PHASE_CHANGED':
         if (ev.phase === 'WAR') { bell(); horn(game.viewer === 'black_grail'); }
+        else if (ev.phase === 'LULL') { bell(); }
+        break;
+      case 'PHASE_WARNING':
+        // the front going quiet: distant whistles; stirring again: a war horn
+        if (ev.phase === 'LULL') { whistleCall(); bell(); } else horn(game.viewer === 'black_grail');
         break;
       case 'TRAIN_COMPLETED':
         if (ev.faction === game.viewer) horn(game.viewer === 'black_grail');
@@ -533,6 +645,12 @@ export function createAudio(settings = {}) {
         break;
       case 'EVACUATION':
         if (ev.faction === game.viewer) bell();
+        break;
+      case 'RUIN_COLLAPSED':
+        if (show) { explosionSound(game, ev.x, ev.z, 'light'); knocks(game, ev.x, ev.z, 5); }
+        break;
+      case 'CIVILIAN_ALARM':
+        if (ev.faction === game.viewer && rate('alarm', 6)) alarmBell(game, ev.x, ev.z);
         break;
       case 'PESTILENCE_TIER':
         if (ev.faction === game.viewer && ev.up) horn(true);
@@ -558,7 +676,14 @@ export function createAudio(settings = {}) {
 
   let crackleT = 0;
   function update(dt, game) {
+    // 1 Hz watchdog: the context should be running while sound is on and the page is visible
+    if (recovery.tick(typeof performance !== 'undefined' ? performance.now() : Date.now()) === false && musicBus && enabled && musicVol > 0.01 && musicBus.gain.value < musicVol * MUSIC_BUS * 0.5) musicBus.gain.value = musicVol * MUSIC_BUS;
     if (!ready()) return;
+    try { tickAmbience(dt, game); } catch (e) { note(e); }
+    if (music) { try { music.update(dt, game); } catch (e) { note(e); } }
+  }
+
+  function tickAmbience(dt, game) {
     if (!ambient.wind) {
       ambient.wind = loop(noiseLong, 'lowpass', 380, 0.4, 0.22);
       ambient.flies = loop(noise, 'bandpass', 210, 7, 0.0001);
@@ -616,7 +741,54 @@ export function createAudio(settings = {}) {
         f.frequency.exponentialRampToValueAtTime(90, t + 2);
       }
     }
-    if (music) music.update(dt, game);
+    farFront(dt, game, t);
+  }
+
+  /**
+   * Battlefield bed (Phase 4): the war goes on somewhere beyond the screen. Generic and position-
+   * free (random pan, never tied to a hidden event): a far rifle crackle, iron clanks on the wind,
+   * very rare far cries, a church bell / horn now and then. Quieter while the front is in a lull.
+   */
+  function farFront(dt, game, t) {
+    const ph = game.session.phase();
+    if (ph !== 'WAR' && ph !== 'LULL') return;
+    const lull = ph === 'LULL';
+    ambient.farT -= dt;
+    if (ambient.farT <= 0) {
+      ambient.farT = (lull ? 5 : 1.2) + vrand() * (lull ? 8 : 3.5);
+      const n = 2 + Math.floor(vrand() * (lull ? 2 : 6));
+      if (voice(1.2, PRI.LOW)) {
+        const bus = out(amb, (lull ? 0.035 : 0.06) * jit(0.3), (vrand() - 0.5) * 1.6, 0.6);
+        for (let i = 0; i < n; i++) noiseBurst(bus, t + i * (0.06 + vrand() * 0.18), 0.04, 'bandpass', 900 + vrand() * 700, 1.4, 0.002, noise, 0.8);
+      }
+    }
+    ambient.metalT -= dt;
+    if (ambient.metalT <= 0) {
+      ambient.metalT = 14 + vrand() * 20;
+      if (voice(3, PRI.LOW)) {
+        const bus = out(amb, 0.05, (vrand() - 0.5) * 1.4, 0.8);
+        const base = 380 + vrand() * 260;
+        tone(bus, t, 2.2, 'sine', base, base * 0.995, 0.5, 0.003);
+        tone(bus, t, 1.4, 'sine', base * 2.71, base * 2.7, 0.18, 0.003);
+      }
+    }
+    ambient.screamT -= dt;
+    if (ambient.screamT <= 0) {
+      ambient.screamT = 50 + vrand() * 70;
+      if (!lull && voice(1.5, PRI.LOW)) {
+        const bus = out(amb, 0.03, (vrand() - 0.5) * 1.4, 0.9);
+        const f0 = 520 + vrand() * 200;
+        tone(bus, t, 1.1, 'sawtooth', f0, f0 * 0.7, 0.35, 0.08);
+      }
+    }
+  }
+
+  /** Health snapshot (debug overlay / tests): what the watchdog sees. */
+  function health() {
+    return {
+      enabled, ctxState: ctx ? ctx.state : 'none', mode: recovery.mode, musicActive: !!(music && music.active),
+      musicBus: musicBus ? musicBus.gain.value : 0, voices, errors, lastError, stats: { ...recovery.stats },
+    };
   }
 
   function stopMatch() {
@@ -628,15 +800,20 @@ export function createAudio(settings = {}) {
   }
 
   return {
-    unlock, onEvent, update, ui: uiSound, stopMatch,
+    unlock, onEvent, update, ui: uiSound, stopMatch, attachLifecycle, health,
     setVolume(v) { volume = v; if (master) master.gain.value = v; },
     setSfxVolume(v) { sfxVol = v; if (sfx) { sfx.gain.value = 0.9 * v; amb.gain.value = 0.55 * v; } },
-    setMusicVolume(v) { musicVol = v; if (musicBus) musicBus.gain.value = v * 0.55; },
+    setMusicVolume(v) { musicVol = v; if (musicBus) musicBus.gain.value = v * MUSIC_BUS; },
     setEnabled(v) {
       enabled = !!v;
-      if (!enabled && ctx) ctx.suspend();
-      else if (enabled) unlock();
+      recovery.setEnabled(enabled);
     },
+    /** Watchdog: sound on, page visible, but the score bus was left at silence -> restore it. */
+    checkMusicBus() {
+      if (musicBus && enabled && musicVol > 0.01 && musicBus.gain.value < musicVol * MUSIC_BUS * 0.5) musicBus.gain.value = musicVol * MUSIC_BUS;
+    },
+    get recovery() { return recovery; },
+    get music() { return music; },
     get enabled() { return enabled; },
     get voices() { return voices; },
   };

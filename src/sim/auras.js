@@ -5,6 +5,7 @@
 import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS } from '../data/factions.js';
+import { ABILITIES } from '../data/abilities.js';
 import { specRule } from './specialities.js';
 
 export function rebuildAuras(sim) {
@@ -18,6 +19,12 @@ export function rebuildAuras(sim) {
     for (const m of sq.members) if (m.state === 'alive') { alive = true; break; }
     if (!alive) continue;
     auras[sq.faction].push({ ...a, x: sq.cx, z: sq.cz, r: a.radius, sq: sq.id });
+  }
+  // Phase 4 command areas (Hold the Line / Plague Blessing) follow their commander
+  for (const e of state.effects) {
+    if (e.kind !== 'command' || !auras[e.faction]) continue;
+    const ab = ABILITIES[e.ability];
+    if (ab && ab.aura) auras[e.faction].push({ ...ab.aura, x: e.x, z: e.z, r: e.radius, cmd: 1 });
   }
   for (const fid in FACTIONS) {
     if (!specRule(state, fid, 'consecrate')) continue;

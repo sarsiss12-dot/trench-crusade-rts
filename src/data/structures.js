@@ -223,7 +223,7 @@ export const STRUCTURES = {
     lore: { status: 'canon', ref: '"Altars of Beelzebub... constructed from the remains of their victims shaped into the form of monstrous flies" (official lore)' },
     footprint: { w: 10, d: 10 }, hp: 3600, blocks: true, vision: 46, buildable: true, builder: 'black_grail',
     cost: { biomass: 220 }, work: 110,
-    trains: ['grail_thrall', 'corpse_guard', 'plague_knight', 'thrall_gang', 'herald', 'lord_of_tumours'], biomassRate: 0.14,
+    trains: ['grail_thrall', 'corpse_guard', 'plague_knight', 'thrall_gang', 'herald', 'lord_of_tumours'], biomassRate: 0.17,
     infectionSource: { radius: 34, rate: 6 }, dropOff: true, hq: true,
     hub: true,
     model: 'grail_altar',
@@ -257,6 +257,48 @@ export const STRUCTURES = {
     costPerM: { biomass: 2.0 }, workPerM: 2.0, blocks: false, cover: 'bone', coverRadius: 1.8,
     moveMultEnemy: 0.55, moveMultFriendly: 0.8, pathCostMult: 2.2,
     organic: true, model: 'bone_barricade',
+  },
+  // ---- Phase 4: emplacements (data/emplacements.js) --------------------------------------------
+  field_gun: {
+    id: 'field_gun', faction: 'new_antioch', kind: 'building', nameKey: 'struct.field_gun',
+    lore: { status: 'canon-inspired', ref: 'New Antioch foundries cast artillery (official lore); this field gun emplacement is a gameplay abstraction with no canon name' },
+    footprint: { w: 6, d: 6 }, hp: 1500, blocks: true, vision: 44, buildable: true, builder: 'new_antioch',
+    cost: { material: 110, supply: 90 }, work: 90, cat: 'defense', heavyDefense: true,
+    emplacement: 'field_gun_shell', arc: 150, crew: 3, blastResist: 0.25,
+    model: 'field_gun',
+  },
+  viscera_nest: {
+    id: 'viscera_nest', faction: 'black_grail', kind: 'building', nameKey: 'struct.viscera_nest',
+    lore: { status: 'canon-inspired', ref: 'Built around the Viscera Cannon (official Black Grail heavy weapon); the organic gun nest is a gameplay abstraction' },
+    footprint: { w: 5, d: 5 }, hp: 1100, blocks: true, vision: 40, buildable: true, builder: 'black_grail',
+    cost: { biomass: 110 }, work: 70, cat: 'defense',
+    emplacement: 'viscera_shot', arc: 360,
+    organic: true, model: 'viscera_nest',
+  },
+  belcher_nest: {
+    id: 'belcher_nest', faction: 'black_grail', kind: 'building', nameKey: 'struct.belcher_nest',
+    lore: { status: 'canon-inspired', ref: 'Built around the Corruption Belcher (official battlekit glossary; faction attribution not verified); the organic nest is a gameplay abstraction' },
+    footprint: { w: 4, d: 4 }, hp: 800, blocks: true, vision: 28, buildable: true, builder: 'black_grail',
+    cost: { biomass: 70 }, work: 45, cat: 'defense',
+    emplacement: 'belcher_gas', arc: 360,
+    organic: true, model: 'belcher_nest',
+  },
+  // ---- Phase 4: ruin garrisons (neutral map features, occupied by whoever holds them) -----------
+  // The walls are the unique world mesh (render/models/structures.js buildRuin); these records carry
+  // hit points, occupancy and the garrison rules. Geometry: world/ruin_geometry.js.
+  ruin_house: {
+    id: 'ruin_house', faction: 'neutral', kind: 'building', nameKey: 'struct.ruin_house',
+    lore: { status: 'abstraction', ref: 'Shell-shattered houses of the war-torn front (setting flavour); garrison rules are a gameplay abstraction' },
+    footprint: { w: 10, d: 8.5 }, hp: 900, blocks: false, vision: 30, buildable: false,
+    garrison: { cover: 'garrison', blastTaken: 0.9, flameTaken: 1.3, heavyCoverMult: 0.5, collapseKill: 0.35, suppressSec: 8 },
+    repairable: true, model: null,
+  },
+  ruin_chapel: {
+    id: 'ruin_chapel', faction: 'neutral', kind: 'building', nameKey: 'struct.ruin_chapel',
+    lore: { status: 'abstraction', ref: 'Ruined chapel in no man\'s land (setting flavour); garrison rules are a gameplay abstraction' },
+    footprint: { w: 14, d: 9 }, hp: 1400, blocks: false, vision: 34, buildable: false,
+    garrison: { cover: 'garrison', blastTaken: 0.85, flameTaken: 1.3, heavyCoverMult: 0.5, collapseKill: 0.35, suppressSec: 8 },
+    repairable: true, model: null,
   },
 };
 
