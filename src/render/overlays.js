@@ -7,7 +7,8 @@ import { projectToScreen } from './camera.js';
 import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { COVER_TYPES, COVER_IDS } from '../data/cover.js';
-import { isSquadVisibleTo, isStructureVisibleTo, isNodeKnownTo, isSoldierVisibleTo, visibleCentroid, isPointVisibleTo } from '../sim/perception.js';
+import { isSquadVisibleTo, isStructureVisibleTo, isNodeKnownTo, isSoldierVisibleTo, visibleCentroid, isPointVisibleTo, isSectorKnownTo } from '../sim/perception.js';
+import { FACTIONS } from '../data/factions.js';
 import { exitPoint } from '../sim/production.js';
 import { TICK_RATE } from '../sim/constants.js';
 
@@ -20,6 +21,15 @@ const ENEMY_RING = [0.86, 0.24, 0.16];
 const HOVER_RING = [0.9, 0.86, 0.72];
 const VALID = [0.55, 0.8, 0.45];
 const INVALID = [0.9, 0.26, 0.18];
+// Phase 3: resource sector kinds (same hues as the minimap), work areas
+const SECTOR_COL = {
+  fertile: [0.62, 0.66, 0.3], pasture: [0.5, 0.66, 0.4], quarry: [0.66, 0.65, 0.6],
+  scrap: [0.58, 0.52, 0.44], depot: [0.74, 0.58, 0.3], hamlet: [0.8, 0.68, 0.46],
+};
+const FORAGE_COL = [0.55, 0.62, 0.2];
+const SANITIZE_COL = [0.95, 0.55, 0.2];
+const HERD_COL = [0.7, 0.62, 0.42];
+const ENG_COL = [1.0, 0.82, 0.4];
 
 function coverLevel(idx) {
   const c = COVER_TYPES[COVER_IDS[idx]];
@@ -115,19 +125,98 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
   const ground = (x, z) => renderer.groundAt(x, z);
 
   /** Dotted ground line from (x0,z0) to (x1,z1); returns the leftover phase for chaining. */
+  let zoomK = 1; // camera distance scale for dotted overlays (set per frame in update)
   function dots(x0, z0, x1, z1, spacing, size, col, a, phase = 0, maxDots = 90) {
     const dx = x1 - x0, dz = z1 - z0;
     const len = Math.hypot(dx, dz);
     if (len < 1e-3) return phase;
-    let d = phase, n = 0;
+    // readable from strategic zoom: dots grow and thin out with camera distance (zoomK)
+    const k = zoomK, sp = spacing * k, sz = size * k;
+    let d = phase * k, n = 0;
     while (d < len && n < maxDots) {
       const t = d / len;
       const x = x0 + dx * t, z = z0 + dz * t;
-      mark(x, z, ground(x, z), size, 0, col[0], col[1], col[2], a, DS.DOT);
-      d += spacing;
+      mark(x, z, ground(x, z), sz, 0, col[0], col[1], col[2], a, DS.DOT);
+      d += sp;
       n++;
     }
-    return d - len;
+    return (d - len) / k;
+  }
+
+  /** Dotted ground circle (sector / work area outlines). Dots grow (and thin out) as the camera
+   *  pulls back so an outline stays readable from strategic zoom on a phone. */
+  function circle(x, z, r, col, a, spacing = 2.2, phase = 0) {
+    const n = Math.max(10, Math.min(90, Math.round((Math.PI * 2 * r) / (spacing * zoomK))));
+    const size = 0.22 * zoomK;
+    for (let i = 0; i < n; i++) {
+      const t = ((i + phase) / n) * Math.PI * 2;
+      const px = x + Math.sin(t) * r, pz = z + Math.cos(t) * r;
+      mark(px, pz, ground(px, pz), size, 0, col[0], col[1], col[2], a, DS.DOT);
+    }
+  }
+
+  /** Phase 3 world overlays: sectors, settlement reach, auto-engineer beams, work areas. */
+  function economyOverlays(sim, frame, viewer, t, sst) {
+    const { state, rt } = sim;
+    const pl = frame.placement;
+    const pdef = pl && STRUCTURES[pl.stype];
+    const econPlacing = !!(pdef && (pdef.requiresSector || pdef.requiresSettlement || pdef.requiresSectorKind));
+    const settlementSel = !!(sst && STRUCTURES[sst.type] && STRUCTURES[sst.type].settlement);
+    const prepEcon = state.match.phase === 'PREPARATION' && FACTIONS[viewer] && FACTIONS[viewer].population;
+    if (econPlacing || settlementSel || prepEcon || frame.showSectors) {
+      for (const sec of state.sectors || []) {
+        if (!isSectorKnownTo(sec, viewer)) continue;
+        const col = SECTOR_COL[sec.kind] || OWN_RING;
+        const a = sec.sid ? 0.3 : econPlacing ? 0.9 : 0.6;
+        const y = ground(sec.x, sec.z);
+        // one dashed-ring decal per sector (cheap, readable from strategic zoom), lifted over the rolling ground
+        mark(sec.x, sec.z, y, sec.r, 0, col[0], col[1], col[2], a, DS.AREA, 0, t * 0.35, 1, 0.45);
+        for (let k = 0; k <= sec.rich; k++) mark(sec.x + (k - sec.rich / 2) * 1.4 * zoomK, sec.z, y, 0.5 * zoomK, 0, col[0], col[1], col[2], a + 0.1, DS.DOT);
+      }
+    }
+    if (econPlacing || settlementSel) {
+      for (const st of state.structures) {
+        if (st.faction !== viewer || !STRUCTURES[st.type].settlement) continue;
+        circle(st.x, st.z, STRUCTURES[st.type].settlement.econRadius, OWN_RING, st === sst ? 0.7 : 0.4, 2.6);
+      }
+    }
+    // livestock pen selected: where its drovers gather animals
+    if (sst && sst.faction === viewer && STRUCTURES[sst.type].pen) {
+      const pd = STRUCTURES[sst.type].pen;
+      circle(sst.herdX, sst.herdZ, pd.herdRadius, HERD_COL, 0.55, 3.2);
+      dots(sst.x, sst.z, sst.herdX, sst.herdZ, 2.4, 0.2, HERD_COL, 0.55, (t * 2) % 2.4, 60);
+    }
+    // own work areas: selected gangs' forage fields, engineers' sanitation areas
+    const sel = frame.selection;
+    if (sel && sel.size) {
+      for (const id of sel) {
+        const sq = rt.squadById.get(id);
+        if (!sq || sq.faction !== viewer) continue;
+        const o = sq.order;
+        if (o.t === 'gather' && o.mode === 'forage' && o.fr) circle(o.fx, o.fz, o.fr, FORAGE_COL, o.auto ? 0.35 : 0.6, 2.6, (t * 0.5) % 1);
+        if (o.t === 'sanitize' && o.r) circle(o.x, o.z, o.r, SANITIZE_COL, 0.65, 2, (t * 0.6) % 1);
+      }
+    }
+    // area targeting modes (forage / sanitize / herd): the area under the pointer
+    const at = frame.areaTarget;
+    if (at && typeof at.x === 'number') {
+      const col = at.kind === 'forage' ? FORAGE_COL : at.kind === 'sanitize' ? SANITIZE_COL : HERD_COL;
+      circle(at.x, at.z, at.r, at.valid === false ? INVALID : col, 0.9, 2, (t * 0.8) % 1);
+      mark(at.x, at.z, ground(at.x, at.z), 1.2, 0, col[0], col[1], col[2], 0.9, DS.MARKER, 0.2);
+    }
+    // auto-dispatched engineers: pulse on the engineer, a beam to the site (fades in a few seconds)
+    for (const h of frame.engineerHighlights || []) {
+      const sq = rt.squadById.get(h.squadId);
+      if (!sq || sq.faction !== viewer) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 9);
+      const y = ground(sq.cx, sq.cz);
+      mark(sq.cx, sq.cz, y, 2.2 + pulse * 0.8, 0, ENG_COL[0], ENG_COL[1], ENG_COL[2], 0.9 * h.k, DS.RING);
+      mark(sq.cx, sq.cz, y, 1.2, 0, ENG_COL[0], ENG_COL[1], ENG_COL[2], 0.6 * h.k, DS.RING);
+      if (typeof h.x === 'number') {
+        dots(sq.cx, sq.cz, h.x, h.z, 1.6, 0.34, ENG_COL, 0.9 * h.k, (t * 6) % 1.6, 160);
+        mark(h.x, h.z, ground(h.x, h.z), 1.8, 0, ENG_COL[0], ENG_COL[1], ENG_COL[2], h.k, DS.MARKER, 0.15 + 0.1 * pulse);
+      }
+    }
   }
 
   /** Public: transient order marker at a ground point (called by input on command issue). */
@@ -344,6 +433,7 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     renderer = r;
     curSim = sim;
     nMarks = 0; nBars = 0; nLineVerts = 0;
+    zoomK = Math.max(1, Math.min(4, camera.dist / 45));
     const viewer = r.viewer;
     const { state, rt, world } = sim;
     const t = r.time;
@@ -396,6 +486,7 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
         mark(sst.rally.x, sst.rally.z, ground(sst.rally.x, sst.rally.z), 1.4, 0, OWN_RING[0], OWN_RING[1], OWN_RING[2], 0.9, DS.MARKER, 0.12 + 0.08 * Math.sin(t * 3));
       }
     }
+    economyOverlays(sim, frame, viewer, t, sst);
     if (hover && hover.k === 'struct' && hover.id !== frame.selectedStruct) {
       const st = r.memory ? r.memory.known(sim, viewer, hover.id) : rt.structById.get(hover.id);
       if (st) structureBox(st, st.faction === viewer ? HOVER_RING : ENEMY_RING, 0.45);

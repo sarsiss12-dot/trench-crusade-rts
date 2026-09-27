@@ -2,6 +2,7 @@
 // Turkish is the primary language; English is complete. Missing keys fall back to English, then
 // to the key itself (visible in development, never a crash).
 import { TR_P2, EN_P2 } from './i18n_p2.js';
+import { TR_P3, EN_P3 } from './i18n_p3.js';
 
 const TR = {
   'app.title': 'Yeni Antakya Kuşatması',
@@ -360,6 +361,8 @@ const EN = {
 // Phase 2 additions (and updated help lines) live in their own table
 Object.assign(TR, TR_P2);
 Object.assign(EN, EN_P2);
+Object.assign(TR, TR_P3);
+Object.assign(EN, EN_P3);
 
 export const LANGUAGES = { tr: TR, en: EN };
 let current = 'tr';

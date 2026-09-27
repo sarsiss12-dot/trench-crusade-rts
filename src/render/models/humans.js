@@ -55,6 +55,10 @@ export const WEAPON_GEOM = {
   infested: { rightGrip: [0, -0.06, 0.26], leftGrip: [0.0, -0.07, 0.52], muzzle: [0, 0.03, 1.14], hip: false },
   greatblade: { rightGrip: [0, 0, 0], leftGrip: [0, 0, 0.17], muzzle: [0, 0, 1.3], twoHanded: true },
   claws: { none: true },
+  // Phase 3 (models/humans_p3.js)
+  flamer: { rightGrip: [0, -0.07, 0.3], leftGrip: [0.01, -0.05, 0.62], muzzle: [0, 0.01, 1.08], hip: true },
+  pistol: { rightGrip: [0, -0.07, 0.04], leftGrip: [0.035, -0.1, 0.05], muzzle: [0, 0.025, 0.24], hip: false },
+  smg: { rightGrip: [0, -0.07, 0.2], leftGrip: [0, -0.075, 0.44], muzzle: [0, 0.02, 0.74], hip: false },
 };
 
 // ------------------------------------------------------------------------------ body parts
@@ -624,4 +628,11 @@ export const UNIT_MODELS = {
   bg_thrall_b: (lod) => buildThrall(lod, 1),
   bg_corpse_guard: (lod) => buildCorpseGuard(lod),
   bg_plague_knight: (lod) => buildPlagueKnight(lod),
+};
+
+// Body-part / equipment builders shared with the Phase 3 roster (models/humans_p3.js).
+export {
+  makeRig, HUMAN, legs, arms, hand, torso, coatSkirt, neckAndHead, gasMask, gothicHelmet, sapperHelmet,
+  backpack, webbing, beltAndPouches, tabardCross, shoulderPatch, weaponAtPivot, shovelAtPivot, naBody,
+  greatbladeGeometry,
 };

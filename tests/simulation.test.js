@@ -1,4 +1,5 @@
 import { test, assert } from './harness.js';
+import { UNITS } from '../src/data/units.js';
 import { createSimulation, stepSimulation } from '../src/sim/simulation.js';
 import { enqueueCommand, CMD } from '../src/sim/commands.js';
 import { EV } from '../src/core/events.js';
@@ -45,7 +46,7 @@ test('preparation: no attacks, no damage, attack commands rejected', () => {
   const ev = run(sim, 10);
   assert.equal(ev.filter((e) => e.type === EV.FIRE || e.type === EV.HIT || e.type === EV.DEATH || e.type === EV.MELEE).length, 0);
   assert.equal(alive(a), 8);
-  assert.equal(alive(b), 8);
+  assert.equal(alive(b), UNITS.grail_thrall.squadSize); // Phase 3: bigger Thrall mobs
   enqueueCommand(sim, { type: CMD.ATTACK, faction: 'new_antioch', squadIds: [a.id], tk: 'squad', tid: b.id });
   const ev2 = run(sim, 0.2);
   assert.ok(ev2.some((e) => e.type === EV.COMMAND_REJECTED && e.reason === 'match.prep_no_attack'));

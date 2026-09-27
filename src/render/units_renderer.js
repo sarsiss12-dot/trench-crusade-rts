@@ -7,11 +7,15 @@ import { computePose, POSE_FLOATS, deathVariant, muzzleWorld, jointWorld } from 
 import { planDeath, createLimbPool, stepLimb, CHAINS, GORE_QUALITY } from './gore.js';
 import { INFECTION_MAX } from '../sim/constants.js';
 import { UNIT_MODELS } from './models/humans.js';
+import { UNIT_MODELS_P3 } from './models/humans_p3.js';
+import { ANIMAL_MODELS } from './models/animals.js';
+import { SPECIES } from '../data/animals.js';
+import { UNITS } from '../data/units.js';
 import { VERTEX_STRIDE } from './models/meshbuilder.js';
 import { sphereInFrustum, lerpAngle, clamp01 } from './math3d.js';
 import { unitDef } from '../data/units.js';
 import { groundHeightAt } from '../world/ground.js';
-import { isSquadVisibleTo, isCorpseKnownTo, isSoldierVisibleTo } from '../sim/perception.js';
+import { isSquadVisibleTo, isCorpseKnownTo, isSoldierVisibleTo, isAnimalVisibleTo, isConvoyVisibleTo } from '../sim/perception.js';
 import { hash32 } from '../core/rng.js';
 import { DT, DYING_TICKS, RISING_TICKS } from '../sim/constants.js';
 
@@ -51,17 +55,33 @@ function newVisual(id, modelId, model, seed) {
     highlight: 0, accent: [0.4, 0.1, 0.08], fade: 0, packPulse: 0, inTrench: false,
     seenFrame: 0, dirty: true,
     lost: 0, blood: 0, sick: 0, bio: false, gore: null,
+    // Phase 3: livestock gait / grazing, cart wheels, getting up after a medic's revive
+    gallop: 0, graze: 0, wheel: 0, getUp: -1,
   };
+}
+
+const ALL_MODELS = { ...UNIT_MODELS, ...UNIT_MODELS_P3, ...ANIMAL_MODELS };
+const CIV_MODELS = ['na_civilian', 'na_civilian_b', 'na_civilian_c', 'na_civilian_d'];
+const NEUTRAL_ACCENT = [0.32, 0.29, 0.24];
+
+/** Model of a dead body: the soldier's own look, a livestock carcass, or an old battlefield body. */
+function corpseModelId(c) {
+  if (c.sp) return SPECIES[c.sp] ? SPECIES[c.sp].model : 'an_sheep';
+  const u = UNITS[c.unit];
+  if (!u) return 'na_yeoman';
+  if (u.model === 'na_civilian') return CIV_MODELS[hash32(c.soldierId || c.id, 5) & 3];
+  return u.model;
 }
 
 export function createUnitRenderer(gl, program, opts) {
   const models = {};
   const lod0Dist = opts.quality === 'low' ? 30 : opts.quality === 'high' ? 80 : 48;
   const corpseCap = opts.quality === 'low' ? 80 : opts.quality === 'high' ? 300 : 170;
-  for (const id in UNIT_MODELS) {
-    const m0 = UNIT_MODELS[id](0), m1 = UNIT_MODELS[id](1);
+  for (const id in ALL_MODELS) {
+    const m0 = ALL_MODELS[id](0), m1 = ALL_MODELS[id](1);
     models[id] = {
       id, rig: m0.rig, weapon: m0.weapon, tool: m0.tool, hunch: m0.hunch || 0, heavy: !!m0.heavy,
+      quad: !!m0.quad, rigid: !!m0.rigid, stride: m0.stride || 1, wheelR: m0.wheelR || 0.6,
       lods: [uploadModel(gl, m0.mesh), uploadModel(gl, m1.mesh)],
       height: m0.mesh.height,
     };
@@ -85,7 +105,8 @@ export function createUnitRenderer(gl, program, opts) {
   function modelIdFor(sq, m) {
     const def = unitDef(sq.type);
     if (def.model === 'bg_thrall') return (hash32(m.id, 3) & 3) === 0 || risenFrom.get(m.id) === 'new_antioch' ? 'bg_thrall_b' : 'bg_thrall';
-    return def.model;
+    if (def.model === 'na_civilian') return CIV_MODELS[hash32(m.id, 5) & 3];
+    return models[def.model] ? def.model : 'na_yeoman';
   }
 
   function visualFor(sq, m) {
@@ -143,6 +164,12 @@ export function createUnitRenderer(gl, program, opts) {
         break;
       }
       case 'CORPSE_REMOVED': removeCorpseVisual(ev.id, ev.reason); break;
+      case 'REVIVED': {
+        // a medic got him back on his feet: stand up from where he lay
+        const v = visuals.get(ev.id);
+        if (v) { v.getUp = 0; v.death = -1; }
+        break;
+      }
       case 'SOLDIER_RISING': {
         // the risen body starts from the exact corpse pose it was lying in
         risenFrom.set(ev.id, ev.fromFaction);
@@ -241,7 +268,8 @@ export function createUnitRenderer(gl, program, opts) {
   function addCorpseVisual(c, v, sim) {
     if (corpses.some((k) => k.id === c.id)) return;
     const seed = v ? v.seed : hash32(c.soldierId || c.id, 17);
-    const modelId = v ? v.modelId : (unitDef(c.unit).model === 'bg_thrall' ? 'bg_thrall' : unitDef(c.unit).model);
+    let modelId = v && v.modelId && !c.sp ? v.modelId : corpseModelId(c);
+    if (!models[modelId]) modelId = 'na_yeoman';
     const cv = newVisual(c.id, modelId, models[modelId], seed);
     cv.x = c.x; cv.z = c.z;
     cv.rot = v ? (v.deathRot !== undefined ? v.deathRot : v.rot) : c.rot;
@@ -256,6 +284,8 @@ export function createUnitRenderer(gl, program, opts) {
     cv.blood = v ? Math.max(0.35, v.blood) : 0.5;
     cv.bio = c.faction === 'black_grail';
     cv.sick = c.infected ? 0.7 : 0;
+    if (c.old) { cv.mud = 1; cv.wear = 1; cv.blood = 0.12; cv.sick = 0.3; cv.tint = -0.8; cv.accent = NEUTRAL_ACCENT; }
+    if (c.sp) { cv.accent = NEUTRAL_ACCENT; cv.blood = 0.45; cv.scale = 0.9 + ((seed >> 4) & 255) / 255 * 0.2; }
     cv.born = frame;
     cv.fadeOut = -1;
     corpses.push(cv);
@@ -315,6 +345,7 @@ export function createUnitRenderer(gl, program, opts) {
     sim0 = sim;
     for (const b of buckets.values()) b.length = 0;
     stats.soldiers = 0;
+    stats.animals = 0;
     const camX = camera.eye[0], camY = camera.eye[1], camZ = camera.eye[2];
     const tick = state.tick;
     for (const sq of state.squads) {
@@ -333,6 +364,7 @@ export function createUnitRenderer(gl, program, opts) {
       if (sq.target && sq.target.k === 'squad') tgtSq = rt.squadById.get(sq.target.id);
       const enemy = sq.faction !== viewer;
       for (const m of sq.members) {
+        if (m.state === 'sheltered') continue; // inside a building
         if (enemy && !isSoldierVisibleTo(sim, sq, m, viewer)) continue; // only the members in sight
         stats.soldiers++;
         const v = visualFor(sq, m);
@@ -352,12 +384,21 @@ export function createUnitRenderer(gl, program, opts) {
         if (m.state === 'dying') {
           v.death = clamp01(((tick + alpha - m.stateTick) * DT) / DEATH_SECONDS);
           v.walk = 0;
+        } else if (m.state === 'wounded') {
+          // down, not dead: the fall stops short and he stays on the ground until a medic comes
+          v.death = Math.min(0.97, clamp01(((tick + alpha - m.stateTick) * DT) / DEATH_SECONDS));
+          v.walk = 0;
+          v.getUp = -1;
         } else if (m.state === 'rising') {
           v.rise = clamp01(((tick + alpha - m.stateTick) * DT) / (RISING_TICKS * DT));
           v.death = -1;
         } else {
           v.death = -1;
-          v.rise = -1;
+          if (v.getUp >= 0) {
+            v.getUp += dt / 1.1;
+            v.rise = Math.min(1, v.getUp);
+            if (v.getUp >= 1) { v.getUp = -1; v.rise = -1; }
+          } else v.rise = -1;
           v.rot = lerpAngle(v.rot, m.rot, Math.min(1, dt * 12));
         }
         const wantAim = def.weapon && engaged && m.state === 'alive' && speed < 0.4 ? 1 : 0;
@@ -386,6 +427,9 @@ export function createUnitRenderer(gl, program, opts) {
         b.push(v);
       }
     }
+    // livestock and wildlife (only while the viewer sees them) and supply carts on the roads
+    livestock(sim, camera, viewer, dt, time, camX, camY, camZ);
+    convoys(sim, camera, viewer, dt, time, camX, camY, camZ);
     // extra instances (fortified position crews, gallery)
     if (opts.extras) for (const v of opts.extras(time, dt)) {
       const key = v.modelId + '|' + (v.lod || 0);
@@ -413,6 +457,87 @@ export function createUnitRenderer(gl, program, opts) {
     if (row > 0) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, POSE_TEXELS, row, gl.RGBA, gl.FLOAT, poseData, 0);
     updateCorpses(sim, dt, time);
     updateGibs(dt, time);
+  }
+
+  function bucketPush(v, lod) {
+    const key = v.modelId + '|' + lod;
+    let b = buckets.get(key);
+    if (!b) { b = []; buckets.set(key, b); }
+    b.push(v);
+  }
+
+  function livestock(sim, camera, viewer, dt, time, camX, camY, camZ) {
+    for (const a of sim.state.animals) {
+      if (!isAnimalVisibleTo(a, viewer)) continue;
+      const sp = SPECIES[a.sp];
+      if (!sp || !models[sp.model]) continue;
+      let v = visuals.get(a.id);
+      if (!v) {
+        v = newVisual(a.id, sp.model, models[sp.model], hash32(a.id, 29));
+        v.x = a.x; v.z = a.z; v.rot = a.rot;
+        v.accent = NEUTRAL_ACCENT;
+        v.scale = 0.88 + ((v.seed >> 4) & 255) / 255 * 0.24;
+        v.mud = 0.35 + ((v.seed >> 12) & 255) / 255 * 0.4;
+        visuals.set(a.id, v);
+      }
+      v.seenFrame = frame;
+      const gy = groundFn(a.x, a.z);
+      if (!sphereInFrustum(camera.planes, a.x, gy + 0.6, a.z, 2.5)) continue;
+      // the herd moves every other tick: glide toward the sim position
+      const k = Math.min(1, dt * 9);
+      const nx = v.x + (a.x - v.x) * k, nz = v.z + (a.z - v.z) * k;
+      const moved = Math.hypot(nx - v.x, nz - v.z);
+      v.x = nx; v.z = nz; v.y = groundFn(nx, nz);
+      v.rot = lerpAngle(v.rot, a.rot, Math.min(1, dt * 6));
+      const speed = Math.hypot(a.vx, a.vz) / (DT * 2);
+      v.walk += (Math.min(1, speed / Math.max(0.3, sp.speed)) - v.walk) * Math.min(1, dt * 6);
+      v.gallop += ((speed > sp.speed * 1.7 ? 1 : 0) - v.gallop) * Math.min(1, dt * 4);
+      v.phase += (moved * Math.PI * 2) / (v.model.stride || 1);
+      const grazing = speed < 0.05 && ((time * 0.11 + (v.seed & 1023) / 1023) % 1) < 0.62;
+      v.graze += ((grazing ? 1 : 0) - v.graze) * Math.min(1, dt * 1.6);
+      v.time = time; v.death = -1; v.rise = -1;
+      stats.animals = (stats.animals || 0) + 1;
+      const dcam = Math.hypot(a.x - camX, gy - camY, a.z - camZ);
+      bucketPush(v, dcam < lod0Dist ? 0 : 1);
+    }
+  }
+
+  function convoys(sim, camera, viewer, dt, time, camX, camY, camZ) {
+    for (const c of sim.state.convoys) {
+      if (!isConvoyVisibleTo(c, viewer)) continue;
+      const gy = groundFn(c.x, c.z);
+      if (!sphereInFrustum(camera.planes, c.x, gy + 1, c.z, 5)) continue;
+      let cart = visuals.get(c.id);
+      if (!cart) {
+        cart = newVisual(c.id, 'cart', models.cart, hash32(c.id, 31));
+        cart.x = c.x; cart.z = c.z; cart.rot = c.rot; cart.accent = NEUTRAL_ACCENT;
+        visuals.set(c.id, cart);
+      }
+      let mule = visuals.get(-c.id);
+      if (!mule) {
+        mule = newVisual(-c.id, 'an_mule', models.an_mule, hash32(c.id, 37));
+        mule.accent = NEUTRAL_ACCENT;
+        visuals.set(-c.id, mule);
+      }
+      cart.seenFrame = frame; mule.seenFrame = frame;
+      const k = Math.min(1, dt * 8);
+      const nx = cart.x + (c.x - cart.x) * k, nz = cart.z + (c.z - cart.z) * k;
+      const moved = Math.hypot(nx - cart.x, nz - cart.z);
+      cart.x = nx; cart.z = nz; cart.y = groundFn(nx, nz);
+      cart.rot = lerpAngle(cart.rot, c.rot, Math.min(1, dt * 4));
+      cart.wheel -= moved / (models.cart.wheelR || 0.6);
+      cart.time = time;
+      const fx = Math.sin(cart.rot), fz = Math.cos(cart.rot);
+      mule.x = cart.x + fx * 3.1; mule.z = cart.z + fz * 3.1; mule.y = groundFn(mule.x, mule.z);
+      mule.rot = cart.rot;
+      mule.walk += (Math.min(1, moved / Math.max(1e-4, dt) / 1.2) - mule.walk) * Math.min(1, dt * 5);
+      mule.phase += (moved * Math.PI * 2) / (models.an_mule.stride || 1);
+      mule.time = time; mule.death = -1;
+      const dcam = Math.hypot(c.x - camX, gy - camY, c.z - camZ);
+      const lod = dcam < lod0Dist ? 0 : 1;
+      bucketPush(cart, lod);
+      bucketPush(mule, lod);
+    }
   }
 
   // corpse rows are rewritten only when the set changes or fades progress

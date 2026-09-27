@@ -4,6 +4,7 @@ import { STATE_VERSION, TICK_RATE } from './constants.js';
 import { createRngState } from '../core/rng.js';
 import { rotateOffset } from '../core/dmath.js';
 import { FACTIONS, FACTION_ORDER } from '../data/factions.js';
+import { prepSecondsFor } from '../data/scenarios.js';
 import { unitDef } from '../data/units.js';
 import { structDef } from '../data/structures.js';
 import { createFogState } from '../world/fog.js';
@@ -20,7 +21,9 @@ export function zeroResources(fdef) {
 
 export function createInitialState({ scenario, settings, seed, world }) {
   const warMinutes = settings.warMinutes !== undefined ? settings.warMinutes : scenario.warMinutes;
-  const prepSeconds = settings.prepSeconds !== undefined ? settings.prepSeconds : scenario.prepSeconds;
+  // Phase 3: preparation length follows the match length (data: scenarios PREP_BY_LENGTH)
+  const prepDefault = scenario.prepByLength ? prepSecondsFor(warMinutes, scenario.prepSeconds) : scenario.prepSeconds;
+  const prepSeconds = settings.prepSeconds !== undefined ? settings.prepSeconds : prepDefault;
   const playerFaction = settings.playerFaction !== undefined ? settings.playerFaction : 'new_antioch';
   const controllers = {};
   for (const fid of FACTION_ORDER) {
@@ -63,9 +66,13 @@ export function createInitialState({ scenario, settings, seed, world }) {
     weather: { ...scenario.weather },
     objectives: [],
     ai: {},
-    rng: { main: createRngState(seed), ai: createRngState((seed ^ 0x51ed27) >>> 0) },
+    rng: { main: createRngState(seed), ai: createRngState((seed ^ 0x51ed27) >>> 0), eco: createRngState((seed ^ 0xec0ca5) >>> 0) },
     pending: [],
     commandSeq: 0,
+    // Phase 3: resource sectors (richness rolled per match), wildlife, supply convoys
+    sectors: [],
+    animals: [],
+    convoys: [],
   };
   for (const fid of FACTION_ORDER) {
     const fdef = FACTIONS[fid];
@@ -76,14 +83,30 @@ export function createInitialState({ scenario, settings, seed, world }) {
       role: scenario.roles[fid],
       controller: controllers[fid],
       resources: { ...zeroResources(fdef), ...(scenario.resources[fid] || {}) },
-      stats: { kills: 0, losses: 0, built: 0, raised: 0, trained: 0, corpsesHarvested: 0 },
+      stats: newStats(),
       abilities,
-      population: 0,
+      population: 0, // New Antioch: civilians of the fortress quarter (settlements hold their own)
+      pestilence: 0, pestTier: 0, pestLastGain: 0, // Black Grail plague momentum (0..100)
+      spec: [null, null, null],
+      econ: { mpAcc: 0, mpPopAcc: 0, growAcc: 0, starveAcc: 0, lastManpowerRate: 0, lastFoodRate: 0, safePop: 0, pop: 0, infCells: 0 },
       timers: { econ: 0, food: 0, reinforce: 0, infection: 0 },
     };
     state.ai[fid] = null;
   }
   return state;
+}
+
+/** Match statistics per faction (also read by tools/balance.js). */
+export function newStats() {
+  return {
+    kills: 0, losses: 0, built: 0, raised: 0, trained: 0, corpsesHarvested: 0,
+    // Phase 3
+    civLost: 0, manpowerGained: 0, settlementsBuilt: 0, settlementsLost: 0, firstSettlementTick: -1,
+    convoysArrived: 0, convoysLost: 0, animalsKilled: 0, wounded: 0, revived: 0, burned: 0,
+    biomass: { passive: 0, animal: 0, corpse: 0, civilian: 0, soldier: 0, old: 0 },
+    firstBiomassTick: -1, firstWaveTick: -1, pestMax: 0, greatPestilence: 0, breachTick: -1,
+    evacuations: 0, pestBy: {}, pestLostBy: {}, pestTierTick: [0, -1, -1, -1, -1],
+  };
 }
 
 export function allocId(state) {
@@ -98,6 +121,8 @@ export function createSoldier(state, def, slot, x, z, rot, soldierState = 'alive
     infection: 0, cover: 0, postId: 0, postSlot: -1, working: 0, killer: '', ready: 0,
     // stuck recovery (units/movement.js): progress window origin, rescue detour, attempts
     wx: x, wz: z, dp: null, di: 0, dgx: 0, dgz: 0, dtry: 0, stk: 0,
+    // Phase 3: burning until tick, plague progression slowed until tick (medic), revive progress
+    burn: 0, slow: 0, rev: 0,
   };
 }
 
@@ -121,6 +146,11 @@ export function createSquad(state, factionId, unitType, x, z, rot, opts = {}) {
     spawnTick: state.tick,
     lag: 0, cx: x, cz: z, working: 0, melee: false,
     reinf: null, suppressUntil: 0,
+    // Phase 3: squad size cap (specialities can enlarge new squads), builder queue of site ids,
+    // civilian crew state (settlement id + behaviour), tide / fear timers
+    cap: opts.cap || n, bq: null, civ: null, tideUntil: 0, fearUntil: 0,
+    // biomass source attribution of what a gang carries; next idle auto-forage check (Grail gangs)
+    carryBy: null, autoT: 0,
   };
   const offs = formationOffsets(sq.formation, n, def.spacing);
   const tmp = [0, 0];
@@ -165,7 +195,14 @@ export function createStructure(state, type, faction, params) {
     s.workRequired = def.work || 0;
   }
   if (def.trains) { s.queue = []; s.rally = null; }
-  if (def.weapon) { s.cooldown = 0; s.burst = 0; s.targetId = 0; s.shots = 0; }
+  if (def.weapon || def.specWeapon) { s.cooldown = 0; s.burst = 0; s.targetId = 0; s.shots = 0; }
+  // Phase 3 economy runtime fields (economy/settlements.js, factions/civilians.js, sim/wildlife.js)
+  if (def.settlement) {
+    s.pop = 0; s.stock = { food: 0, material: 0, supply: 0 }; s.threat = -100000; s.evac = 0; s.evacAt = 0;
+    s.crew = 0; s.found = 0; s.lastConvoy = state.tick; s.grow = 0; s.lastCrew = state.tick;
+  }
+  if (def.pen) { s.herdX = s.x; s.herdZ = s.z; s.drover = 0; s.droverT = -100000; }
+  if (def.farm || def.pen || def.quarry) s.host = params.host || 0;
   if (params.variant) s.variant = params.variant;
   if (params.objective) s.objective = true;
   s.work = s.built ? s.workRequired : s.workRequired * s.progress;

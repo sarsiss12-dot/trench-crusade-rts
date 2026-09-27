@@ -119,6 +119,11 @@ export const MAPS = {
       // model gallery lineup (presentation sandbox)
       gallery_na_a: [[146, 394]], gallery_na_b: [[160, 394]], gallery_na_c: [[174, 394]],
       gallery_bg_a: [[146, 381]], gallery_bg_b: [[160, 381]], gallery_bg_c: [[174, 381]],
+      // Phase 3 lineup (second rows) + the livestock row
+      gallery_na_d: [[132, 394]], gallery_na_e: [[188, 394]], gallery_na_f: [[139, 405]], gallery_na_g: [[153, 405]],
+      gallery_na_h: [[167, 405]], gallery_na_i: [[181, 405]],
+      gallery_bg_d: [[132, 381]], gallery_bg_e: [[188, 381]], gallery_bg_f: [[160, 368]],
+      gallery_animals: [[139, 358], [146, 358], [153, 358], [160, 358], [167, 358], [174, 358]],
     },
     zones: {
       new_antioch: { x0: 0, z0: 330, x1: 320, z1: 576 },
@@ -156,6 +161,38 @@ export const MAPS = {
       { type: 'breastwork', x1: 112, z1: 474, x2: 122, z2: 473 },
       { type: 'breastwork', x1: 198, z1: 473, x2: 208, z2: 474 },
       { type: 'workshop', x: 226, z: 506, rot: 3.141592653589793 },
+    ],
+    // Phase 3: natural economic SECTORS in the New Antioch half (kinds fixed by the map, richness
+    // rolled per match). Near the fortress = safe but plain; forward = rich but exposed.
+    sectors: [
+      { id: 'fertile_w', kind: 'fertile', x: 40, z: 464, r: 22 },
+      { id: 'pasture_e', kind: 'pasture', x: 280, z: 470, r: 22 },
+      { id: 'hamlet_w', kind: 'hamlet', x: 100, z: 432, r: 26 },
+      { id: 'hamlet_e', kind: 'hamlet', x: 226, z: 430, r: 26 },
+      { id: 'quarry_w', kind: 'quarry', x: 40, z: 410, r: 18 },
+      { id: 'fertile_c', kind: 'fertile', x: 160, z: 410, r: 22 },
+      { id: 'scrap_c', kind: 'scrap', x: 210, z: 372, r: 24 },
+      { id: 'depot_w', kind: 'depot', x: 116, z: 350, r: 22 },
+      { id: 'pasture_w', kind: 'pasture', x: 58, z: 352, r: 22 },
+      { id: 'fertile_e', kind: 'fertile', x: 280, z: 400, r: 22 },
+    ],
+    // wildlife habitats (population cap per habitat, slow respawn) — both halves of the map
+    habitats: [
+      { id: 'h_pasture_e', x: 280, z: 470, r: 26, cap: 7, start: 6, species: { sheep: 5, cattle: 2 } },
+      { id: 'h_pasture_w', x: 58, z: 352, r: 24, cap: 6, start: 5, species: { goat: 3, pig: 3 } },
+      { id: 'h_hamlet_w', x: 100, z: 432, r: 22, cap: 3, start: 2, species: { dog: 2, goat: 1 } },
+      { id: 'h_hamlet_e', x: 226, z: 430, r: 22, cap: 3, start: 2, species: { pig: 2, dog: 1 } },
+      { id: 'h_depot_w', x: 116, z: 350, r: 18, cap: 2, start: 2, species: { mule: 2 } },
+      { id: 'h_fertile_e', x: 280, z: 400, r: 20, cap: 3, start: 2, species: { sheep: 3 } },
+      { id: 'h_nml', x: 160, z: 318, r: 30, cap: 3, start: 2, species: { dog: 2, mule: 1 } },
+      { id: 'h_forest_w', x: 70, z: 204, r: 26, cap: 6, start: 5, species: { pig: 3, goat: 3 } },
+      { id: 'h_forest_e', x: 244, z: 198, r: 26, cap: 6, start: 5, species: { sheep: 3, goat: 3 } },
+      { id: 'h_grail_fields', x: 206, z: 120, r: 22, cap: 4, start: 3, species: { cattle: 2, pig: 2 } },
+    ],
+    // bodies of older battles left in the mud (low-value biomass, never infected, never rise)
+    oldDead: [
+      { x0: 40, z0: 296, x1: 280, z1: 396, count: 16 },
+      { x0: 40, z0: 150, x1: 280, z1: 238, count: 10 },
     ],
     // Black Grail AI organic build plan (work gangs; BUILD pipeline, same rules as the player)
     grailPlan: [

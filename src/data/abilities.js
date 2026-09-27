@@ -35,6 +35,31 @@ export const ABILITIES = {
     effect: 'barrage', size: 'light', craters: false, supportKey: 'artillerySupport',
     suppress: { seconds: 6, accMult: 0.6, speedMult: 0.6 },
   },
+  // ---- Phase 3 ----------------------------------------------------------------------------------
+  // Pestilence 100: the plague's crest. Spends most of the meter (no permanent snowball).
+  great_pestilence: {
+    id: 'great_pestilence', faction: 'black_grail', nameKey: 'ability.great_pestilence', descKey: 'ability.great_pestilence.desc',
+    lore: { status: 'abstraction', ref: 'Plague and pestilence are core Black Grail themes; the castable Great Pestilence is a gameplay abstraction' },
+    cost: { biomass: 60 }, cooldown: 60, castRange: 90, requiresPestilence: 100, pestilenceCost: 60,
+    radius: 20, duration: 14, dps: 2.5, infectInterval: 2.5, maxStacks: 3, groundInfect: 100,
+    effect: 'plague_cloud', supportKey: '',
+  },
+  // Purification speciality: incense, fire and prayer over a patch of ground.
+  purge: {
+    id: 'purge', faction: 'new_antioch', nameKey: 'ability.purge', descKey: 'ability.purge.desc',
+    lore: { status: 'abstraction', ref: 'Purification by fire (New Antioch armoury has flamethrowers — official rules); the rite ability is an abstraction' },
+    cost: { supply: 70 }, cooldown: 55, requiresVision: true, requiresSpec: ['na_purification'],
+    radius: 14, duration: 4, pestilenceDrain: 10, cleanse: 200,
+    effect: 'purge', supportKey: '',
+  },
+  // Black Tide speciality: the horde surges forward.
+  black_tide: {
+    id: 'black_tide', faction: 'black_grail', nameKey: 'ability.black_tide', descKey: 'ability.black_tide.desc',
+    lore: { status: 'abstraction' },
+    cost: { biomass: 50 }, cooldown: 70, castRange: 60, requiresSpec: ['bg_black_tide'],
+    radius: 40, duration: 15, speedMult: 1.3, meleeMult: 1.3,
+    effect: 'tide', supportKey: '',
+  },
 };
 
 export function abilityDef(id) {

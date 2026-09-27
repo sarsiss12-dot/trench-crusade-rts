@@ -2,6 +2,9 @@
 // Typed arrays are encoded as { $ta: <type>, b64: <base64> }. Renderer/UI state never enters
 // a save. Migrations upgrade older save versions step by step.
 import { STATE_VERSION } from '../sim/constants.js';
+import { UNITS } from '../data/units.js';
+import { createRngState } from '../core/rng.js';
+import { newStats } from '../sim/state.js';
 
 export const SAVE_FORMAT = 'trench-crusade-rts-save';
 export const SAVE_VERSION = STATE_VERSION;
@@ -136,6 +139,45 @@ export const MIGRATIONS = {
     if (na && na.abilities && !na.abilities.mortar_barrage) na.abilities.mortar_barrage = { readyTick: 0 };
     s.version = 2;
     return { ...save, version: 2 };
+  },
+  // v2 -> v3 (Phase 3): living world (sectors / wildlife / convoys — built on load from the save's
+  // own seed, see simulationFromState p3init), civilian population, Pestilence, specialities,
+  // builder queues, squad caps, wounded / burning soldier fields, new abilities.
+  2: (save) => {
+    const s = save.state;
+    s.sectors = Array.isArray(s.sectors) ? s.sectors : [];
+    s.animals = Array.isArray(s.animals) ? s.animals : [];
+    s.convoys = Array.isArray(s.convoys) ? s.convoys : [];
+    if (s.rng && !s.rng.eco) s.rng.eco = createRngState(((s.seed >>> 0) ^ 0xec0ca5) >>> 0);
+    s.p3init = 0;
+    for (const fid in s.factions || {}) {
+      const f = s.factions[fid];
+      f.stats = { ...newStats(), ...(f.stats || {}) };
+      if (f.population === undefined) f.population = 0;
+      if (f.pestilence === undefined) { f.pestilence = 0; f.pestTier = 0; f.pestLastGain = 0; }
+      if (!Array.isArray(f.spec)) f.spec = [null, null, null];
+      f.econ = { mpAcc: 0, mpPopAcc: 0, growAcc: 0, starveAcc: 0, lastManpowerRate: 0, lastFoodRate: 0, safePop: 0, pop: 0, infCells: 0, ...(f.econ || {}) };
+      f.abilities = f.abilities || {};
+      const add = fid === 'new_antioch' ? ['purge'] : fid === 'black_grail' ? ['great_pestilence', 'black_tide'] : [];
+      for (const a of add) if (!f.abilities[a]) f.abilities[a] = { readyTick: 0 };
+    }
+    for (const sq of s.squads || []) {
+      const def = UNITS[sq.type];
+      if (sq.cap === undefined) sq.cap = def ? Math.max(sq.members.length, def.squadSize) : sq.members.length;
+      if (sq.bq === undefined) sq.bq = null;
+      if (sq.civ === undefined) sq.civ = null;
+      if (sq.tideUntil === undefined) sq.tideUntil = 0;
+      if (sq.fearUntil === undefined) sq.fearUntil = 0;
+      if (sq.carryBy === undefined) sq.carryBy = null;
+      if (sq.autoT === undefined) sq.autoT = 0;
+      for (const m of sq.members) {
+        if (m.burn === undefined) m.burn = 0;
+        if (m.slow === undefined) m.slow = 0;
+        if (m.rev === undefined) m.rev = 0;
+      }
+    }
+    s.version = 3;
+    return { ...save, version: 3 };
   },
 };
 

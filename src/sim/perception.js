@@ -126,6 +126,24 @@ export function updateVision(sim) {
   for (const n of state.nodes) {
     for (let j = 0; j < FACTION_ORDER.length; j++) if (isExploredAt(fog, j, n.x, n.z)) n.seenBy |= 1 << j;
   }
+  // Phase 3: animals / convoys are seen like units (live bits) and remembered (seenBy); sectors
+  // are learned by exploring them
+  const F = FACTION_ORDER.length;
+  for (const a of state.animals || []) {
+    let bits = 0;
+    for (let j = 0; j < F; j++) if (isVisibleAt(fog, j, a.x, a.z)) bits |= 1 << j;
+    a.visibleTo = bits;
+    a.seenBy |= bits;
+  }
+  for (const c of state.convoys || []) {
+    let bits = 1 << FACTIONS[c.faction].index;
+    for (let j = 0; j < F; j++) if (isVisibleAt(fog, j, c.x, c.z)) bits |= 1 << j;
+    c.visibleTo = bits;
+    c.seenBy |= bits;
+  }
+  for (const sec of state.sectors || []) {
+    for (let j = 0; j < F; j++) if (isExploredAt(fog, j, sec.x, sec.z)) sec.seenBy |= 1 << j;
+  }
   // craters are learned by looking at them (presentation carves only known craters)
   const cr = state.craters;
   if (cr) {
@@ -174,6 +192,19 @@ export function isCorpseKnownTo(c, viewer) {
 
 export function isNodeKnownTo(n, viewer) {
   return (n.seenBy & factionBit(viewer)) !== 0;
+}
+
+/** Animals / convoys: drawn only while currently seen (own convoys always). */
+export function isAnimalVisibleTo(a, viewer) {
+  return (a.visibleTo & factionBit(viewer)) !== 0;
+}
+
+export function isConvoyVisibleTo(c, viewer) {
+  return c.faction === viewer || (c.visibleTo & factionBit(viewer)) !== 0;
+}
+
+export function isSectorKnownTo(sec, viewer) {
+  return (sec.seenBy & factionBit(viewer)) !== 0;
 }
 
 export function isPointVisibleTo(sim, viewer, x, z) {
@@ -240,11 +271,20 @@ export function eventVisibility(sim, ev, viewer) {
       return SHOW.NONE;
     }
     case EV.HIT:
-    case EV.DEATH: {
+    case EV.DEATH:
+    case EV.WOUNDED:
+    case EV.REVIVED: {
       if (ev.faction === viewer) return SHOW.ALL;
       const sq = rt.squadById.get(ev.sq);
       return sq && isSquadVisibleTo(sq, viewer) ? SHOW.ALL : SHOW.NONE;
     }
+    case EV.ANIMAL_KILLED:
+      return isPointVisibleTo(sim, viewer, ev.x, ev.z) ? SHOW.ALL : SHOW.NONE;
+    case EV.CONVOY_DISPATCHED:
+    case EV.CONVOY_ARRIVED:
+    case EV.CONVOY_LOST:
+      if (ev.faction === viewer) return SHOW.ALL;
+      return isPointVisibleTo(sim, viewer, ev.x, ev.z) ? SHOW.ALL : SHOW.NONE;
     case EV.SOLDIER_RISING:
     case EV.SQUAD_SPAWNED: {
       if (ev.faction === viewer) return SHOW.ALL;

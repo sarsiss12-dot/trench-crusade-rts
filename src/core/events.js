@@ -33,6 +33,18 @@ export const EV = Object.freeze({
   RESOURCE_GATHERED: 'RESOURCE_GATHERED',
   RESOURCE_DELIVERED: 'RESOURCE_DELIVERED',
   NOTICE: 'NOTICE', // generic UI notice for a faction (key + params)
+
+  // Phase 3
+  SPEC_CHOSEN: 'SPEC_CHOSEN',
+  ENGINEER_ASSIGNED: 'ENGINEER_ASSIGNED', // auto-dispatched builder (highlight in HUD + world)
+  CONVOY_DISPATCHED: 'CONVOY_DISPATCHED',
+  CONVOY_ARRIVED: 'CONVOY_ARRIVED',
+  CONVOY_LOST: 'CONVOY_LOST',
+  ANIMAL_KILLED: 'ANIMAL_KILLED',
+  WOUNDED: 'WOUNDED', // soldier incapacitated (not dead)
+  REVIVED: 'REVIVED', // wounded soldier back on his feet (medic)
+  PESTILENCE_TIER: 'PESTILENCE_TIER',
+  EVACUATION: 'EVACUATION',
 });
 
 /** Impact surface classes used by FIRE/MELEE events for VFX selection. */
@@ -43,4 +55,5 @@ export const IMPACT = Object.freeze({
   METAL: 'metal',
   WALL: 'wall',
   WATER: 'water',
+  FIRE: 'fire',
 });

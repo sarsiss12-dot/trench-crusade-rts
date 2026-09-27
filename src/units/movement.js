@@ -4,6 +4,7 @@
 // budgeted rescue detour, and as a last resort rejoins beside its squad anchor.
 import { unitDef } from '../data/units.js';
 import { FACTIONS } from '../data/factions.js';
+import { STRUCTURES } from '../data/structures.js';
 import { DT, DETOURS_PER_TICK, PATH_WORK_PER_TICK, STUCK_WINDOW, JOIN_TIMEOUT_TICKS } from '../sim/constants.js';
 import { dist, headingOf, turnToward, rotateOffset, dsin, dcos, datan2 } from '../core/dmath.js';
 import { moveSpeedMult, isPointPassable, isPassable, cellAt, nearestPassable, findPath } from '../world/nav.js';
@@ -11,6 +12,7 @@ import { formationOffsets } from './formation.js';
 import { trenchSlot } from '../construction/trench.js';
 import { workSpot, approachPoint } from './orders.js';
 import { rebuildSoldierGrid } from '../sim/runtime.js';
+import { specValue } from '../sim/specialities.js';
 
 const OFF = [0, 0];
 const SPOT = [0, 0];
@@ -19,12 +21,16 @@ const GOAL = [0, 0];
 const STEER = [0, 0];
 let detourBudget = 0;
 const SUPPRESS_SPEED = 0.6; // data/abilities.js mortar_barrage.suppress.speedMult
+const TMPN = { x: 0, z: 0 };
+const STRUCTURES_KIND_AREA = (st) => STRUCTURES[st.type].kind === 'area';
 
 function holdsWhenEngaged(sq) {
   const o = sq.order;
   if (o.t === 'move') return !!o.am;
   return o.t === 'attack' || o.t === 'idle' || o.t === 'hold_trench';
 }
+
+let infSlow = 1; // set per tick from the Grail's speciality (plain function of state)
 
 function advanceAnchor(sim, sq, def) {
   const px = sq.x, pz = sq.z;
@@ -41,6 +47,14 @@ function advanceAnchor(sim, sq, def) {
   let mult = moveSpeedMult(sim.rt.nav, sq.x, sq.z, sq.faction, fIdx, def.heavy);
   if (mult < 0.2) mult = 0.2;
   if (sq.suppressUntil > sim.state.tick) mult *= SUPPRESS_SPEED; // pinned by mortar fire
+  if (sq.tideUntil > sim.state.tick) mult *= 1.3; // Black Tide surge
+  if (sq.civ && (sq.civ.mode === 'flee' || sq.civ.mode === 'shelter')) mult *= 1.3; // panicked civilians run
+  if (infSlow < 1 && sq.faction !== 'black_grail') {
+    // Plague Dominion: the sick drag their feet (the squad keeps pace with its infected men)
+    let inf = 0, n = 0;
+    for (const m of sq.members) if (m.state === 'alive') { n++; if (m.infection > 0) inf++; }
+    if (inf > 0) mult *= 1 - (1 - infSlow) * (inf / n);
+  }
   let cohesion = 1;
   if (sq.lag > 5) cohesion = 0.45;
   else if (sq.lag > 2.6) cohesion = 0.78;
@@ -127,6 +141,24 @@ function soldierTarget(sim, sq, m, def, aliveIndex, aliveTotal, offs) {
     if (node) {
       workSpot(sim, node, 'node', aliveIndex, aliveTotal, OFF);
       return datan2(node.x - OFF[0], node.z - OFF[1]);
+    }
+  }
+  // civilians at their work site (field / quarry / pen) and engineers burning the dead
+  if (o.t === 'civwork') {
+    const st = rt.structById.get(o.sid);
+    if (st) {
+      workSpot(sim, st, STRUCTURES_KIND_AREA(st) ? 'node' : 'struct', aliveIndex, aliveTotal, OFF);
+      if (STRUCTURES_KIND_AREA(st)) { OFF[0] = sq.x + (OFF[0] - st.x) * 1.8; OFF[1] = sq.z + (OFF[1] - st.z) * 1.8; }
+      return datan2(st.x - OFF[0], st.z - OFF[1]);
+    }
+  }
+  if (o.t === 'sanitize' && (o.phase === 'burn' || o.phase === 'clean')) {
+    const c = o.phase === 'burn' ? rt.corpseById.get(o.cid) : null;
+    const tx = c ? c.x : o.cx, tz = c ? c.z : o.cz;
+    if (tx !== undefined) {
+      TMPN.x = tx; TMPN.z = tz;
+      workSpot(sim, TMPN, 'node', aliveIndex, aliveTotal, OFF);
+      return datan2(tx - OFF[0], tz - OFF[1]);
     }
   }
   // 4. formation slot
@@ -250,6 +282,7 @@ export function updateMovement(sim) {
   const { state } = sim;
   const nav = sim.rt.nav;
   detourBudget = DETOURS_PER_TICK;
+  infSlow = state.factions.black_grail ? specValue(state, 'black_grail', 'infectedSlow', 1) : 1;
   for (const sq of state.squads) {
     const def = unitDef(sq.type);
     advanceAnchor(sim, sq, def);
@@ -274,7 +307,8 @@ export function updateMovement(sim) {
       if (m.state === 'joining' && (dGoal < 1.2 || state.tick - m.stateTick > JOIN_TIMEOUT_TICKS)) m.state = 'alive';
       // working flag: at a work spot
       const o = sq.order;
-      const atWork = ((o.t === 'build' || o.t === 'repair') && o.arrived) || (o.t === 'gather' && o.phase === 'gathering');
+      const atWork = ((o.t === 'build' || o.t === 'repair') && o.arrived) || (o.t === 'gather' && o.phase === 'gathering') ||
+        o.t === 'civwork' || (o.t === 'sanitize' && (o.phase === 'burn' || o.phase === 'clean'));
       m.working = atWork && dGoal < 1.3 && m.state === 'alive' ? 1 : 0;
       working += m.working;
       // replacements still walking up do not hold the squad back nor move its centre

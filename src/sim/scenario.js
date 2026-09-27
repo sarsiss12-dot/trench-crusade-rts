@@ -4,6 +4,7 @@ import { STRUCTURES } from '../data/structures.js';
 import { unitDef } from '../data/units.js';
 import { PI } from '../core/dmath.js';
 import { createSquad, createStructure, createNode } from './state.js';
+import { addOldCorpse } from './corpses.js';
 import { chooseFront } from '../construction/trench.js';
 import { factionByRole } from './match.js';
 
@@ -59,7 +60,9 @@ export function buildStressForces(sim, soldiers) {
   const guards = Math.max(1, Math.floor(half / 45));
   for (let i = 0; i < knights; i++) { bg.push('plague_knight'); m += 3; }
   for (let i = 0; i < guards; i++) { bg.push('corpse_guard'); m += 4; }
-  while (m + 8 <= half + 4) { bg.push('grail_thrall'); m += 8; }
+  const tn = unitDef('grail_thrall').squadSize;
+  while (m + tn <= half + 4) { bg.push('grail_thrall'); m += tn; }
+  if (m + 4 <= half) { bg.push('corpse_guard'); m += 4; }
   lay('new_antioch', na, cz + 36, 1);
   lay('black_grail', bg, cz - 40, -1);
 }
@@ -86,6 +89,9 @@ export function setupScenario(sim, scenario) {
     state.structures.push(s);
   }
   for (const nd of world.map.nodes) state.nodes.push(createNode(state, nd.type, nd.x, nd.z, nd.amount));
+  // bodies of older battles (low-value biomass; they never rise and never decay) — not in the
+  // pure battle benchmark (stress), which stays comparable between phases
+  if (scenario.mode !== 'stress') for (const d of world.oldDead || []) addOldCorpse(state, sim.rt, d.x, d.z, d.rot);
   if (scenario.mode === 'stress') {
     buildStressForces(sim, state.settings.stressSoldiers || scenario.stress.soldiers);
   } else {

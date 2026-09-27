@@ -5,28 +5,77 @@
 // moveMult*: movement multiplier for units crossing the footprint (wire / sandbags / trench).
 // Faction 'neutral' structures (old trench remnants, old wire) are placed by the map.
 
+// Phase 3 keys: cat (build-menu tab: defense / economy / support), hub (engineers / gangs return
+// here when idle), fortAnchor (heavy defenses may be built within anchorRadius), heavyDefense
+// (needs an anchor — or a settlement with the Fortified Settlements speciality), requiresSpec
+// (speciality ids, any of them), requiresSector / requiresSettlement / requiresSectorKind
+// (expansion economy placement rules, construction/construction.js).
 export const STRUCTURES = {
   bastion: {
     id: 'bastion', faction: 'new_antioch', kind: 'building', nameKey: 'struct.bastion',
     lore: { status: 'abstraction', ref: 'New Antioch is a walled fortress-city that endured eight great sieges (official lore); this fortified church-bastion is a gameplay objective abstraction' },
     footprint: { w: 26, d: 22 }, hp: 9000, blocks: true, vision: 64, buildable: false,
     dropOff: true, resupplyRadius: 42, reinforceRadius: 46, supplyRate: 0.6, materialRate: 0.25,
-    trains: ['yeoman_rifle', 'combat_engineer', 'mech_heavy'], canBeObjective: true,
-    hq: true, reinforceSource: true,
+    trains: ['yeoman_rifle', 'combat_engineer', 'mech_heavy', 'combat_medic', 'shock_flamer', 'trench_cleric', 'na_lieutenant'], canBeObjective: true,
+    hq: true, reinforceSource: true, hub: true, fortAnchor: true, anchorRadius: 90, homeEcon: 70, shelter: true,
     model: 'bastion',
   },
   supply_depot: {
     id: 'supply_depot', faction: 'new_antioch', kind: 'building', nameKey: 'struct.supply_depot',
     lore: { status: 'abstraction' },
-    footprint: { w: 14, d: 10 }, hp: 2000, blocks: true, vision: 34, buildable: false,
+    footprint: { w: 14, d: 10 }, hp: 2000, blocks: true, vision: 34, buildable: true, builder: 'new_antioch',
+    cost: { material: 160, supply: 40 }, work: 110, requiresSpec: ['na_adv_logistics'], cat: 'economy',
     dropOff: true, resupplyRadius: 34, reinforceRadius: 36, supplyRate: 1.6, reinforceSource: true,
+    hub: true, fortAnchor: true, anchorRadius: 80, homeEcon: 50,
     model: 'depot',
   },
   field: {
     id: 'field', faction: 'new_antioch', kind: 'area', nameKey: 'struct.field',
     lore: { status: 'abstraction' },
     footprint: { w: 40, d: 30 }, hp: 600, blocks: false, vision: 0, buildable: false,
-    foodRate: 0.7, model: 'field',
+    foodRate: 0.45, model: 'field',
+  },
+  // ---- Phase 3: expansion economy ---------------------------------------------------------------
+  settlement: {
+    id: 'settlement', faction: 'new_antioch', kind: 'building', nameKey: 'struct.settlement',
+    lore: { status: 'abstraction', ref: 'Small civilian outpost of the principality (gameplay abstraction)' },
+    footprint: { w: 12, d: 10 }, hp: 1800, blocks: true, vision: 34, buildable: true, builder: 'new_antioch',
+    cost: { material: 60, supply: 40 }, work: 60, cat: 'economy', requiresSector: true,
+    settlement: { econRadius: 42, popCap: 20 }, dropOff: true, hub: true, shelter: true,
+    specWeapon: { spec: 'na_fortified_settlements', weapon: 'settlement_mg', arc: 360 },
+    model: 'settlement',
+  },
+  farm: {
+    id: 'farm', faction: 'new_antioch', kind: 'area', nameKey: 'struct.farm',
+    lore: { status: 'abstraction' },
+    footprint: { w: 22, d: 16 }, hp: 420, blocks: false, vision: 0, buildable: true, builder: 'new_antioch',
+    cost: { material: 25 }, work: 25, cat: 'economy', requiresSettlement: true,
+    farm: { foodRate: 0.32 },
+    model: 'farm',
+  },
+  livestock_pen: {
+    id: 'livestock_pen', faction: 'new_antioch', kind: 'building', nameKey: 'struct.livestock_pen',
+    lore: { status: 'abstraction' },
+    footprint: { w: 12, d: 10 }, hp: 520, blocks: false, vision: 22, buildable: true, builder: 'new_antioch',
+    cost: { material: 40 }, work: 30, cat: 'economy', requiresSettlement: true,
+    pen: { capacity: 8, herdRadius: 70 },
+    model: 'livestock_pen',
+  },
+  quarry: {
+    id: 'quarry', faction: 'new_antioch', kind: 'building', nameKey: 'struct.quarry',
+    lore: { status: 'abstraction' },
+    footprint: { w: 10, d: 9 }, hp: 900, blocks: true, vision: 24, buildable: true, builder: 'new_antioch',
+    cost: { material: 50 }, work: 40, cat: 'economy', requiresSettlement: true, requiresSectorKind: ['quarry', 'scrap'],
+    quarry: { materialRate: 0.32 },
+    model: 'quarry',
+  },
+  pillbox: {
+    id: 'pillbox', faction: 'new_antioch', kind: 'building', nameKey: 'struct.pillbox',
+    lore: { status: 'abstraction', ref: 'Concrete machine-gun bunker (WWI field fortification abstraction)' },
+    footprint: { w: 5, d: 5 }, hp: 3200, blocks: true, vision: 56, buildable: true, builder: 'new_antioch',
+    cost: { material: 140, supply: 20 }, work: 90, cat: 'defense', requiresSpec: ['na_fortification'], heavyDefense: true,
+    weapon: 'pillbox_mg', arc: 150, crew: 2, blastResist: 0.5,
+    model: 'pillbox',
   },
   trench: {
     id: 'trench', faction: 'any', kind: 'linear', nameKey: 'struct.trench',
@@ -34,6 +83,7 @@ export const STRUCTURES = {
     width: 2.2, depth: 1.55, minLen: 4, maxLen: 16, hp: 2600, buildable: true, builder: 'new_antioch',
     costPerM: { material: 2.2 }, workPerM: 5.0, blocks: false, cover: 'trench', slotSpacing: 1.45,
     moveMultEnemy: 0.55, moveMultFriendly: 0.85, pathCostMult: 1.4,
+    cat: 'defense',
     model: 'trench',
   },
   sandbags: {
@@ -42,6 +92,7 @@ export const STRUCTURES = {
     width: 1.0, minLen: 2, maxLen: 12, hp: 520, buildable: true, builder: 'new_antioch',
     costPerM: { material: 1.6 }, workPerM: 1.8, blocks: false, cover: 'sandbag', coverRadius: 1.8,
     moveMultEnemy: 0.5, moveMultFriendly: 0.6, pathCostMult: 2.2,
+    cat: 'defense',
     model: 'sandbags',
   },
   wire: {
@@ -51,6 +102,7 @@ export const STRUCTURES = {
     costPerM: { material: 1.0 }, workPerM: 1.4, blocks: false, cover: null,
     // Not a wall: slows infantry. Heavy units push through more easily (data-driven).
     moveMultEnemy: 0.24, moveMultFriendly: 0.7, moveMultHeavy: 0.55, pathCostMult: 3.0,
+    cat: 'defense',
     model: 'wire',
   },
   fire_post: {
@@ -59,6 +111,7 @@ export const STRUCTURES = {
     footprint: { w: 5.5, d: 4.5 }, hp: 1500, blocks: true, vision: 54, buildable: true, builder: 'new_antioch',
     cost: { material: 90, manpower: 2 }, work: 70,
     weapon: 'fire_post_mg', arc: 150, crew: 2,
+    cat: 'defense', heavyDefense: true,
     model: 'fire_post',
   },
   observation_post: {
@@ -66,6 +119,8 @@ export const STRUCTURES = {
     lore: { status: 'abstraction' },
     footprint: { w: 3.5, d: 3.5 }, hp: 520, blocks: true, vision: 96, buildable: true, builder: 'new_antioch',
     cost: { material: 60 }, work: 40,
+    cat: 'support',
+    flammable: true,
     model: 'obs_post',
   },
   supply_cache: {
@@ -73,6 +128,7 @@ export const STRUCTURES = {
     lore: { status: 'abstraction' },
     footprint: { w: 3.5, d: 2.5 }, hp: 420, blocks: true, vision: 20, buildable: true, builder: 'new_antioch',
     cost: { material: 50, supply: 40 }, work: 30, resupplyRadius: 24,
+    cat: 'support',
     model: 'supply_cache',
   },
   // ---- Phase 2: New Antioch logistics / support buildings -------------------------------------
@@ -82,6 +138,7 @@ export const STRUCTURES = {
     footprint: { w: 6, d: 5 }, hp: 700, blocks: true, vision: 26, buildable: true, builder: 'new_antioch',
     cost: { material: 70, supply: 30 }, work: 45,
     heal: { radius: 16, hpPerSec: 1.5, cureEveryTicks: 80 },
+    cat: 'support',
     model: 'aid_station',
   },
   workshop: {
@@ -90,6 +147,7 @@ export const STRUCTURES = {
     footprint: { w: 9, d: 7 }, hp: 1400, blocks: true, vision: 28, buildable: true, builder: 'new_antioch',
     cost: { material: 120, manpower: 2 }, work: 90, materialRate: 0.35,
     repairAura: { radius: 26, hpPerSec: 4 }, unlocks: ['fortified_wall'],
+    cat: 'support', hub: true, fortAnchor: true, anchorRadius: 70,
     model: 'workshop',
   },
   ammo_dump: {
@@ -98,6 +156,7 @@ export const STRUCTURES = {
     footprint: { w: 6, d: 4 }, hp: 600, blocks: true, vision: 22, buildable: true, builder: 'new_antioch',
     cost: { material: 80, supply: 60 }, work: 50, resupplyRadius: 38,
     explodes: { radius: 12, damage: 140, structureDamage: 300 },
+    cat: 'support',
     model: 'ammo_dump',
   },
   signal_post: {
@@ -106,6 +165,8 @@ export const STRUCTURES = {
     footprint: { w: 3, d: 3 }, hp: 450, blocks: true, vision: 70, buildable: true, builder: 'new_antioch',
     cost: { material: 70, supply: 20 }, work: 40,
     support: { artillerySupport: 0.8 },
+    cat: 'support',
+    flammable: true,
     model: 'signal_post',
   },
   muster_point: {
@@ -114,6 +175,7 @@ export const STRUCTURES = {
     footprint: { w: 8, d: 6 }, hp: 1000, blocks: true, vision: 30, buildable: true, builder: 'new_antioch',
     cost: { material: 100, supply: 40 }, work: 70,
     reinforceSource: true, reinforceRadius: 30, levy: { supply: 8, everyTicks: 300 },
+    cat: 'support', fortAnchor: true, anchorRadius: 70, trainsSpec: { mech_heavy: 'na_mechanised' }, trains: ['mech_heavy'],
     model: 'muster_point',
   },
   // ---- Phase 2: New Antioch wall family (linear; segments leave room for a later gate system) ---
@@ -123,6 +185,7 @@ export const STRUCTURES = {
     width: 0.8, minLen: 2, maxLen: 14, hp: 260, buildable: true, builder: 'new_antioch',
     costPerM: { material: 0.7 }, workPerM: 0.7, blocks: false, cover: 'low_wall', coverRadius: 1.6,
     moveMultEnemy: 0.75, moveMultFriendly: 0.85, pathCostMult: 1.3,
+    cat: 'defense',
     model: 'low_sandbags',
   },
   breastwork: {
@@ -131,6 +194,8 @@ export const STRUCTURES = {
     width: 1.8, minLen: 3, maxLen: 14, hp: 1400, buildable: true, builder: 'new_antioch',
     costPerM: { material: 0.6 }, workPerM: 3.2, blocks: false, cover: 'breastwork', coverRadius: 2.0,
     moveMultEnemy: 0.45, moveMultFriendly: 0.6, pathCostMult: 2.4, blastResist: 0.5,
+    cat: 'defense', heavyDefense: true,
+    flammable: true,
     model: 'breastwork',
   },
   timber_wall: {
@@ -139,6 +204,8 @@ export const STRUCTURES = {
     width: 1.2, minLen: 2, maxLen: 10, hp: 1100, buildable: true, builder: 'new_antioch',
     costPerM: { material: 3 }, workPerM: 2.4, blocks: false, cover: 'timber', coverRadius: 1.8,
     moveMultEnemy: 0.3, moveMultFriendly: 0.45, pathCostMult: 4,
+    cat: 'defense', heavyDefense: true,
+    flammable: true,
     model: 'timber_wall',
   },
   fortified_wall: {
@@ -147,6 +214,7 @@ export const STRUCTURES = {
     width: 1.6, minLen: 3, maxLen: 10, hp: 3600, buildable: true, builder: 'new_antioch',
     costPerM: { material: 6, supply: 1 }, workPerM: 6, blocks: true, cover: 'fortified', coverRadius: 2.0,
     requires: 'workshop', blastResist: 0.35,
+    cat: 'defense', heavyDefense: true,
     model: 'fortified_wall',
   },
   // ---- Black Grail ------------------------------------------------------------------------------
@@ -155,8 +223,9 @@ export const STRUCTURES = {
     lore: { status: 'canon', ref: '"Altars of Beelzebub... constructed from the remains of their victims shaped into the form of monstrous flies" (official lore)' },
     footprint: { w: 10, d: 10 }, hp: 3600, blocks: true, vision: 46, buildable: true, builder: 'black_grail',
     cost: { biomass: 220 }, work: 110,
-    trains: ['grail_thrall', 'corpse_guard', 'plague_knight', 'thrall_gang'], biomassRate: 0.35,
+    trains: ['grail_thrall', 'corpse_guard', 'plague_knight', 'thrall_gang', 'herald', 'lord_of_tumours'], biomassRate: 0.14,
     infectionSource: { radius: 34, rate: 6 }, dropOff: true, hq: true,
+    hub: true,
     model: 'grail_altar',
   },
   corpse_mound: {
@@ -164,6 +233,7 @@ export const STRUCTURES = {
     lore: { status: 'abstraction', ref: 'Heaped dead gathered for the Grail\'s use; the Black Grail\'s use of corpses is canon, this structure is a gameplay abstraction' },
     footprint: { w: 7, d: 7 }, hp: 900, blocks: true, vision: 24, buildable: true, builder: 'black_grail',
     cost: { biomass: 60 }, work: 40, dropOff: true, harvestRadius: 22, harvestRate: 0.3,
+    hub: true, trains: ['amalgam'],
     organic: true, model: 'corpse_mound',
   },
   plague_pit: {

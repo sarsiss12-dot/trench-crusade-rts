@@ -16,8 +16,11 @@ import { TICK_RATE, INFECTION_MAX } from '../sim/constants.js';
 import { isSquadAlive } from '../sim/state.js';
 import { isCorpseKnownTo, isStructureVisibleTo, isSoldierVisibleTo } from '../sim/perception.js';
 import { canAfford } from '../economy/economy.js';
-import { trenchSlotCount, trenchCoverStrength } from '../construction/trench.js';
+import { trenchSlotCount, trenchCoverStrength, trenchNetwork, networkCapacity } from '../construction/trench.js';
 import { allCombatSquadIds, squadIdsWithRole } from '../input/selection.js';
+import { unitCost, unlockedBySpec } from '../sim/specialities.js';
+import { structureCost } from '../construction/construction.js';
+import { createP3Hud } from './hud_p3.js';
 
 function costText(cost) {
   if (!cost) return '';
@@ -33,6 +36,7 @@ export function createHud(game) {
   const { session, sim, viewer } = game;
   const fdef = FACTIONS[viewer];
   const root = el('div.hud' + (viewer === 'black_grail' ? '.bg' : '.na'));
+  let p3 = null; // Phase 3 panels (created at the end, see hud_p3.js)
   game.env.root.appendChild(root);
 
   // ------------------------------------------------------------------ top bar
@@ -108,23 +112,37 @@ export function createHud(game) {
   root.append(notices, banner, boxRect, hint);
 
   // ------------------------------------------------------------------ build menu
+  // Phase 3: build menu tabs (defence / economy / support) and speciality-locked entries
+  let buildTab = fdef.buildTabs ? fdef.buildTabs[0] : '';
   function renderBuildMenu() {
     clear(buildMenu);
+    if (fdef.buildTabs) {
+      const tabs = el('div.bmtabs');
+      for (const tab of fdef.buildTabs) {
+        tabs.appendChild(button('bmtab' + (tab === buildTab ? ' on' : ''), t('build.tab.' + tab), () => { buildTab = tab; renderBuildMenu(); }, t('build.tab.' + tab)));
+      }
+      buildMenu.appendChild(tabs);
+    }
     for (const stype of fdef.buildList) {
       const def = STRUCTURES[stype];
-      const cost = def.kind === 'linear' ? Object.fromEntries(Object.entries(def.costPerM).map(([k, v]) => [k, v])) : def.cost;
+      if (fdef.buildTabs && (def.cat || 'defense') !== buildTab) continue;
+      const locked = !unlockedBySpec(sim.state, viewer, def);
+      const cost = def.kind === 'linear' ? structureCost(sim.state, viewer, stype, 1) : def.cost;
       const per = def.kind === 'linear' ? '/m' : '';
-      const b = button('bm', `${icon(iconForStructure(stype))}<span class="n">${t('struct.' + stype)}</span><span class="c">${costText(cost)}${per}</span><span class="d">${t('struct.' + stype + '.desc')}</span>`, () => {
+      const b = button('bm' + (locked ? ' locked' : ''), `${icon(locked ? 'lock' : iconForStructure(stype))}<span class="n">${t('struct.' + stype)}</span><span class="c">${locked ? t('build.spec') : costText(cost) + per}</span><span class="d">${t('struct.' + stype + '.desc')}</span>`, () => {
+        if (!unlockedBySpec(sim.state, viewer, def)) { notify('build.spec', 'warn'); return; }
         if (def.requires && !hasBuilt(def.requires)) { notify('build.requires_x', 'warn', { struct: t('struct.' + def.requires) }); return; }
         buildOpen = false;
         toggleClass(buildMenu, 'open', false);
         game.input.startPlacement(stype);
       }, t('struct.' + stype + '.desc'));
       b.dataset.stype = stype;
+      b.dataset.locked = locked ? '1' : '';
       buildMenu.appendChild(b);
     }
   }
   renderBuildMenu();
+  let specSig = '';
 
   function hasBuilt(type) {
     return sim.state.structures.some((x) => x.faction === viewer && x.type === type && x.built);
@@ -133,6 +151,7 @@ export function createHud(game) {
   function toggleBuildMenu(force) {
     if (!fdef.buildList.length) return;
     buildOpen = force !== undefined ? force : !buildOpen;
+    if (buildOpen) renderBuildMenu(); // speciality locks may have changed
     toggleClass(buildMenu, 'open', buildOpen);
     if (buildOpen && game.audio) game.audio.ui('click');
   }
@@ -205,6 +224,7 @@ export function createHud(game) {
         if (!gang) cmds.append(cmd('repair', t('hud.repair'), () => game.input.startRepair()));
         cmds.append(cmd('gather', t(gang ? 'hud.haul' : 'hud.gather'), () => game.input.startGather(), { title: t(gang ? 'hud.haul_tip' : 'hud.gather') }));
       }
+      if (p3) { const extra = []; p3.squadCommands(own, extra); cmds.append(...extra); }
       cmds.append(cmd('deselect', '', () => game.selection.clear(), { title: t('hud.deselect') }));
       return;
     }
@@ -214,9 +234,12 @@ export function createHud(game) {
         if (st.built && def.trains) {
           for (const u of def.trains) {
             const ud = unitDef(u);
-            const b = cmd(iconForUnit(ud), `${t(ud.nameKey)}<br><small>${costText(ud.cost)}</small>`, () => game.actions.train(st, u), { title: t(ud.descKey) });
+            // speciality-locked units stay visible (what a doctrine would give) but locked
+            const lockedSpec = !unlockedBySpec(sim.state, viewer, ud) || (def.trainsSpec && def.trainsSpec[u] && !sim.state.factions[viewer].spec.includes(def.trainsSpec[u]));
+            const b = cmd(lockedSpec ? 'lock' : iconForUnit(ud), `${t(ud.nameKey)}<br><small>${lockedSpec ? t('train.spec') : costText(unitCost(sim.state, viewer, u))}</small>`, () => game.actions.train(st, u), { title: t(ud.descKey) });
             b.dataset.unit = u;
             b.classList.add('train');
+            if (lockedSpec) b.classList.add('locked');
             cmds.append(b);
           }
           if (st.queue && st.queue.length) cmds.append(cmd('cancel', t('hud.cancel'), () => game.actions.cancelTrain(st)));
@@ -227,6 +250,7 @@ export function createHud(game) {
           cmds.append(cmd('repair', t('hud.repair'), () => game.actions.assistWithNearest(st)));
         }
       }
+      if (p3) { const extra = []; p3.structCommands(st, extra); cmds.append(...extra); }
       cmds.append(cmd('deselect', '', () => game.selection.clear(), { title: t('hud.deselect') }));
       return;
     }
@@ -236,10 +260,13 @@ export function createHud(game) {
     }
     // nothing selected: faction-level actions
     if (fdef.buildList.length) cmds.append(cmd('build', t('hud.build'), () => toggleBuildMenu(), { on: buildOpen }));
+    if (p3) { const extra = []; p3.factionCommands(extra); cmds.append(...extra); }
     for (const a of fdef.abilities) {
-      const b = cmd(a, t(ABILITIES[a].nameKey), () => game.input.startAbility(a), { title: t(ABILITIES[a].descKey) + '\n' + abilityStats(a) });
+      const locked = !unlockedBySpec(sim.state, viewer, ABILITIES[a]);
+      const b = cmd(locked ? 'lock' : a, t(ABILITIES[a].nameKey), () => game.input.startAbility(a), { title: t(ABILITIES[a].descKey) + '\n' + abilityStats(a) });
       b.dataset.ability = a;
       b.classList.add('ability');
+      if (locked) b.classList.add('locked');
       cmds.append(b);
     }
   }
@@ -255,6 +282,14 @@ export function createHud(game) {
       parts.push(t('ab.acc', { v: Math.round(a.accuracyDebuff * 100) }));
       parts.push(t('ab.duration', { v: a.duration }));
       parts.push(t('ab.ignores_cover'));
+    } else if (a.effect === 'plague_cloud') {
+      parts.push(t('ab.dps', { v: a.dps }));
+      parts.push(t('ab.infect', { v: a.infectInterval }));
+      if (a.maxStacks) parts.push(t('ab.max_stacks', { v: a.maxStacks }));
+      parts.push(t('ab.duration', { v: a.duration }));
+      parts.push(t('ab.pestilence_cost', { v: a.pestilenceCost }));
+    } else if (a.effect === 'purge' || a.effect === 'tide') {
+      if (a.duration) parts.push(t('ab.duration', { v: a.duration }));
     } else {
       parts.push(t('ab.shells', { n: a.shells, d: a.damage }));
       if (a.suppress) parts.push(t('ab.suppress', { v: a.suppress.seconds }));
@@ -290,6 +325,7 @@ export function createHud(game) {
     else if (m.kind === 'rally') text = t('hud.rally_hint');
     else if (m.kind === 'repair') text = t('hud.repair_hint');
     else if (m.kind === 'gather') text = t(game.selection.ownSquads(sim, viewer).some((sq) => unitDef(sq.type).gathers === 'corpse') ? 'hud.haul_hint' : 'hud.gather_hint');
+    else if (m.kind === 'area') text = t(m.area === 'forage' ? 'hud.forage_hint' : m.area === 'sanitize' ? 'hud.sanitize_hint' : 'hud.herd_hint');
     else if (game.ui.attackMove) text = t('hud.attack_move');
     if (!text) { toggleClass(modebar, 'open', false); return; }
     toggleClass(modebar, 'open', true);
@@ -351,6 +387,7 @@ export function createHud(game) {
       if (st.faction !== viewer && st.faction !== 'neutral') head.classList.add('enemy');
       info.append(head, el('div.row', null, el('div.bar.hp', null, el('i'))));
       if (st.faction === viewer && def.buildable) info.append(el('div.sdesc', { text: t('struct.' + st.type + '.desc') }));
+      if (p3) p3.structInfo(st, info);
       if (def.trains && st.faction === viewer) info.append(el('div.queue')); // never an enemy's production
       info.dataset.kind = 'struct';
       info.dataset.id = st.id;
@@ -424,8 +461,10 @@ export function createHud(game) {
       let status = '';
       if (!st.built) status = t('struct.under_construction') + ' ' + Math.floor(st.progress * 100) + '%';
       else if (st.type === 'trench') {
-        const occ = st.occ ? st.occ.filter((x) => x).length : 0;
-        status = `${occ}/${trenchSlotCount(st)} · ${t('hud.cover')} ${Math.round(trenchCoverStrength(st) * 100)}%`;
+        // the whole connected network (several squads share it)
+        const segs = st.faction === viewer || st.faction === 'neutral' ? trenchNetwork(sim.state.structures, st, viewer) : [st];
+        const cap = networkCapacity(sim.state, segs, viewer, null);
+        status = `${cap.used}/${cap.total || trenchSlotCount(st)} · ${t('hud.cover')} ${Math.round(trenchCoverStrength(st) * 100)}%`;
       }
       else if (live && st.maxHp) {
         const r = st.hp / st.maxHp;
@@ -435,6 +474,7 @@ export function createHud(game) {
       if (!live) status = t('hud.last_known');
       setText(info.querySelector('.st'), status);
       setWidth(info.querySelector('.hp i'), live ? st.hp / st.maxHp : 1);
+      if (p3 && live) p3.updateStructInfo(st, info);
       const q = info.querySelector('.queue');
       if (q) {
         const key = (st.queue || []).map((it) => it.unit).join(',');
@@ -471,12 +511,13 @@ export function createHud(game) {
     toggleClass(phaseBox, 'prep', ph === 'PREPARATION');
     toggleClass(phaseBox, 'war', ph === 'WAR');
     // affordability of train / build / ability buttons
-    for (const b of cmds.querySelectorAll('.train')) b.classList.toggle('poor', !canAfford(f.resources, unitDef(b.dataset.unit).cost));
+    for (const b of cmds.querySelectorAll('.train')) b.classList.toggle('poor', b.classList.contains('locked') || !canAfford(f.resources, unitCost(sim.state, viewer, b.dataset.unit)));
     for (const b of cmds.querySelectorAll('.ability')) {
       const a = b.dataset.ability;
       const st = f.abilities[a];
       const cd = st ? Math.max(0, (st.readyTick - sim.state.tick) / TICK_RATE) : 0;
-      b.classList.toggle('poor', !canAfford(f.resources, ABILITIES[a].cost) || cd > 0 || ph !== 'WAR');
+      const pestShort = ABILITIES[a].requiresPestilence && (f.pestilence || 0) < ABILITIES[a].requiresPestilence;
+      b.classList.toggle('poor', b.classList.contains('locked') || pestShort || !canAfford(f.resources, ABILITIES[a].cost) || cd > 0 || ph !== 'WAR');
       let badge = b.querySelector('.cd');
       if (cd > 0) {
         if (!badge) { badge = el('span.cd'); b.appendChild(badge); }
@@ -485,9 +526,12 @@ export function createHud(game) {
     }
     for (const b of buildMenu.querySelectorAll('.bm')) {
       const def = STRUCTURES[b.dataset.stype];
-      const cost = def.kind === 'linear' ? Object.fromEntries(Object.entries(def.costPerM).map(([k, v]) => [k, v * def.minLen])) : def.cost;
-      b.classList.toggle('poor', !canAfford(f.resources, cost) || (def.requires && !hasBuilt(def.requires)));
+      const cost = def.kind === 'linear' ? structureCost(sim.state, viewer, b.dataset.stype, def.minLen) : def.cost;
+      b.classList.toggle('poor', !!b.dataset.locked || !canAfford(f.resources, cost) || (def.requires && !hasBuilt(def.requires)));
     }
+    // a doctrine was chosen: locks change (menu + command bar)
+    const sig = (f.spec || []).join(',');
+    if (sig !== specSig) { specSig = sig; if (buildOpen) renderBuildMenu(); dirty = true; }
     // reinforcement request button: progress of walking replacements
     const rb = cmds.querySelector('[data-cmd="reinforce"]');
     if (rb) {
@@ -569,10 +613,14 @@ export function createHud(game) {
         if (ev.faction !== viewer && ev.ability === 'fly_swarm') notify('notice.enemy_swarm', 'bad', null, 8);
         break;
       case EV.NOTICE:
-        if (ev.faction === viewer) notify(ev.key, ev.key === 'reinf.complete' || ev.key === 'reinf.dispatched' ? 'good' : 'warn', null, 3);
+        if (ev.faction === viewer) {
+          const good = ev.key === 'reinf.complete' || ev.key === 'reinf.dispatched' || ev.key === 'evac.arrived' || ev.key === 'sanitize.done' || ev.key === 'pen.slaughtered';
+          notify(ev.key, good ? 'good' : ev.key === 'settle.lost' ? 'bad' : 'warn', null, 3);
+        }
         break;
       default: break;
     }
+    if (p3) p3.onEvent(ev);
   }
 
   // ------------------------------------------------------------------ box selection rectangle
@@ -598,6 +646,7 @@ export function createHud(game) {
     const key = selectionKey();
     if (key !== lastKey || dirty || game.selection.version !== lastSelVersion) {
       lastKey = key;
+      if (p3 && game.selection.version !== lastSelVersion) p3.onSelectionChanged();
       lastSelVersion = game.selection.version;
       dirty = false;
       renderCommands();
@@ -613,6 +662,7 @@ export function createHud(game) {
       updateInfo();
       if (game.mode.kind === 'place') renderModebarLive();
     }
+    if (p3) p3.update(dt);
     if (!prepHintShown && session.phase() === 'PREPARATION') {
       prepHintShown = true;
       setText(hint, t(viewer === 'black_grail' ? 'hud.prep_hint_bg' : 'hud.prep_hint'));
@@ -636,6 +686,12 @@ export function createHud(game) {
   function destroy() {
     root.remove();
   }
+
+  // Phase 3 panels (engineer strip, specialities, Pestilence, population, settlements, trenches)
+  p3 = createP3Hud(game, {
+    root, resBox, quick, bottom, notify, cmd, showBanner,
+    markDirty() { dirty = true; },
+  });
 
   return {
     root, minimapSlot, update, onEvent, notify, showBox, hideBox, destroy,

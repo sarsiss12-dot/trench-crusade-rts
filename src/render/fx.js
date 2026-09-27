@@ -326,6 +326,13 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
         const w = WEAPONS[ev.weapon];
         const dx = ev.tx - ev.x, dz = ev.tz - ev.z;
         const d = Math.hypot(dx, dz) || 1;
+        if (ev.flame || (w && w.kind === 'flame')) {
+          // a gout of burning fuel: the source only where seen, the fire where it lands if seen
+          const m = shooterMuzzle(ev);
+          if (show & SRC) flameJet(m[0], m[1], m[2], ev.tx, ground(ev.tx, ev.tz) + 0.6, ev.tz);
+          else if (show & IMP) flameLand(ev.tx, ev.tz);
+          break;
+        }
         let delay = 0.05;
         if (show & SRC) {
           const m = ev.type === 'STRUCTURE_FIRE' ? [ev.x, ground(ev.x, ev.z) + 1.0, ev.z] : shooterMuzzle(ev);
@@ -392,7 +399,18 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
           decal({ x: ev.x, z: ev.z, size: 0.9, r: 0.04, g: 0.012, b: 0.009, a: 0.8, shape: DSHAPE.BLOOD });
         } else if (ev.reason === 'raised') {
           flyBurst(ev.x, ev.z, 14);
+        } else if (ev.reason === 'burned') {
+          cremation(ev.x, ev.z);
         }
+        break;
+      case 'ANIMAL_KILLED':
+        if (!show || ev.cause === 'slaughter') break;
+        bloodHit(ev.x, ground(ev.x, ev.z) - 0.4, ev.z, 0, 0, false, true);
+        if (ev.by === 'black_grail') flyBurst(ev.x, ev.z, 6);
+        break;
+      case 'CONVOY_LOST':
+        if (!show) break;
+        collapse(ev.x, ev.z, 'supply_cache');
         break;
       case 'SOLDIER_RISING':
         if (show) {
@@ -453,6 +471,125 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
   function flyBurst(x, z, n) {
     const y = ground(x, z);
     for (let i = 0; i < n; i++) spawn({ x: x + (vr.next() - 0.5) * 0.6, y: y + 0.3 + vr.next(), z: z + (vr.next() - 0.5) * 0.6, vx: (vr.next() - 0.5) * 3, vy: 0.5 + vr.next() * 1.5, vz: (vr.next() - 0.5) * 3, size: 0.035, r: 0.02, g: 0.02, b: 0.015, a: 1, life: 1.5 + vr.next(), shape: SHAPE.SPECK, drag: 0.8 });
+  }
+
+  // ------------------------------------------------------------------ fire / plague (Phase 3)
+
+  /** Flamethrower gout: burning fuel streams from the nozzle, fire splashes where it lands. */
+  function flameJet(x0, y0, z0, tx, ty, tz) {
+    const dx = tx - x0, dy = ty - y0, dz = tz - z0;
+    const d = Math.hypot(dx, dy, dz) || 1;
+    const ux = dx / d, uy = dy / d, uz = dz / d;
+    const n = Math.round((10 + d * 1.1) * (0.6 + GQ.burst * 0.4));
+    for (let i = 0; i < n; i++) {
+      // spread along the stream (not all at the nozzle): reads as a jet at once, never a white ball
+      const sp = 10 + vr.next() * 5, f = (i / n) * 0.75, rest = d * (1 - f);
+      spawn({ x: x0 + ux * (0.2 + d * f), y: y0 + uy * d * f, z: z0 + uz * (0.2 + d * f), vx: ux * sp + (vr.next() - 0.5) * 1.4, vy: uy * sp + 0.5 + vr.next() * 0.8, vz: uz * sp + (vr.next() - 0.5) * 1.4, size: 0.18 + f * 0.35 + vr.next() * 0.2, grow: 1.4, r: 2.5, g: 0.85 + vr.next() * 0.45, b: 0.16, a: 0.6, life: (rest / sp) * (0.8 + vr.next() * 0.45), shape: SHAPE.SOFT, add: true, drag: 0.5, fadeIn: 0.03 });
+    }
+    spawn({ x: x0, y: y0, z: z0, size: 0.4, r: 3, g: 1.4, b: 0.3, a: 0.9, life: 0.08, shape: SHAPE.GLOW, add: true });
+    flameLand(tx, tz);
+  }
+
+  function flameLand(x, z) {
+    const gy = ground(x, z);
+    for (let i = 0; i < 7; i++) spawn({ x: x + (vr.next() - 0.5) * 1.8, y: gy + 0.25, z: z + (vr.next() - 0.5) * 1.8, vx: (vr.next() - 0.5) * 0.8, vy: 1.1 + vr.next() * 1.6, vz: (vr.next() - 0.5) * 0.8, size: 0.5 + vr.next() * 0.45, grow: 0.8, r: 2.4, g: 0.85, b: 0.15, a: 0.62, life: 0.45 + vr.next() * 0.5, shape: SHAPE.SOFT, add: true, drag: 1 });
+    for (let i = 0; i < 2; i++) spawn({ x, y: gy + 1, z, vx: (vr.next() - 0.5) * 0.6, vy: 1.3, vz: (vr.next() - 0.5) * 0.6, size: 0.9, grow: 1.4, r: 0.06, g: 0.055, b: 0.05, a: 0.5, life: 2.4, shape: SHAPE.SOFT, drag: 0.6 });
+    decal({ x, z, size: 1.4 + vr.next() * 0.7, r: 0.022, g: 0.017, b: 0.012, a: 0.7, shape: DSHAPE.SCORCH, life: 90 });
+    decal({ x, z, size: 6, r: 1.5, g: 0.62, b: 0.16, a: 0.4, shape: DSHAPE.LIGHT, life: 0.22, add: true });
+  }
+
+  /** A body burned (flame, sanitation, cleric, purge): a short pyre, embers, ash and a black mark. */
+  function cremation(x, z) {
+    const y = ground(x, z);
+    for (let i = 0; i < 12; i++) spawn({ x: x + (vr.next() - 0.5) * 1.2, y: y + 0.2, z: z + (vr.next() - 0.5) * 1.2, vx: (vr.next() - 0.5) * 0.6, vy: 1.4 + vr.next() * 1.8, vz: (vr.next() - 0.5) * 0.6, size: 0.45 + vr.next() * 0.45, grow: 0.6, r: 3.8, g: 1.5, b: 0.3, a: 0.85, life: 0.7 + vr.next() * 0.6, shape: SHAPE.SOFT, add: true, drag: 1 });
+    for (let i = 0; i < 8; i++) spawn({ x, y: y + 0.5, z, vx: (vr.next() - 0.5) * 1.5, vy: 2 + vr.next() * 3, vz: (vr.next() - 0.5) * 1.5, size: 0.02, r: 4, g: 1.7, b: 0.4, a: 1, life: 1 + vr.next(), shape: SHAPE.STREAK, add: true, grav: 1.2, stretch: 0.2 });
+    for (let i = 0; i < 3; i++) spawn({ x: x + (vr.next() - 0.5), y: y + 1 + i * 0.8, z: z + (vr.next() - 0.5), vx: 0.2, vy: 1.1 + vr.next() * 0.6, vz: (vr.next() - 0.5) * 0.3, size: 1.1, grow: 1.2, r: 0.09, g: 0.085, b: 0.08, a: 0.55, life: 4 + vr.next() * 2, shape: SHAPE.SOFT, drag: 0.5, fadeIn: 0.1 });
+    decal({ x, z, size: 1.3 + vr.next() * 0.5, r: 0.018, g: 0.015, b: 0.012, a: 0.85, shape: DSHAPE.SCORCH, life: 120 });
+    if (pyres.length < 16) pyres.push({ x, z, t: 2.5 + vr.next() });
+  }
+  const pyres = [];
+
+  /** Per frame: pyres, burning soldiers, plague clouds / purge / black tide, turning bodies. */
+  let burnAcc = 0, turnAcc = 0;
+  function plagueFx(dt) {
+    if (!sim) return;
+    const tick = sim.state.tick;
+    for (let i = pyres.length - 1; i >= 0; i--) {
+      const p = pyres[i];
+      p.t -= dt;
+      if (p.t <= 0) { pyres.splice(i, 1); continue; }
+      if (vr.next() < dt * 14) spawn({ x: p.x + (vr.next() - 0.5) * 0.8, y: ground(p.x, p.z) + 0.15, z: p.z + (vr.next() - 0.5) * 0.8, vy: 1 + vr.next(), size: 0.35 + vr.next() * 0.3, grow: 0.5, r: 3.4, g: 1.3, b: 0.25, a: 0.8 * Math.min(1, p.t), life: 0.6, shape: SHAPE.SOFT, add: true, drag: 1 });
+    }
+    // soldiers on fire (seen ones only)
+    burnAcc += dt;
+    if (burnAcc >= 0.07) {
+      burnAcc = 0;
+      let n = 0;
+      for (const sq of sim.state.squads) {
+        if (!isSquadVisibleTo(sq, viewer)) continue;
+        for (const m of sq.members) {
+          if (!m.burn || m.burn <= tick || m.state !== 'alive' || n > 40) continue;
+          if (sq.faction !== viewer && !isSoldierVisibleTo(sim, sq, m, viewer)) continue;
+          n++;
+          const y = ground(m.x, m.z);
+          spawn({ x: m.x + (vr.next() - 0.5) * 0.4, y: y + 0.6 + vr.next() * 0.9, z: m.z + (vr.next() - 0.5) * 0.4, vx: (vr.next() - 0.5) * 0.4, vy: 1.3 + vr.next(), vz: (vr.next() - 0.5) * 0.4, size: 0.3 + vr.next() * 0.25, grow: 0.6, r: 3.8, g: 1.4, b: 0.3, a: 0.85, life: 0.4 + vr.next() * 0.3, shape: SHAPE.SOFT, add: true, drag: 1 });
+          if (vr.next() < 0.3) spawn({ x: m.x, y: y + 1.6, z: m.z, vy: 1.2, size: 0.5, grow: 1, r: 0.07, g: 0.065, b: 0.06, a: 0.45, life: 1.6, shape: SHAPE.SOFT, drag: 0.6 });
+        }
+      }
+    }
+    // lasting plague areas (only those the viewer sees)
+    for (const e of sim.state.effects) {
+      if (e.kind !== 'plague_cloud' && e.kind !== 'purge' && e.kind !== 'tide') continue;
+      if (!effectVisibleTo(sim, e, viewer)) continue;
+      const gy = ground(e.x, e.z);
+      const total = Math.max(1, (e.end || e.start + 1) - e.start);
+      const left = Math.max(0, ((e.end || tick) - tick) / total);
+      e.fxAcc = (e.fxAcc || 0) + dt;
+      if (e.kind === 'plague_cloud') {
+        const nFog = Math.floor(e.fxAcc * 9), nFly = Math.floor(e.fxAcc * 60);
+        if (nFog + nFly > 0) e.fxAcc = 0;
+        for (let k = 0; k < nFog; k++) {
+          const a = vr.next() * 6.28, r = Math.sqrt(vr.next()) * e.radius;
+          spawn({ x: e.x + Math.cos(a) * r, y: gy + 0.6 + vr.next() * 2.2, z: e.z + Math.sin(a) * r, vx: (vr.next() - 0.5) * 0.5, vy: 0.15, vz: (vr.next() - 0.5) * 0.5, size: 3 + vr.next() * 2.5, grow: 0.5, r: 0.2, g: 0.24, b: 0.05, a: 0.2, life: 3.5, shape: SHAPE.SOFT, fadeIn: 0.3 });
+        }
+        for (let k = 0; k < nFly; k++) {
+          const a = vr.next() * 6.28, r = Math.sqrt(vr.next()) * e.radius;
+          spawn({ x: e.x + Math.cos(a) * r, y: gy + 0.4 + vr.next() * 2.5, z: e.z + Math.sin(a) * r, vx: (vr.next() - 0.5) * 3, vy: (vr.next() - 0.5), vz: (vr.next() - 0.5) * 3, size: 0.06, r: 0.012, g: 0.014, b: 0.006, a: 1, life: 0.5, shape: SHAPE.SPECK });
+        }
+        rings.push(e.x, e.z, gy, e.radius, left);
+      } else if (e.kind === 'purge') {
+        const nF = Math.floor(e.fxAcc * 40);
+        if (nF > 0) e.fxAcc = 0;
+        for (let k = 0; k < nF; k++) {
+          const a = vr.next() * 6.28, r = Math.sqrt(vr.next()) * e.radius;
+          spawn({ x: e.x + Math.cos(a) * r, y: gy + 0.2, z: e.z + Math.sin(a) * r, vy: 1.6 + vr.next() * 2, size: 0.5 + vr.next() * 0.5, grow: 0.7, r: 4.2, g: 2.6, b: 0.9, a: 0.8, life: 0.7 + vr.next() * 0.4, shape: SHAPE.SOFT, add: true, drag: 1 });
+        }
+        if (vr.next() < dt * 3) decal({ x: e.x, z: e.z, size: e.radius * 2.2, r: 1.6, g: 1.2, b: 0.5, a: 0.35, shape: DSHAPE.LIGHT, life: 0.4, add: true });
+      } else if (e.kind === 'tide' && tick - e.start < 60) {
+        rings.push(e.x, e.z, gy, e.radius, left);
+      }
+    }
+    // the Black Tide surging: dark motes around seen, surging Grail soldiers (bounded)
+    let tideN = 0;
+    for (const sq of sim.state.squads) {
+      if (!sq.tideUntil || sq.tideUntil <= tick || !isSquadVisibleTo(sq, viewer) || tideN > 24) continue;
+      tideN++;
+      if (vr.next() < dt * 6) diseaseMotes(sq.cx, ground(sq.cx, sq.cz) + 0.8, sq.cz, 2);
+    }
+    // turning bodies: faint flies over infected dead that will rise (the counterplay cue)
+    turnAcc += dt;
+    if (turnAcc >= 0.25) {
+      turnAcc = 0;
+      let n = 0;
+      for (const c of sim.state.corpses) {
+        if (!(c.turn || c.riseAt) || n > 30 || !c.infected) continue;
+        if (!isPointVisibleTo(sim, viewer, c.x, c.z)) continue;
+        n++;
+        const y = ground(c.x, c.z);
+        spawn({ x: c.x + (vr.next() - 0.5) * 0.8, y: y + 0.3 + vr.next() * 0.6, z: c.z + (vr.next() - 0.5) * 0.8, vx: (vr.next() - 0.5) * 1.2, vy: 0.2, vz: (vr.next() - 0.5) * 1.2, size: 0.04, r: 0.02, g: 0.02, b: 0.012, a: 1, life: 0.8, shape: SHAPE.SPECK, drag: 0.8 });
+        if (c.riseAt && vr.next() < 0.35) diseaseMotes(c.x, y + 0.3, c.z, 1);
+      }
+    }
   }
 
   // ------------------------------------------------------------------ per frame
@@ -519,6 +656,7 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
       ambient(camera);
     }
     swarmFx(dt);
+    plagueFx(dt);
     // pools / stains (bounded) and blood trails of flying limbs
     pools.step(dt);
     if (renderer && renderer.units && renderer.units.limbs) {
@@ -605,7 +743,8 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
       for (const [, list] of renderer.units.bucketsView()) {
         for (const vv of list) {
           if (vv.death >= 1) continue;
-          const sz = vv.model && vv.model.heavy ? 0.85 : 0.6;
+          const mdl = vv.model;
+          const sz = mdl && mdl.quad ? mdl.rig.len * 0.42 : mdl && mdl.rigid ? 1.3 : mdl && mdl.heavy ? 0.85 : 0.6;
           writeDecal(false, vv.x, vv.z, vv.y, sz, vv.rot, 0.0, 0.0, 0.0, 0.55 * (vv.death >= 0 ? 1 - vv.death : 1), DSHAPE.SHADOW, 0, 0, 0.8);
         }
       }

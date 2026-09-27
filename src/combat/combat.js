@@ -1,13 +1,13 @@
 // Combat: squad-level target acquisition (throttled, fog-aware), soldier-level staggered fire,
 // melee, damage with cover/armor, death -> dying -> corpse (bounded), structure fire/damage.
-import { removeCorpse } from '../sim/corpses.js';
+import { removeCorpse, cremateCorpse } from '../sim/corpses.js';
 import { unitDef } from '../data/units.js';
 import { WEAPONS } from '../data/weapons.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS, areHostile } from '../data/factions.js';
 import { EV, IMPACT } from '../core/events.js';
 import { rngFloat, hash32 } from '../core/rng.js';
-import { dist, dist2, clamp, lerp, dsin, dcos, headingOf, wrapAngle } from '../core/dmath.js';
+import { dist, dist2, clamp, lerp, dsin, dcos, datan2, headingOf, wrapAngle } from '../core/dmath.js';
 import {
   TICK_RATE, TARGET_INTERVAL, DYING_TICKS, RISING_TICKS, MAX_CORPSES, CORPSE_DECAY_TICKS,
   MELEE_CHARGE_RANGE, ACQUIRE_EXTRA, INFECTION_MAX,
@@ -19,12 +19,22 @@ import { structuresChanged } from '../sim/runtime.js';
 import { endMatch, factionByRole } from '../sim/match.js';
 import { cellIndex } from '../world/terrain.js';
 import { TERRAIN } from '../data/terrain_types.js';
+import { WOUNDED } from '../data/economy.js';
+import { PESTILENCE } from '../data/specialities.js';
+import { addInfection, pestGain, claimBonus, cleanseInfection, onGrailStructureLost } from '../factions/pestilence.js';
+import { specValue, specRule } from '../sim/specialities.js';
+import { damageAnimal, releasePen } from '../sim/wildlife.js';
+import { onSettlementLost } from '../economy/settlements.js';
+import { rebuildAuras, auraValue } from '../sim/auras.js';
 
 const PROT = { dmg: 0, acc: 0, cover: 0 };
 const STRUCT_EFFECTIVE = 0.3; // weapons below this structure multiplier do not auto-engage structures
 const ticks = (sec) => Math.max(1, Math.round(sec * TICK_RATE));
 
 const SUPPRESS_ACC = 0.6;
+const FEAR_ACC = 0.85;
+const FIRE = { kind: 'fire', infect: 0 };
+
 
 function fbit(faction) {
   return FACTIONS[faction] ? 1 << FACTIONS[faction].index : 0;
@@ -139,19 +149,71 @@ function assignMeleeTargets(sq, esq) {
  * HIT / DEATH so presentation can tell whether the direction may be shown (hidden shooters stay hidden).
  */
 export function damageSoldier(sim, vsq, v, amount, attackerFaction, weapon, dx, dz, src = 0, force = 0) {
+  const cause = weapon ? weapon.kind : 'other';
+  // an incapacitated soldier is finished off by whatever reaches him
+  if (v.state === 'wounded') {
+    if (weapon && weapon.infect) addInfection(sim, vsq, v, weapon.infect);
+    killSoldier(sim, vsq, v, attackerFaction, cause, dx, dz, src, 0.2, force);
+    return;
+  }
   if (v.state !== 'alive' && v.state !== 'joining') return;
   const vdef = unitDef(vsq.type);
   let d = amount * (1 - vdef.armor);
   if (vsq.hordeBonus) d *= 1 - vsq.hordeBonus * 0.6;
+  if (v.postId && specRule(sim.state, vsq.faction, 'trenchStand')) d *= 0.75; // Elite Defense: they hold
   v.hp -= d;
   vsq.lastHitTick = sim.state.tick;
-  if (weapon && weapon.infect && vsq.faction !== 'black_grail') {
-    v.infection = Math.min(INFECTION_MAX, v.infection + weapon.infect);
-  }
-  const cause = weapon ? weapon.kind : 'other';
+  if (weapon && weapon.infect) addInfection(sim, vsq, v, weapon.infect);
   // overkill relative to the victim's max hp: presentation picks collapse vs. trauma from it
-  if (v.hp <= 0) killSoldier(sim, vsq, v, attackerFaction, cause, dx, dz, src, Math.round((-v.hp / vdef.hp) * 100) / 100, force);
-  else sim.events.push({ type: EV.HIT, id: v.id, sq: vsq.id, faction: vsq.faction, x: v.x, z: v.z, dx, dz, dmg: d, src, cause });
+  if (v.hp <= 0) {
+    const ov = Math.round((-v.hp / vdef.hp) * 100) / 100;
+    if (woundInstead(sim, vsq, v, cause, ov, force)) {
+      woundSoldier(sim, vsq, v, attackerFaction, dx, dz);
+      return;
+    }
+    killSoldier(sim, vsq, v, attackerFaction, cause, dx, dz, src, ov, force);
+  } else sim.events.push({ type: EV.HIT, id: v.id, sq: vsq.id, faction: vsq.faction, x: v.x, z: v.z, dx, dz, dmg: d, src, cause });
+}
+
+/**
+ * Not every 0 HP is a death (Phase 3, bounded): bullets and blades sometimes leave a New Antioch
+ * soldier WOUNDED on the ground — a medic can bring him back, the Grail can finish / infect him,
+ * he bleeds out if nobody comes. Never from blast (catastrophic), fire, plague or swarms.
+ */
+function woundInstead(sim, vsq, v, cause, ov, force) {
+  if (vsq.faction === 'black_grail' || unitDef(vsq.type).autonomous) return false;
+  if (cause !== 'rifle' && cause !== 'shotgun' && cause !== 'mg' && cause !== 'melee') return false;
+  if (force > 0.3 || ov > 0.6) return false;
+  if (hash32(v.id, sim.state.tick, 71) % 1000 >= WOUNDED.chance * 1000) return false;
+  let n = 0;
+  for (const sq of sim.state.squads) {
+    if (sq.faction !== vsq.faction) continue;
+    for (const m of sq.members) if (m.state === 'wounded') n++;
+  }
+  return n < WOUNDED.maxPerFaction;
+}
+
+function woundSoldier(sim, vsq, v, attackerFaction, dx, dz) {
+  const { state } = sim;
+  v.hp = 1;
+  v.state = 'wounded';
+  v.stateTick = state.tick;
+  v.cooldown = 0; v.burst = 0; v.targetId = 0; v.working = 0; v.rev = 0;
+  v.killer = attackerFaction || '';
+  releaseSoldierPost(sim, v);
+  state.factions[vsq.faction].stats.wounded++;
+  sim.events.push({ type: EV.WOUNDED, id: v.id, sq: vsq.id, faction: vsq.faction, unit: vsq.type, x: v.x, z: v.z, dx: dx || 0, dz: dz || 0 });
+}
+
+/** A medic got the wounded man back on his feet. */
+export function reviveSoldier(sim, vsq, v, hpFrac) {
+  v.state = 'alive';
+  v.stateTick = sim.state.tick;
+  v.hp = Math.max(1, unitDef(vsq.type).hp * hpFrac);
+  v.rev = 0;
+  v.wx = v.x; v.wz = v.z;
+  sim.state.factions[vsq.faction].stats.revived++;
+  sim.events.push({ type: EV.REVIVED, id: v.id, sq: vsq.id, faction: vsq.faction, x: v.x, z: v.z });
 }
 
 /**
@@ -234,7 +296,11 @@ function meleeStrike(sim, sq, m, weapon, esq, e) {
     x: m.x, z: m.z, tx: e.x, tz: e.z, hit, target: e.id, tsq: esq.id, impact: impactFor(sim, esq, hit, e.x, e.z),
   });
   if (hit) {
-    const dmg = weapon.damage * (0.85 + 0.3 * rngFloat(state.rng.main)) * (1 + (sq.hordeBonus || 0));
+    const def = unitDef(sq.type);
+    let dmg = weapon.damage * (0.85 + 0.3 * rngFloat(state.rng.main)) * (1 + (sq.hordeBonus || 0));
+    if (def.specDamageKey) dmg *= specValue(state, sq.faction, def.specDamageKey, 1);
+    if (sq.tideUntil > state.tick) dmg *= 1.3;
+    dmg *= 1 + auraValue(sim, sq.faction, m.x, m.z, 'meleeBonus');
     damageSoldier(sim, esq, e, dmg, sq.faction, weapon, dx / d, dz / d, sq.id);
     if (weapon.cleave && weapon.cleave > 1) {
       for (const o of esq.members) {
@@ -256,7 +322,10 @@ function rangedShot(sim, sq, m, weapon, esq, e) {
   acc *= 1 - PROT.acc;
   if (e.vx * e.vx + e.vz * e.vz > 0.0004) acc *= 0.9;
   if (sq.debuffUntil > state.tick) acc *= 0.65;
-  if (sq.suppressUntil > state.tick) acc *= SUPPRESS_ACC; // under mortar fire
+  const lead = sim.rt.auras ? auraValue(sim, sq.faction, m.x, m.z, 'accBonus') : 0;
+  if (sq.suppressUntil > state.tick && !auraValue(sim, sq.faction, m.x, m.z, 'suppressResist')) acc *= SUPPRESS_ACC; // under mortar fire
+  if (sq.fearUntil > state.tick) acc *= FEAR_ACC; // the horde is on them
+  acc *= 1 + lead;
   const hit = rngFloat(state.rng.main) < acc;
   m.shots++;
   m.targetId = e.id;
@@ -307,6 +376,95 @@ function shotAtStructure(sim, sq, m, weapon, st, isMelee) {
   }
 }
 
+// --------------------------------------------------------------- flame
+
+const AIM = [0, 0];
+
+function aimOn(st, m, out) {
+  const def = STRUCTURES[st.type];
+  out[0] = st.x; out[1] = st.z;
+  if (def.kind === 'linear') {
+    const dx = st.x2 - st.x1, dz = st.z2 - st.z1;
+    const len2 = dx * dx + dz * dz;
+    const t = clamp(len2 > 0 ? ((m.x - st.x1) * dx + (m.z - st.z1) * dz) / len2 : 0.5, 0, 1);
+    out[0] = st.x1 + dx * t; out[1] = st.z1 + dz * t;
+  }
+  return out;
+}
+
+/**
+ * Flamethrower gout: everything hostile within the splash burns (and keeps burning a few seconds),
+ * bodies there are cremated (they will not rise), the infected ground is scoured, animals burn,
+ * organic / timber structures take extra damage. Fuel = ammunition (costly to resupply).
+ */
+function flameGout(sim, sq, m, w, ax, az, tst) {
+  const { state } = sim;
+  m.shots++;
+  m.targetId = 0;
+  sq.lastFireTick = state.tick;
+  if (FACTIONS[sq.faction].usesAmmo && w.ammoPerShot) sq.ammo = Math.max(0, sq.ammo - w.ammoPerShot);
+  sim.events.push({
+    type: EV.FIRE, shooter: m.id, sq: sq.id, faction: sq.faction, weapon: w.id,
+    x: m.x, z: m.z, tx: ax, tz: az, hit: true, target: 0, tsq: 0, struct: tst ? tst.id : 0, impact: IMPACT.FIRE, flame: 1,
+  });
+  const R = w.splash;
+  for (const esq of state.squads) {
+    if (!areHostile(sq.faction, esq.faction)) continue;
+    if (dist(esq.cx, esq.cz, ax, az) > R + 14) continue;
+    for (const e of esq.members) {
+      if (e.state !== 'alive' && e.state !== 'joining' && e.state !== 'wounded') continue;
+      const d = dist(e.x, e.z, ax, az);
+      if (d > R) continue;
+      let dmg = w.damage * (0.85 + 0.3 * rngFloat(state.rng.main)) * (1 - 0.35 * (d / R));
+      if (e.postId) dmg *= 0.75; // fire pours into trenches
+      e.burn = Math.max(e.burn || 0, state.tick + Math.round(w.burnSec * TICK_RATE));
+      const dd = dist(m.x, m.z, e.x, e.z) || 1;
+      damageSoldier(sim, esq, e, dmg, sq.faction, FIRE, (e.x - m.x) / dd, (e.z - m.z) / dd, sq.id, 0.2);
+    }
+  }
+  for (let i = state.corpses.length - 1; i >= 0; i--) {
+    const c = state.corpses[i];
+    if (dist(c.x, c.z, ax, az) <= w.corpseBurnR) cremateCorpse(sim, c, sq.faction);
+  }
+  for (let i = state.animals.length - 1; i >= 0; i--) {
+    const a = state.animals[i];
+    if (dist(a.x, a.z, ax, az) <= R) damageAnimal(sim, a, w.damage, sq.faction, 'fire');
+  }
+  cleanseInfection(sim, ax, az, 3, w.cleanse);
+  for (const st of state.structures.slice()) {
+    if (!areHostile(sq.faction, st.faction)) continue;
+    if (distanceToStructure(st, ax, az) > R) continue;
+    const def = STRUCTURES[st.type];
+    const mult = def.organic ? w.organicMult : def.flammable ? w.timberMult : w.structureMult;
+    damageStructure(sim, st, w.damage * mult, sq.faction);
+  }
+}
+
+/**
+ * Flamer teams purge the dead (no micro): out of combat, each ready flamer burns the nearest known
+ * INFECTED body within range — fuel from its ammunition — so a rising is stopped where it lies.
+ */
+export function flamerPurge(sim, sq) {
+  const def = unitDef(sq.type);
+  const w = def.weapon ? WEAPONS[def.weapon] : null;
+  if (!w || w.kind !== 'flame' || sq.target || sq.engaged) return;
+  if (FACTIONS[sq.faction].usesAmmo && sq.ammo <= 0) return;
+  const bit = 1 << FACTIONS[sq.faction].index;
+  for (const m of sq.members) {
+    if (m.state !== 'alive' || m.cooldown > 0) continue;
+    let best = null, bd = w.range;
+    for (const c of sim.state.corpses) {
+      if (!c.infected || !(c.seenBy & bit)) continue;
+      const d = dist(m.x, m.z, c.x, c.z);
+      if (d < bd || (d === bd && best && c.id < best.id)) { bd = d; best = c; }
+    }
+    if (!best) return;
+    m.cooldown = Math.round(w.reload * TICK_RATE);
+    m.rot = datan2(best.x - m.x, best.z - m.z);
+    flameGout(sim, sq, m, w, best.x, best.z, null);
+  }
+}
+
 // --------------------------------------------------------------- per squad firing
 
 function squadFire(sim, sq) {
@@ -334,6 +492,12 @@ function squadFire(sim, sq) {
     // 1) melee when an enemy is adjacent (melee units, and ranged units' bayonets)
     if (melee) {
       const n = nearestEnemyAdjacent(sim, m, sq.faction, melee.range + def.radius * 0.5);
+      if (n && ranged && ranged.kind === 'flame' && !noAmmo) {
+        // a flamer does not club the swarm at his feet — he burns it
+        flameGout(sim, sq, m, ranged, n.e.x, n.e.z, null);
+        m.cooldown = ticks(ranged.reload * (1 + (rngFloat(state.rng.main) - 0.5) * (ranged.reloadJitter || 0)));
+        continue;
+      }
       if (n) {
         meleeStrike(sim, sq, m, melee, n.sq, n.e);
         m.cooldown = ticks(melee.reload * (1 + (rngFloat(state.rng.main) - 0.5) * (melee.reloadJitter || 0)));
@@ -357,6 +521,14 @@ function squadFire(sim, sq) {
     if (noAmmo && m.burst === 0 && rngFloat(state.rng.main) < 0.8) {
       // out of supply: scavenging rounds, fire rate collapses
       m.cooldown = ticks(ranged.reload * 1.5);
+      continue;
+    }
+    if (ranged.kind === 'flame') {
+      // a gout of fire at the target (soldier or structure)
+      if (e) flameGout(sim, sq, m, ranged, e.x, e.z, null);
+      else if (tst && distanceToStructure(tst, m.x, m.z) <= ranged.range) { aimOn(tst, m, AIM); flameGout(sim, sq, m, ranged, AIM[0], AIM[1], tst); }
+      else { m.burst = 0; continue; }
+      m.cooldown = ticks(ranged.reload * (1 + (rngFloat(state.rng.main) - 0.5) * (ranged.reloadJitter || 0)));
       continue;
     }
     if (e) rangedShot(sim, sq, m, ranged, tsq, e);
@@ -397,6 +569,12 @@ export function destroyStructure(sim, st, attackerFaction) {
     type: EV.STRUCTURE_DESTROYED, id: st.id, stype: st.type, faction: st.faction, x: st.x, z: st.z,
     x1: st.x1, z1: st.z1, x2: st.x2, z2: st.z2, rot: st.rot, organic: STRUCTURES[st.type].organic ? 1 : 0,
   });
+  // Phase 3: economy / plague consequences
+  const sdef = STRUCTURES[st.type];
+  if (sdef.settlement && st.built) onSettlementLost(sim, st);
+  if (sdef.settlement) for (const sec of state.sectors || []) if (sec.sid === st.id) sec.sid = 0;
+  if (sdef.pen) releasePen(sim, st.id);
+  onGrailStructureLost(sim, st);
   // a stocked ammunition dump goes up when destroyed (only once built): a queued detonation,
   // resolved next tick by sim/abilities.js (plain data, deterministic, saved like any effect)
   const ex = STRUCTURES[st.type].explodes;
@@ -413,10 +591,19 @@ export function destroyStructure(sim, st, attackerFaction) {
   }
 }
 
-function structureFire(sim, st) {
-  const { state, rt } = sim;
+/** Weapon a structure fires with (its own, or one a speciality gives it), else null. */
+function structureWeapon(sim, st) {
   const def = STRUCTURES[st.type];
-  const w = WEAPONS[def.weapon];
+  if (def.weapon) return { w: WEAPONS[def.weapon], arc: def.arc || 360 };
+  const sw = def.specWeapon;
+  if (sw && specRule(sim.state, st.faction, 'settlementGuns')) return { w: WEAPONS[sw.weapon], arc: sw.arc };
+  return null;
+}
+
+function structureFire(sim, st, sw) {
+  const { state, rt } = sim;
+  const def = { arc: sw.arc };
+  const w = sw.w;
   if (st.cooldown > 0) { st.cooldown--; return; }
   const myBit = fbit(st.faction);
   const fx = dsin(st.rot), fz = dcos(st.rot);
@@ -477,17 +664,43 @@ function structureFire(sim, st) {
 
 function updateStatus(sim) {
   const { state } = sim;
+  rebuildAuras(sim);
+  const tick = state.tick;
   for (const sq of state.squads) {
     const def = unitDef(sq.type);
-    for (const m of sq.members) if (m.state === 'alive') m.cover = coverAt(sim, m.x, m.z);
+    for (const m of sq.members) {
+      if (m.state === 'alive') m.cover = coverAt(sim, m.x, m.z);
+      // burning soldiers (flamethrower) keep taking fire damage for a few seconds
+      if (m.burn > tick && (m.state === 'alive' || m.state === 'joining')) damageSoldier(sim, sq, m, 3.5, '', FIRE, 0, 0, 0, 0);
+    }
     if (def.hordeBonus) {
+      // canon "Overwhelming Horde": other Grail squads close by embolden the Thralls (capped)
+      const H = def.hordeBonus;
       let count = 0;
       for (const o of state.squads) {
-        if (o === sq || o.type !== sq.type || o.faction !== sq.faction) continue;
-        if (dist(sq.cx, sq.cz, o.cx, o.cz) <= def.hordeBonus.radius) count++;
+        if (o === sq || o.faction !== sq.faction || !unitDef(o.type).combatUnit) continue;
+        if (dist(sq.cx, sq.cz, o.cx, o.cz) > H.radius) continue;
+        count += o.type === sq.type ? 1 : H.other || 0;
       }
-      sq.hordeBonus = Math.min(def.hordeBonus.max, count * def.hordeBonus.perSquad);
+      const max = H.max + (specRule(state, sq.faction, 'hordeWide') ? 0.1 : 0);
+      sq.hordeBonus = Math.min(max, count * H.perSquad);
     }
+  }
+  // horde fear: three or more Thrall mobs on top of a squad shake its aim (clerics / officers
+  // steady it; Elite Defense keeps entrenched men steady)
+  for (const o of state.squads) {
+    if (!FACTIONS[o.faction] || !hasAlive(o)) continue;
+    let n = 0, fd = null;
+    for (const g of state.squads) {
+      const f = unitDef(g.type).fear;
+      if (!f || !areHostile(o.faction, g.faction)) continue;
+      if (dist(o.cx, o.cz, g.cx, g.cz) > f.radius || !hasAlive(g)) continue;
+      n++; fd = f;
+    }
+    if (!fd || n < fd.squads) continue;
+    if (auraValue(sim, o.faction, o.cx, o.cz, 'fearImmune')) continue;
+    if (specRule(state, o.faction, 'trenchStand') && o.members.some((m) => m.postId)) continue;
+    o.fearUntil = tick + 30;
   }
 }
 
@@ -496,29 +709,40 @@ function updateStatus(sim) {
 /**
  * The plague claims most of the Grail's victims, not all: a data-driven share of the bodies stays
  * uninfected (harvestable biomass instead of a new Thrall). Deterministic per soldier id.
+ * `bonus`: Outbreak tier / Beelzebub's Touch raise the share.
  */
-export function plagueClaims(soldierId) {
+export function plagueClaims(soldierId, bonus = 0, mult = 1) {
   const R = FACTIONS.black_grail && FACTIONS.black_grail.reanimation;
   if (!R || R.chance === undefined) return true;
-  return hash32(soldierId, 131) % 1000 < R.chance * 1000;
+  const chance = Math.min(0.95, R.chance * mult + bonus);
+  return hash32(soldierId, 131) % 1000 < chance * 1000;
 }
 
 export function addCorpse(sim, sq, v) {
   const { state, rt } = sim;
-  const infected = sq.faction !== 'black_grail' && (v.infection > 0 || v.killer === 'black_grail') && plagueClaims(v.id);
+  const grail = 'black_grail';
+  const def = unitDef(sq.type);
+  const claim = plagueClaims(v.id, claimBonus(state), specValue(state, grail, 'plagueClaim', 1));
+  const infected = sq.faction !== grail && (v.infection > 0 || v.killer === grail) && claim;
+  // enemy dead are rich biomass (heavies richer), civilians middling, the Grail's own dead poor
+  let biomass = def.corpseBiomass || 6;
+  if (sq.faction !== grail) biomass *= specValue(state, grail, 'corpseBiomass', 1);
   const c = {
     id: state.nextId++, x: v.x, z: v.z, rot: v.rot, faction: sq.faction, unit: sq.type,
     pose: hash32(v.id, 77) & 1023, tick: state.tick, infected,
-    biomass: 6, seenBy: sq.visibleTo | fbit(sq.faction), riseAt: 0, soldierId: v.id,
+    biomass, seenBy: sq.visibleTo | fbit(sq.faction), riseAt: 0, soldierId: v.id,
   };
+  // sufficiently infected when he died: he will turn where he lies, Grail nearby or not
+  if (infected && v.infection >= PESTILENCE.turnStacks) c.turn = 1;
   state.corpses.push(c);
   rt.corpseById.set(c.id, c);
+  if (infected) pestGain(sim, PESTILENCE.gain.infectedCorpse, 'corpses');
   sim.events.push({ type: EV.CORPSE_CREATED, id: c.id, soldierId: v.id, x: c.x, z: c.z, faction: c.faction, unit: c.unit, infected });
   while (state.corpses.length > MAX_CORPSES) removeCorpse(sim, state.corpses[0], 'decay');
   return c;
 }
 
-export { removeCorpse };
+export { removeCorpse, auraValue };
 
 export function updateDeaths(sim) {
   const { state, rt } = sim;
@@ -533,6 +757,8 @@ export function updateDeaths(sim) {
         rt.soldierIndex.delete(m.id);
       } else if (m.state === 'rising' && tick - m.stateTick >= RISING_TICKS) {
         m.state = 'alive';
+      } else if (m.state === 'wounded' && tick - m.stateTick >= WOUNDED.bleedOutSec * TICK_RATE) {
+        killSoldier(sim, sq, m, m.killer, 'bleed', 0, 0, 0, 0, 0); // nobody came for him
       }
     }
     if (sq.members.length === 0) {
@@ -547,7 +773,7 @@ export function updateDeaths(sim) {
     for (let i = 0; i < state.corpses.length;) {
       const c = state.corpses[i];
       if (tick - c.tick <= CORPSE_DECAY_TICKS) break;
-      if (c.riseAt) { i++; continue; }
+      if (c.riseAt || c.old) { i++; continue; }
       removeCorpse(sim, c, 'decay');
     }
   }
@@ -564,7 +790,11 @@ export function updateCombat(sim) {
   if (state.match.phase !== 'WAR') return; // PREPARATION: no attacks, no damage
   for (const sq of state.squads) squadFire(sim, sq);
   for (const st of state.structures) {
-    if (st.built && STRUCTURES[st.type].weapon) structureFire(sim, st);
+    if (!st.built) continue;
+    const d = STRUCTURES[st.type];
+    if (!d.weapon && !d.specWeapon) continue;
+    const sw = structureWeapon(sim, st);
+    if (sw) structureFire(sim, st, sw);
   }
 }
 

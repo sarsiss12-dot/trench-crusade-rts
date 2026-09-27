@@ -12,6 +12,10 @@ import { unitDef } from '../data/units.js';
 import { PLAYER_FORMATIONS } from '../units/formation.js';
 import { snapToTrenchEndpoint } from '../construction/trench.js';
 import { isPointVisibleTo } from '../sim/perception.js';
+import { specValue } from '../sim/specialities.js';
+
+// area commands (Phase 3): radius shown while choosing the spot (the simulation owns the rule)
+const AREA_R = { forage: 34, sanitize: 16 };
 
 const TAP_RADIUS_CSS = 26;
 const G = [0, 0, 0];
@@ -52,7 +56,28 @@ export function createInputController(canvas, game) {
     game.mode = m || { kind: 'normal' };
     game.frame.placement = null;
     game.frame.abilityTarget = null;
+    game.frame.areaTarget = null;
     if (game.hud) game.hud.onModeChanged();
+  }
+
+  /** Area commands: forage (Grail gangs), sanitize (engineers), herd area (a selected pen). */
+  function startArea(kind, st) {
+    let radius = AREA_R[kind] || 20;
+    if (kind === 'forage') radius *= specValue(sim.state, viewer, 'forageRadius', 1);
+    if (kind === 'herd' && st) radius = STRUCTURES[st.type].pen ? STRUCTURES[st.type].pen.herdRadius : radius;
+    setMode({ kind: 'area', area: kind, sid: st ? st.id : 0, radius });
+  }
+
+  function updateAreaTarget(sx, sy) {
+    const m = game.mode;
+    const g = groundAt(sx, sy);
+    if (!g) return;
+    let valid = true;
+    if (m.area === 'herd') {
+      const st = sim.rt.structById.get(m.sid);
+      valid = !!st && Math.hypot(st.x - g[0], st.z - g[2]) <= 160;
+    }
+    game.frame.areaTarget = { kind: m.area, x: g[0], z: g[2], r: m.radius, valid };
   }
 
   function startPlacement(stype) {
@@ -278,6 +303,19 @@ export function createInputController(canvas, game) {
         if (n && game.actions.gather(n)) setMode(null);
         return;
       }
+      case 'area': {
+        const g = groundAt(sx, sy);
+        if (!g) return;
+        let ok = false;
+        if (m.area === 'forage') ok = game.actions.forage(g[0], g[2]);
+        else if (m.area === 'sanitize') ok = game.actions.sanitize(g[0], g[2]);
+        else if (m.area === 'herd') {
+          const st = sim.rt.structById.get(m.sid);
+          ok = !!st && game.actions.herdArea(st, g[0], g[2]);
+        }
+        if (ok) setMode(null);
+        return;
+      }
       default:
         normalTap(sx, sy, info);
     }
@@ -444,6 +482,7 @@ export function createInputController(canvas, game) {
         return;
       }
       if (m.kind === 'ability') { updateAbilityTarget(x, y); return; }
+      if (m.kind === 'area') { updateAreaTarget(x, y); return; }
       const hit = pickSquad(sim, viewer, cam, ground, x, y, radiusPx());
       if (hit) { game.frame.hover = { k: 'squad', id: hit.sq.id }; canvas.style.cursor = hit.sq.faction === viewer ? 'pointer' : 'crosshair'; return; }
       const g = groundAt(x, y);
@@ -593,6 +632,7 @@ export function createInputController(canvas, game) {
     startRally(st) { setMode({ kind: 'rally', sid: st.id }); },
     startRepair() { setMode({ kind: 'repair' }); },
     startGather() { setMode({ kind: 'gather' }); },
+    startArea,
     cancelMode() { setMode(null); },
     gestures,
   };

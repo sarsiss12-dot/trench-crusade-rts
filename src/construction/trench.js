@@ -126,6 +126,63 @@ export function trenchConnected(a, b, tol = 0.75) {
 }
 
 /**
+ * Connected trench network (same faction or neutral) from a segment, breadth-first, bounded.
+ * Read-only (used by orders, AI and the trench UI).
+ */
+export function trenchNetwork(structures, seg, faction, maxCount = 12) {
+  const list = [seg];
+  for (let i = 0; i < list.length && list.length < maxCount; i++) {
+    const cur = list[i];
+    for (const s of structures) {
+      if (s.type !== 'trench' || list.indexOf(s) >= 0) continue;
+      if (s.faction !== faction && s.faction !== 'neutral') continue;
+      if (trenchConnected(cur, s)) list.push(s);
+    }
+  }
+  return list;
+}
+
+/**
+ * Soldier capacity of a network (Phase 3 multi-squad occupancy): total fire-step slots, slots in
+ * use, and slots already promised to squads on their way in (so two squads never race for the
+ * same last places). `exceptSquad`: a squad whose own posts / reservation count as free.
+ */
+export function networkCapacity(state, segs, faction, exceptSquad) {
+  let total = 0, used = 0, reserved = 0;
+  const ids = new Set();
+  for (const s of segs) {
+    ids.add(s.id);
+    const n = trenchSlotCount(s);
+    total += n;
+    if (s.occ) for (let k = 0; k < n; k++) if (s.occ[k]) used++;
+  }
+  for (const sq of state.squads) {
+    if (sq.faction !== faction) continue;
+    if (exceptSquad && sq.id === exceptSquad.id) {
+      for (const m of sq.members) if (m.postId && ids.has(m.postId)) used--;
+      continue;
+    }
+    const o = sq.order;
+    if (o.t !== 'move' || !o.trench || !ids.has(o.trench)) continue;
+    for (const m of sq.members) if ((m.state === 'alive' || m.state === 'joining') && !m.postId) reserved++;
+  }
+  return { total, used, reserved, free: total - used - reserved };
+}
+
+/** Squads with soldiers posted in (or holding) a network — the trench squad panel. */
+export function squadsInNetwork(state, segs, faction) {
+  const ids = new Set(segs.map((s) => s.id));
+  const res = [];
+  for (const sq of state.squads) {
+    if (sq.faction !== faction) continue;
+    let inside = sq.order.t === 'hold_trench' && ids.has(sq.order.sid);
+    if (!inside) for (const m of sq.members) if (m.postId && ids.has(m.postId)) { inside = true; break; }
+    if (inside) res.push(sq);
+  }
+  return res.sort((a, b) => a.id - b.id);
+}
+
+/**
  * Snap a point to the nearest trench endpoint of `faction` within radius.
  * Returns [x,z] snapped or null. Used by placement UI and AI (same rule).
  */

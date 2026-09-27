@@ -14,7 +14,7 @@
 //  - separate MUSIC and SFX gains; a limiter after the compressor keeps it from clipping
 import { WEAPONS } from '../data/weapons.js';
 import { projectToScreen } from '../render/camera.js';
-import { isSquadVisibleTo } from '../sim/perception.js';
+import { isSquadVisibleTo, isAnimalVisibleTo } from '../sim/perception.js';
 import { createMusic } from './music.js';
 
 const VOICE_SOFT = 22; // ordinary sounds stop here
@@ -217,6 +217,13 @@ export function createAudio(settings = {}) {
     const t0 = ctx.currentTime + 0.002 + vrand() * (mg ? 0.018 : 0.006);
     const lv = jit(0.14), pj = jit(0.07);
     const bus = muffled(out(sfx, s[0] * loud * 0.55 * lv, s[1], 0.35), s[2]);
+    if (kind === 'flame') {
+      // a gout of burning fuel: swelling low whoosh + hiss, no crack
+      noiseBurst(bus, t0, 0.55 * jit(0.15), 'lowpass', 900 * pj, 0.8, 0.06, pink, 1.1);
+      noiseBurst(bus, t0 + 0.02, 0.45, 'bandpass', 2400 * pj, 0.9, 0.05, noise, 0.35);
+      tone(bus, t0, 0.4, 'sine', 70, 55, 0.5, 0.05);
+      return;
+    }
     if (kind === 'rifle_bio') {
       // wet, organic crack with a gurgling body
       noiseBurst(bus, t0, 0.012, 'highpass', 2800 * pj, 0.6, 0.001, noise, 0.9);
@@ -398,6 +405,54 @@ export function createAudio(settings = {}) {
     noiseBurst(bus, t0, 1.8, 'bandpass', 230, 5, 0.4, noise, 0.5);
   }
 
+  /** Livestock the viewer can see and hear: a bleat / low call (procedural formants). */
+  function animalCall(game, x, z, sp) {
+    const s = spatial(game, x, z);
+    if (s[0] < 0.05 || !rate('animal', 1.5) || !voice(1.2, PRI.LOW)) return;
+    const t0 = ctx.currentTime + 0.02;
+    const bus = muffled(out(amb, s[0] * 0.3, s[1], 0.35), s[2]);
+    const low = sp === 'cattle' || sp === 'mule';
+    const f0 = sp === 'cattle' ? 120 : sp === 'mule' ? 160 : sp === 'pig' ? 210 : sp === 'dog' ? 420 : 330;
+    const dur = sp === 'cattle' ? 1.1 : sp === 'dog' ? 0.14 : sp === 'pig' ? 0.3 : 0.55;
+    const src = ctx.createOscillator();
+    src.type = 'sawtooth';
+    src.frequency.setValueAtTime(f0 * jit(0.08), t0);
+    src.frequency.linearRampToValueAtTime(f0 * (low ? 0.85 : 1.1), t0 + dur);
+    const vib = ctx.createOscillator(); const vg = ctx.createGain();
+    vib.frequency.value = sp === 'sheep' || sp === 'goat' ? 11 : 5; vg.gain.value = f0 * (sp === 'sheep' || sp === 'goat' ? 0.06 : 0.02);
+    vib.connect(vg); vg.connect(src.frequency);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.5, t0 + Math.min(0.08, dur * 0.3));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    for (const [fr, q] of low ? [[480, 5], [900, 6]] : [[900, 5], [1700, 7]]) {
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fr; bp.Q.value = q;
+      src.connect(bp); bp.connect(g);
+    }
+    g.connect(bus);
+    src.start(t0); src.stop(t0 + dur + 0.05); vib.start(t0); vib.stop(t0 + dur + 0.05);
+  }
+
+  /** Bodies burning (flame, sanitation, cleric): a short crackle. */
+  function crackle(game, x, z) {
+    const s = spatial(game, x, z);
+    if (s[0] < 0.04 || !rate('crackle', 0.4) || !voice(1, PRI.LOW)) return;
+    const bus = muffled(out(sfx, s[0] * 0.3, s[1], 0.2), s[2]);
+    for (let i = 0; i < 6; i++) noiseBurst(bus, ctx.currentTime + i * 0.09 + vrand() * 0.05, 0.03, 'bandpass', 1800 + vrand() * 2000, 2, 0.001, noise, 0.5);
+    noiseBurst(bus, ctx.currentTime, 0.9, 'lowpass', 500, 0.6, 0.1, pink, 0.35);
+  }
+
+  /** Great Pestilence: a vast, beating drone of wings and a sick low swell. */
+  function plagueCast(game, x, z) {
+    const s = spatial(game, x, z);
+    if (!voice(3, PRI.TOP)) return;
+    const t0 = ctx.currentTime;
+    const bus = muffled(out(sfx, Math.max(0.2, s[0]) * 0.7, s[1], 0.5), s[2]);
+    for (const f of [150, 172, 205, 246]) tone(bus, t0, 2.8, 'sawtooth', f * 0.7, f * 1.1, 0.1, 0.6).detune.value = (vrand() - 0.5) * 40;
+    noiseBurst(bus, t0, 2.8, 'bandpass', 200, 4, 0.6, noiseLong, 0.6);
+    tone(bus, t0, 2.4, 'sine', 48, 40, 0.8, 0.5);
+  }
+
   function uiSound(kind) {
     if (!ready()) return;
     if (!rate('ui', 0.04)) return;
@@ -465,6 +520,22 @@ export function createAudio(settings = {}) {
         if (ev.ability === 'artillery_barrage') whistle(game, ev.x, ev.z, 3, false);
         else if (ev.ability === 'mortar_barrage') whistle(game, ev.x, ev.z, 1.6, true);
         else if (ev.ability === 'fly_swarm') swarmCast(game, ev.x, ev.z);
+        else if (ev.ability === 'great_pestilence') plagueCast(game, ev.x, ev.z);
+        else if (ev.ability === 'black_tide') horn(true);
+        else if (ev.ability === 'purge') { bell(); crackle(game, ev.x, ev.z); }
+        break;
+      // Phase 3
+      case 'CORPSE_REMOVED':
+        if (show && ev.reason === 'burned') crackle(game, ev.x, ev.z);
+        break;
+      case 'ANIMAL_KILLED':
+        if (show && ev.cause !== 'slaughter') animalCall(game, ev.x, ev.z, ev.sp);
+        break;
+      case 'EVACUATION':
+        if (ev.faction === game.viewer) bell();
+        break;
+      case 'PESTILENCE_TIER':
+        if (ev.faction === game.viewer && ev.up) horn(true);
         break;
       case 'MATCH_ENDED':
         bell();
@@ -522,6 +593,18 @@ export function createAudio(settings = {}) {
         const bus = out(amb, Math.min(0.14, 0.03 + distant.shots * 0.012) * jit(0.4), (vrand() - 0.5) * 1.4, 0.5);
         noiseBurst(bus, t, 0.05 + vrand() * 0.04, 'bandpass', 700 + vrand() * 900, 1.2, 0.002, noise, 0.8);
       }
+    }
+    // livestock the viewer sees near the camera call now and then
+    ambient.animalT = (ambient.animalT || 3) - dt;
+    if (ambient.animalT <= 0) {
+      ambient.animalT = 4 + vrand() * 7;
+      let best = null, bd = 45;
+      for (const a of game.sim.state.animals || []) {
+        if (!isAnimalVisibleTo(a, game.viewer)) continue;
+        const d = Math.hypot(a.x - cam.tx, a.z - cam.tz);
+        if (d < bd && vrand() < 0.5) { bd = d; best = a; }
+      }
+      if (best) animalCall(game, best.x, best.z, best.sp);
     }
     // distant front: rumbles far away (atmosphere only, not tied to simulation events)
     ambient.rumbleT -= dt;

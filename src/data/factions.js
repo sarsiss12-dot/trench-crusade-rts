@@ -12,10 +12,14 @@ export const FACTIONS = {
     economy: 'logistics', logic: 'new_antioch', ai: 'new_antioch',
     resources: ['material', 'supply', 'manpower', 'food'],
     buildList: [
-      'trench', 'low_sandbags', 'sandbags', 'breastwork', 'timber_wall', 'fortified_wall', 'wire',
-      'fire_post', 'observation_post', 'signal_post', 'supply_cache', 'ammo_dump', 'aid_station', 'workshop', 'muster_point',
+      'trench', 'low_sandbags', 'sandbags', 'breastwork', 'timber_wall', 'fortified_wall', 'wire', 'fire_post', 'pillbox',
+      'settlement', 'farm', 'livestock_pen', 'quarry', 'supply_depot',
+      'observation_post', 'signal_post', 'supply_cache', 'ammo_dump', 'aid_station', 'workshop', 'muster_point',
     ],
-    abilities: ['artillery_barrage', 'mortar_barrage'],
+    buildTabs: ['defense', 'economy', 'support'],
+    abilities: ['artillery_barrage', 'mortar_barrage', 'purge'],
+    // Phase 3: expansion economy (population / manpower / settlements / convoys: economy/settlements.js)
+    population: true,
     usesAmmo: true,
     // replacements walk from a reinforcement source to the depleted squad (see factions/new_antioch.js)
     reinforcements: { manpower: 1, supply: 6, intervalTicks: 30 },
@@ -31,7 +35,9 @@ export const FACTIONS = {
     resources: ['biomass'],
     // organic growth raised by Thrall work-gangs (never a human building chain)
     buildList: ['corpse_mound', 'plague_pit', 'fly_nest', 'bone_barricade', 'grail_altar'],
-    abilities: ['fly_swarm'],
+    abilities: ['fly_swarm', 'great_pestilence', 'black_tide'],
+    // Phase 3: faction-wide plague momentum meter (factions/pestilence.js), separate from biomass
+    pestilence: true,
     usesAmmo: false,
     reinforcements: null,
     home: { hq: ['grail_altar'], anchor: 'home_bg', front: 32 },

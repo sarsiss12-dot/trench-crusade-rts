@@ -126,6 +126,8 @@ const DP = new Array(17).fill(0);
  * a: animation input (see units_renderer VisualState). model: { rig, weapon, hunch, heavy }.
  */
 export function computePose(dst, offset, model, a) {
+  if (model.quad) return computeQuadPose(dst, offset, model, a);
+  if (model.rigid) return computeRigidPose(dst, offset, model, a);
   const rig = model.rig;
   const wg = WEAPON_GEOM[model.weapon] || WEAPON_GEOM.claws;
   affFromEuler(ROOT, 0, a.rot, 0, a.x, a.y, a.z, a.scale || 1);
@@ -208,7 +210,7 @@ export function computePose(dst, offset, model, a) {
   fk(rig, BONE.PACK, 0.02 * walk * Math.abs(sw), 0, 0, 0, a.packPulse || 0, 0);
 
   const wk = model.weapon;
-  const twoHandedGun = wk === 'rifle' || wk === 'shotgun' || wk === 'infested' || wk === 'mg';
+  const twoHandedGun = wk === 'rifle' || wk === 'shotgun' || wk === 'infested' || wk === 'mg' || wk === 'flamer' || wk === 'pistol' || wk === 'smg';
   const useTool = work > 0.02 && model.tool;
 
   if (useTool) {
@@ -273,6 +275,70 @@ export function computePose(dst, offset, model, a) {
     fk(rig, BONE.WEAPON, 0, 0, 0);
     stowTool(rig);
   }
+  return writeRow(dst, offset, rig, a);
+}
+
+// ------------------------------------------------------------------ quadrupeds / rigid (Phase 3)
+
+/**
+ * Livestock on the shared rig (models/animals.js): trot (diagonal pairs) / gallop (flight),
+ * grazing head-down with nibbling, tail swish, ear flicks, and a side-lying death pose.
+ * a: { x, y, z, rot, time, phase, walk (0..1), gallop (0..1), graze (0..1), death, seed, scale }
+ */
+function computeQuadPose(dst, offset, model, a) {
+  const rig = model.rig;
+  affFromEuler(ROOT, 0, a.rot, 0, a.x, a.y, a.z, a.scale || 1);
+  const t = a.time, seed = a.seed || 0;
+  if (a.death >= 0) {
+    const k = smooth(a.death);
+    const drop = Math.max(0, rig.hipY - rig.bodyR * 1.1) * k;
+    fk(rig, BONE.PELVIS, 0, 0, 1.5 * k, 0, -drop, 0);
+    fk(rig, BONE.SPINE, 0, 0, 0.04 * k);
+    fk(rig, BONE.HEAD, 0.35 * k, 0.15 * k, 0.1 * k);
+    fk(rig, BONE.UARM_L, -0.35 * k, 0, 0); fk(rig, BONE.LARM_L, 0.15 * k, 0, 0);
+    fk(rig, BONE.UARM_R, -0.2 * k, 0, 0); fk(rig, BONE.LARM_R, 0.25 * k, 0, 0);
+    fk(rig, BONE.ULEG_L, 0.3 * k, 0, 0); fk(rig, BONE.LLEG_L, -0.1 * k, 0, 0);
+    fk(rig, BONE.ULEG_R, 0.45 * k, 0, 0); fk(rig, BONE.LLEG_R, -0.2 * k, 0, 0);
+    fk(rig, BONE.WEAPON, 0.4 * k, 0, 0);
+    fk(rig, BONE.TOOL, 0, 0, 0);
+    fk(rig, BONE.PACK, 0, 0, 0);
+    return writeRow(dst, offset, rig, a);
+  }
+  const walk = a.walk || 0, gal = a.gallop || 0, graze = a.graze || 0;
+  const ph = a.phase;
+  const amp = (0.42 + gal * 0.25) * walk;
+  const bob = Math.abs(Math.sin(ph)) * (0.025 + gal * 0.05) * walk;
+  // gallop: fore pair / hind pair move together, the body pitches; trot: diagonal pairs
+  const pitchBody = gal * Math.sin(ph) * 0.12 * walk;
+  fk(rig, BONE.PELVIS, pitchBody, Math.sin(ph) * 0.03 * walk * (1 - gal), Math.sin(ph) * 0.03 * walk * (1 - gal), 0, bob, 0);
+  fk(rig, BONE.SPINE, -pitchBody * 1.4 + graze * 0.06, 0, 0);
+  const nibble = graze > 0.3 ? Math.sin(t * 6.5 + seed) * 0.06 * graze : 0;
+  const look = Math.sin(t * 0.37 + seed * 1.7) * 0.3 * (1 - walk) * (1 - graze);
+  fk(rig, BONE.HEAD, graze * 1.05 + nibble - walk * 0.08 + gal * 0.1 + Math.sin(t * 0.8 + seed) * 0.04 * (1 - graze), look, 0);
+  const oFR = gal > 0.5 ? 0.35 : Math.PI, oHL = gal > 0.5 ? Math.PI + 0.35 : Math.PI, oHR = gal > 0.5 ? Math.PI : 0;
+  const leg = (upper, lower, off, hind) => {
+    const sw = Math.sin(ph + off), cw = Math.cos(ph + off);
+    const lift = Math.max(0, cw) * (0.5 + gal * 0.4) * walk;
+    fk(rig, upper, -sw * amp, 0, 0);
+    fk(rig, lower, hind ? -lift : lift, 0, 0);
+  };
+  leg(BONE.UARM_L, BONE.LARM_L, 0, false);
+  leg(BONE.UARM_R, BONE.LARM_R, oFR, false);
+  leg(BONE.ULEG_L, BONE.LLEG_L, oHL, true);
+  leg(BONE.ULEG_R, BONE.LLEG_R, oHR, true);
+  fk(rig, BONE.WEAPON, 0.25 + gal * 0.4 + Math.sin(t * 1.6 + seed) * 0.08, Math.sin(t * 2.3 + seed * 3) * 0.4 * (1 - gal), 0);
+  fk(rig, BONE.TOOL, Math.max(0, Math.sin(t * 1.1 + seed * 5)) * 0.15, 0, 0);
+  fk(rig, BONE.PACK, 0, 0, 0);
+  return writeRow(dst, offset, rig, a);
+}
+
+/** Rigid prop on the skinning path (the supply cart): body on the root, wheels turn (a.wheel). */
+function computeRigidPose(dst, offset, model, a) {
+  const rig = model.rig;
+  affFromEuler(ROOT, a.pitch || 0, a.rot, a.roll || 0, a.x, a.y, a.z, a.scale || 1);
+  fk(rig, BONE.PELVIS, 0, 0, 0);
+  const w = a.wheel || 0;
+  for (let b = 1; b < BONE_COUNT; b++) fk(rig, b, b === BONE.WEAPON || b === BONE.TOOL ? w : 0, 0, 0);
   return writeRow(dst, offset, rig, a);
 }
 

@@ -114,7 +114,9 @@ test('Black Grail: battlefield corpses become biomass (no workers, no mines)', (
   clearUnits(sim);
   const na = spawn(sim, 'new_antioch', 'yeoman_rifle', 160, 380, Math.PI);
   const bg = spawn(sim, 'black_grail', 'grail_thrall', 160, 377, 0);
-  for (let i = 0; i < 4; i++) killSoldier(sim, na, na.members[i], 'new_antioch', 'rifle', 0, 1); // not infected
+  // the whole squad lies dead (Phase 3: a Thrall mob of 12 would otherwise overrun the survivors
+  // and add fresh, infected bodies during the measurement)
+  for (let i = 0; i < 8; i++) killSoldier(sim, na, na.members[i], 'new_antioch', 'rifle', 0, 1); // not infected
   enqueueCommand(sim, { type: CMD.STOP, faction: 'black_grail', squadIds: [bg.id] });
   run(sim, 2.5);
   const bio0 = sim.state.factions.black_grail.resources.biomass;
@@ -129,9 +131,11 @@ test('Black Grail: infected corpses reanimate where they fell as Grail Thralls',
   const sim = makeSim();
   clearUnits(sim);
   const na = spawn(sim, 'new_antioch', 'yeoman_rifle', 150, 380, Math.PI);
+  const na2 = spawn(sim, 'new_antioch', 'yeoman_rifle', 150, 385, Math.PI);
   spawn(sim, 'black_grail', 'grail_thrall', 150, 360, 0);
   const pos = [];
-  for (let i = 0; i < 8; i++) { pos.push([na.members[i].x, na.members[i].z]); killSoldier(sim, na, na.members[i], 'black_grail', 'claw', 0, 1); }
+  // two squads: the plague claims a hashed share of the bodies (independent of entity ids)
+  for (const q of [na, na2]) for (let i = 0; i < 8; i++) { pos.push([q.members[i].x, q.members[i].z]); killSoldier(sim, q, q.members[i], 'black_grail', 'claw', 0, 1); }
   run(sim, 3);
   const infected = sim.state.corpses.filter((c) => c.infected).length;
   const claimed = sim.state.corpses.filter((c) => plagueClaims(c.soldierId)).length;

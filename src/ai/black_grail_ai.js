@@ -10,6 +10,10 @@
 //  - Phase 2 corpse economy: a few capped Grail Thrall work gangs haul uninfected bodies to
 //    altars / corpse mounds and raise the map's organic build plan (corpse mound, fly nest,
 //    plague pits, bone barricades) through the same BUILD / GATHER commands as a player
+//  - Phase 3: gangs FORAGE (animals first, then bodies) from the preparation on; small Thrall
+//    packs RAID known farms / pens / isolated settlements / convoys — more often while biomass is
+//    low — and rejoin the waves after; speciality choices; Great Pestilence on the biggest visible
+//    entrenched cluster; Black Tide on an engaged wave; heralds / amalgams / the Lord of Tumours
 import { unitDef, hasRole } from '../data/units.js';
 import { ABILITIES } from '../data/abilities.js';
 import { FACTIONS, areHostile } from '../data/factions.js';
@@ -18,11 +22,16 @@ import { dist } from '../core/dmath.js';
 import { STRUCTURES } from '../data/structures.js';
 import { validatePlacement } from '../construction/construction.js';
 import { rngFloat } from '../core/rng.js';
+import { unitCost, unitMaxSquads, specHas, unlockedBySpec } from '../sim/specialities.js';
 import { aiIssue } from './issue.js';
+import { aiPickSpeciality } from './spec_pick.js';
+import { forageSpot, habitatSpot, raidTarget, convoyNear, clusterTarget, visibleHostiles } from './black_grail_econ.js';
 
 const LANES = ['west', 'center', 'east'];
 const WAYPOINT_REACHED = 16;
-const HAUL_RANGE = 380; // how far a gang is sent for a body (it still has to walk back)
+const RAID_AFTER = 20 * 70; // first raid not before this much war
+const RAID_EVERY = 20 * 120; // between raids (x2 while biomass is plentiful)
+const RAID_MAX = 20 * 150; // a raid gives up after this
 
 function combatSquads(sim, fid) {
   return sim.state.squads.filter((sq) => sq.faction === fid && unitDef(sq.type).combatUnit && sq.members.some((m) => m.state === 'alive' || m.state === 'rising'));
@@ -113,6 +122,8 @@ export const blackGrailAI = {
       danger: { west: 0, center: 0, east: 0 },
       lastLosses: 0, lastAbilityCheck: 0, trainCounter: 0, altarIndex: 0, retry: {}, stage: {},
       launchedTick: 0,
+      // Phase 3: raid in progress { gid, sid, start } / last raid tick; speciality bookkeeping
+      raid: null, lastRaid: 0,
     };
     // initial groups by lateral position (west/center/east); elites strengthen the center
     const squads = combatSquads(sim, fid).sort((a, b) => a.x - b.x || a.id - b.id);
@@ -178,9 +189,12 @@ export const blackGrailAI = {
       }
     }
     ai.groups = ai.groups.filter((g) => g.squadIds.length || g.mode === 'forming');
+    const stress = sim.scenario && sim.scenario.mode === 'stress';
+    if (!stress) aiPickSpeciality(sim, fid, ai, (tier) => this.specWeights(sim, fid, tier));
 
     if (state.match.phase === 'PREPARATION') {
       this.deploy(sim, fid, ai);
+      this.gangs(sim, fid, ai); // foraging starts before the war (own half: animals, old dead)
       return;
     }
     if (state.match.phase !== 'WAR') return;
@@ -190,9 +204,109 @@ export const blackGrailAI = {
       for (const g of ai.groups) if (g.squadIds.length) this.launch(sim, fid, ai, g);
     }
     this.manageGroups(sim, fid, ai);
+    if (!stress) this.raids(sim, fid, ai);
     this.useAbility(sim, fid, ai);
+    this.plague(sim, fid, ai);
     this.produce(sim, fid, ai);
     this.gangs(sim, fid, ai);
+  },
+
+  specWeights(sim, fid, tier) {
+    const f = sim.state.factions[fid];
+    if (tier === 0) return { bg_horde: 4, bg_touch: 3, bg_hunger: 3 + ((f.resources.biomass || 0) < 80 ? 1 : 0) };
+    if (tier === 1) return { bg_heralds: 3.5, bg_amalgam: 3.5, bg_dominion: 3 };
+    return { bg_black_tide: 3.5, bg_great_pestilence: 3 + ((f.pestilence || 0) >= 50 ? 2 : 0), bg_lord: 3.5 };
+  },
+
+  /**
+   * RAIDS: a small Thrall pack (taken from the forming wave) hits a known economic target —
+   * farms, pens, quarries, isolated settlements — and intercepts visible convoys on the way; when
+   * the target is gone and nothing else is near, the pack rejoins the waves.
+   */
+  raids(sim, fid, ai) {
+    const { state, rt } = sim;
+    const tick = state.tick;
+    const f = state.factions[fid];
+    if (ai.raid) {
+      const g = groupById(ai, ai.raid.gid);
+      if (!g || !g.squadIds.length) { ai.raid = null; ai.lastRaid = tick; return; }
+      if (tick - ai.raid.start > RAID_MAX || !groupCentroid(sim, g, C)) { this.endRaid(sim, fid, ai, g); return; }
+      const cv = convoyNear(sim, fid, C[0], C[1], 70);
+      let tgt = rt.structById.get(ai.raid.sid);
+      if (!tgt || tgt.hp <= 0) {
+        const home = state.structures.find((s) => s.objective && ((s.visibleTo | s.seenBy) & (1 << FACTIONS[fid].index)));
+        tgt = raidTarget(sim, fid, C[0], C[1], 90, home ? home.x : undefined, home ? home.z : undefined);
+        if (!tgt && !cv) { this.endRaid(sim, fid, ai, g); return; }
+        ai.raid.sid = tgt ? tgt.id : 0;
+      }
+      for (const id of g.squadIds) {
+        const sq = rt.squadById.get(id);
+        if (!sq || sq.engaged) continue;
+        if (cv) {
+          if (sq.order.t !== 'move' || dist(sq.order.x, sq.order.z, cv.x, cv.z) > 8) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [id], x: cv.x, z: cv.z, attackMove: true });
+        } else if (tgt && !(sq.order.t === 'attack' && sq.order.tid === tgt.id)) {
+          aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: [id], tk: 'struct', tid: tgt.id });
+        }
+      }
+      return;
+    }
+    if (tick - ai.launchedTick < RAID_AFTER) return;
+    const hungry = (f.resources.biomass || 0) < 90;
+    if (tick - (ai.lastRaid || 0) < (hungry ? RAID_EVERY : RAID_EVERY * 2)) return;
+    const forming = ai.groups.find((g) => g.mode === 'forming' && g.squadIds.length >= 2);
+    if (!forming || !groupCentroid(sim, forming, C)) return;
+    const home = state.structures.find((s) => s.objective && ((s.visibleTo | s.seenBy) & (1 << FACTIONS[fid].index)));
+    const tgt = raidTarget(sim, fid, C[0], C[1], 420, home ? home.x : undefined, home ? home.z : undefined);
+    if (!tgt) { ai.lastRaid = tick - RAID_EVERY / 2; return; }
+    const pack = [];
+    for (const id of forming.squadIds) {
+      const sq = rt.squadById.get(id);
+      if (sq && unitDef(sq.type).roles.indexOf('horde') >= 0 && pack.length < 2) pack.push(id);
+    }
+    if (!pack.length) return;
+    forming.squadIds = forming.squadIds.filter((id) => pack.indexOf(id) < 0);
+    const g = newGroup(ai, forming.lane, 'raid');
+    g.mode = 'raid';
+    g.formedTick = tick;
+    for (const id of pack) { g.squadIds.push(id); const sq = rt.squadById.get(id); if (sq) sq.aiGroup = g.id; }
+    ai.raid = { gid: g.id, sid: tgt.id, start: tick };
+    ai.lastRaid = tick;
+    ai.raidCount = (ai.raidCount || 0) + 1; // AI memory (balance statistics read it)
+    aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: pack.slice(), tk: 'struct', tid: tgt.id });
+  },
+
+  endRaid(sim, fid, ai, g) {
+    g.role = 'wave';
+    g.mode = 'forming';
+    g.formedTick = sim.state.tick;
+    g.stage = 0;
+    for (const id of g.squadIds) ai.stage[id] = 0;
+    ai.raid = null;
+    ai.lastRaid = sim.state.tick;
+  },
+
+  /** Great Pestilence (meter full) on the biggest visible cluster; Black Tide on an engaged wave. */
+  plague(sim, fid, ai) {
+    const { state } = sim;
+    const f = state.factions[fid];
+    if (state.tick - (ai.lastPlague || 0) < 20) return;
+    ai.lastPlague = state.tick;
+    const gp = ABILITIES.great_pestilence;
+    const gs = f.abilities.great_pestilence;
+    if (gs && gs.readyTick <= state.tick && (f.pestilence || 0) >= gp.requiresPestilence && (f.resources.biomass || 0) >= gp.cost.biomass) {
+      const t = clusterTarget(sim, fid, gp.radius, gp.castRange, 14);
+      if (t) aiIssue(sim, { type: CMD.USE_ABILITY, faction: fid, ability: 'great_pestilence', x: t.cx, z: t.cz });
+    }
+    const bt = ABILITIES.black_tide;
+    const ts = f.abilities.black_tide;
+    if (ts && ts.readyTick <= state.tick && unlockedBySpec(state, fid, bt) && (f.resources.biomass || 0) >= bt.cost.biomass + 30) {
+      for (const g of ai.groups) {
+        if (g.mode !== 'advance' || g.squadIds.length < 3 || !groupCentroid(sim, g, C)) continue;
+        if (visibleHostiles(sim, fid, C[0], C[1], 45) < 8) continue;
+        aiIssue(sim, { type: CMD.USE_ABILITY, faction: fid, ability: 'black_tide', x: C[0], z: C[1] });
+        break;
+      }
+    }
   },
 
   /** Work gangs: keep a couple, build the organic plan, haul corpses. Never used in assaults. */
@@ -204,10 +318,11 @@ export const blackGrailAI = {
     const f = state.factions[fid];
     const bit = 1 << FACTIONS[fid].index;
     const gangs = state.squads.filter((sq) => sq.faction === fid && hasRole(unitDef(sq.type), 'builder') && sq.members.some((m) => m.state === 'alive'));
-    // production: at most two gangs (cap in data is higher), only with biomass to spare
-    const want = 2;
-    const gdef = unitDef('thrall_gang');
-    if (squadCount(sim, fid, 'thrall_gang') < want && (f.resources.biomass || 0) >= gdef.cost.biomass + 40 && state.tick - (ai.lastGang || -1e9) > 20 * 30) {
+    // production: two gangs (three with the Hunger), the first as soon as it is affordable
+    const want = Math.min(unitMaxSquads(state, fid, 'thrall_gang') || 2, specHas(state, fid, 'bg_hunger') ? 3 : 2);
+    const have = squadCount(sim, fid, 'thrall_gang');
+    const gcost = unitCost(state, fid, 'thrall_gang').biomass;
+    if (have < want && (f.resources.biomass || 0) >= gcost + (have ? 40 : 0) && state.tick - (ai.lastGang || -1e9) > 20 * (have ? 30 : 5)) {
       const altar = state.structures.find((s) => s.faction === fid && s.built && s.queue && s.queue.length === 0 && STRUCTURES[s.type].trains.indexOf('thrall_gang') >= 0);
       if (altar) {
         ai.lastGang = state.tick;
@@ -221,7 +336,7 @@ export const blackGrailAI = {
     for (const g of gangs) {
       const o = g.order;
       if (o.t === 'build') continue;
-      if (o.t === 'gather' && o.phase !== 'to_node') continue;
+      if (o.t === 'gather' && o.phase !== 'to_node' && o.phase !== 'seek') continue;
       // 1) unfinished own sites
       let site = null, sd = 1e9;
       for (const st of state.structures) {
@@ -230,38 +345,48 @@ export const blackGrailAI = {
         if (d < sd) { sd = d; site = st; }
       }
       if (site) { busy.add(site.id); aiIssue(sim, { type: CMD.ASSIST_BUILD, faction: fid, squadIds: [g.id], sid: site.id }); continue; }
-      // 2) next organic plan item (keep biomass for the horde: only with a surplus)
-      if (!placedNow && (f.resources.biomass || 0) > 120 && state.match.phase === 'WAR') {
-        let placed = false;
+      // 2) next organic plan item: with a surplus, or when one is due (every ~90 s of war the
+      //    altars hold back its price — production alone would never leave a surplus)
+      if (!placedNow && state.match.phase === 'WAR') {
+        const due = state.tick - (ai.lastPlan || state.match.prepEndTick || 0) > 20 * 90;
+        let placed = false, want = 0;
         for (const item of world.grailPlan || []) {
           if (planDone(sim, fid, item)) continue;
           const params = item.x1 !== undefined ? { x1: item.x1, z1: item.z1, x2: item.x2, z2: item.z2 } : { x: item.x, z: item.z, rot: item.rot || 0 };
           if (!validatePlacement(sim, fid, item.type, params).ok) continue;
+          const cost = (STRUCTURES[item.type].cost && STRUCTURES[item.type].cost.biomass) || 0;
+          want = cost;
+          if ((f.resources.biomass || 0) <= (due ? cost + 10 : 120)) break;
           aiIssue(sim, { type: CMD.BUILD, faction: fid, squadIds: [g.id], stype: item.type, ...params });
           placed = true;
           placedNow = true; // one new site per think (commands resolve next tick)
+          ai.lastPlan = state.tick;
           break;
         }
+        ai.planReserve = !placed && due ? want : 0;
         if (placed) continue;
       }
-      if (o.t === 'gather') continue;
-      // 3) haul a known, uninfected body left behind the horde: an own assault squad nearby covers
-      //    the gang, no visible defender close to it (gangs are expendable labour, not scouts)
-      let body = null, bd = Infinity;
-      const own = state.squads.filter((q) => q.faction === fid && unitDef(q.type).combatUnit);
-      for (const c of state.corpses) {
-        if (c.infected || c.riseAt || !(c.seenBy & bit)) continue;
-        const d = dist(g.cx, g.cz, c.x, c.z);
-        if (d >= bd || d > HAUL_RANGE) continue;
-        let covered = false;
-        for (const q of own) if (dist(q.cx, q.cz, c.x, c.z) < 45) { covered = true; break; }
-        if (!covered) continue;
-        let unsafe = false;
-        for (const en of state.squads) if (areHostile(fid, en.faction) && (en.visibleTo & bit) && dist(en.cx, en.cz, c.x, c.z) < 45) { unsafe = true; break; }
-        if (unsafe) continue;
-        bd = d; body = c;
+      if (o.t === 'gather') {
+        // a forage field that has run dry (the gang waits there for new prey): after a while the
+        // AI looks for fresh prey elsewhere, like a player re-pointing the gang
+        if (!ai.gangSeek) ai.gangSeek = {};
+        if (o.mode !== 'forage' || o.phase !== 'seek' || g.carry > 0) { delete ai.gangSeek[g.id]; continue; }
+        if (!ai.gangSeek[g.id]) ai.gangSeek[g.id] = state.tick;
+        if (state.tick - ai.gangSeek[g.id] < 20 * 15) continue;
+        delete ai.gangSeek[g.id];
       }
-      if (body) aiIssue(sim, { type: CMD.GATHER, faction: fid, squadIds: [g.id], cid: body.id });
+      // 3) FORAGE an area: visible animals first, then known uninfected bodies with an own assault
+      //    squad close by (gangs are expendable labour, not scouts); the gang hunts, strips and
+      //    hauls on its own until the area is empty (no per-body orders)
+      const spot = forageSpot(sim, fid, g);
+      if (spot) { aiIssue(sim, { type: CMD.FORAGE, faction: fid, squadIds: [g.id], x: spot.x, z: spot.z }); continue; }
+      // nothing in sight: sweep a known pasture / wood of its own country (one gang per habitat)
+      if (!ai.habMemo) ai.habMemo = {};
+      const h = habitatSpot(sim, fid, g, ai.habMemo);
+      if (h) {
+        ai.habMemo[h.id] = state.tick + 20 * 100;
+        aiIssue(sim, { type: CMD.FORAGE, faction: fid, squadIds: [g.id], x: h.x, z: h.z });
+      }
     }
   },
 
@@ -304,7 +429,7 @@ export const blackGrailAI = {
     const objective = state.structures.find((s) => s.objective);
     const objKnown = objective && ((objective.visibleTo | objective.seenBy) & bit);
     for (const g of ai.groups) {
-      if (!g.squadIds.length) continue;
+      if (!g.squadIds.length || g.mode === 'raid') continue;
       if (g.mode === 'forming') {
         // launch the wave when strong enough or after waiting long enough
         if (!g.formedTick) g.formedTick = state.tick;
@@ -419,19 +544,40 @@ export const blackGrailAI = {
   produce(sim, fid, ai) {
     const { state } = sim;
     const f = state.factions[fid];
-    const altars = state.structures.filter((s) => s.faction === fid && s.built && s.queue);
-    if (!altars.length) return;
-    const busy = altars.filter((a) => a.queue.length > 0).length;
+    const trainers = state.structures.filter((s) => s.faction === fid && s.built && s.queue);
+    if (!trainers.length) return;
+    const busy = trainers.filter((a) => a.queue.length > 0).length;
     if (busy >= 2) return;
     // keep a reserve for the swarm when it is almost ready
     const ab = f.abilities.fly_swarm;
-    const reserve = ab && ab.readyTick - state.tick < 20 * 10 ? ABILITIES.fly_swarm.cost.biomass : 0;
+    const reserve = (ab && ab.readyTick - state.tick < 20 * 10 ? ABILITIES.fly_swarm.cost.biomass : 0) + (ai.planReserve || 0);
+    const room = (type) => {
+      if (!unlockedBySpec(state, fid, unitDef(type))) return false;
+      const max = unitMaxSquads(state, fid, type);
+      return !max || squadCount(sim, fid, type) < max;
+    };
     ai.trainCounter++;
+    const bio = f.resources.biomass || 0;
+    const afford = (type) => bio >= unitCost(state, fid, type).biomass + reserve;
     let unit = 'grail_thrall';
-    if (ai.trainCounter % 5 === 0) unit = 'plague_knight';
+    if (room('lord_of_tumours') && afford('lord_of_tumours')) unit = 'lord_of_tumours';
+    else if (ai.trainCounter % 6 === 0 && room('herald')) unit = 'herald';
+    else if (ai.trainCounter % 4 === 0 && room('amalgam') && trainers.some((s) => STRUCTURES[s.type].trains.indexOf('amalgam') >= 0 && !s.queue.length)) unit = 'amalgam';
+    else if (ai.trainCounter % 5 === 0) unit = 'plague_knight';
     else if (ai.trainCounter % 3 === 0) unit = 'corpse_guard';
-    const cost = unitDef(unit).cost.biomass;
-    if ((f.resources.biomass || 0) < cost + reserve) { ai.trainCounter--; return; }
+    if (!afford(unit)) {
+      // saving up for an elite never stalls the altars: after a while the horde takes thralls
+      if (unit === 'grail_thrall' || !ai.eliteSince || state.tick - ai.eliteSince < 20 * 25) {
+        if (unit !== 'grail_thrall' && !ai.eliteSince) ai.eliteSince = state.tick;
+        ai.trainCounter--;
+        return;
+      }
+      unit = 'grail_thrall';
+      if (!afford(unit)) { ai.trainCounter--; return; }
+    }
+    ai.eliteSince = 0;
+    const altars = trainers.filter((s) => STRUCTURES[s.type].trains.indexOf(unit) >= 0 && !s.queue.length);
+    if (!altars.length) { ai.trainCounter--; return; }
     const altar = altars[ai.altarIndex % altars.length];
     ai.altarIndex++;
     const lane = safestLane(ai, state.rng.ai);

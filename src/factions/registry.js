@@ -13,6 +13,14 @@ export function factionLogic(fid) {
   return LOGIC[FACTIONS[fid].logic];
 }
 
+/** One-time faction setup when a match is created (e.g. New Antioch's civilian population). */
+export function setupFactions(sim) {
+  for (const fid of FACTION_ORDER) {
+    const logic = factionLogic(fid);
+    if (logic && logic.setup) logic.setup(sim, fid);
+  }
+}
+
 export function updateFactions(sim) {
   if (sim.state.match.phase === 'ENDED') return;
   for (const fid of FACTION_ORDER) {

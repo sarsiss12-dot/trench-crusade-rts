@@ -103,14 +103,20 @@ export function createActions(game) {
       return validatePlacement(sim, viewer, stype, params);
     },
 
+    /**
+     * Place a site. Selected builders take it; with none selected the SIMULATION auto-dispatches
+     * the nearest available builder (or queues it) — the player never has to hunt for engineers.
+     */
     build(stype, params) {
       const v = validatePlacement(sim, viewer, stype, params);
       if (!v.ok) return fail(v.reason);
       const cx = STRUCTURES[stype].kind === 'linear' ? (v.params.x1 + v.params.x2) / 2 : v.params.x;
       const cz = STRUCTURES[stype].kind === 'linear' ? (v.params.z1 + v.params.z2) / 2 : v.params.z;
-      const builders = A.buildersFor(cx, cz);
-      if (!builders.length) return fail('cmd.no_engineers'); // nobody could ever dig it: do not pay
-      session.issue(CMD.BUILD, { squadIds: builders.map((s) => s.id), stype, ...v.params });
+      const selected = own().filter((sq) => unitDef(sq.type).roles.indexOf('builder') >= 0);
+      if (!selected.length && !A.buildersFor(cx, cz).length) return fail('cmd.no_engineers'); // nobody could ever dig it: do not pay
+      const cmd = { stype, ...v.params };
+      if (selected.length) cmd.squadIds = selected.map((s) => s.id);
+      session.issue(CMD.BUILD, cmd);
       feedback('build', cx, cz);
       return true;
     },
@@ -190,6 +196,51 @@ export function createActions(game) {
     setRally(st, x, z) {
       session.issue(CMD.SET_RALLY, { sid: st.id, x, z });
       feedback('rally', x, z);
+      return true;
+    },
+
+    // ---------------------------------------------------------------- Phase 3
+    /** Grail work gangs: hunt / strip / haul everything in an area until it is empty. */
+    forage(x, z) {
+      const squads = own().filter((sq) => unitDef(sq.type).gathers === 'corpse');
+      if (!squads.length) return fail('cmd.no_gatherers');
+      session.issue(CMD.FORAGE, { squadIds: squads.map((s) => s.id), x, z });
+      feedback('build', x, z);
+      return true;
+    },
+
+    /** Engineers burn the dead and scour infected ground (selected ones, else the nearest free). */
+    sanitize(x, z) {
+      const squads = own().filter((sq) => unitDef(sq.type).roles.indexOf('sanitizer') >= 0);
+      const cmd = { x, z };
+      if (squads.length) cmd.squadIds = squads.map((s) => s.id);
+      session.issue(CMD.SANITIZE, cmd);
+      feedback('build', x, z);
+      return true;
+    },
+
+    herdArea(st, x, z) {
+      session.issue(CMD.HERD_AREA, { sid: st.id, x, z });
+      feedback('rally', x, z);
+      return true;
+    },
+
+    slaughter(st) {
+      session.issue(CMD.SLAUGHTER, { sid: st.id });
+      if (game.audio) game.audio.ui('confirm');
+      return true;
+    },
+
+    evacuate(st) {
+      if (st.evac) return fail('evac.already');
+      session.issue(CMD.EVACUATE, { sid: st.id });
+      if (game.audio) game.audio.ui('confirm');
+      return true;
+    },
+
+    chooseSpec(tier, spec) {
+      session.issue(CMD.CHOOSE_SPECIALITY, { tier, spec });
+      if (game.audio) game.audio.ui('confirm');
       return true;
     },
 

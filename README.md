@@ -7,10 +7,12 @@
 HTML5 + JavaScript (native ES modules) + WebGL2 + Web Audio ile yazılmış, **harici model / doku / ses dosyası
 kullanmayan** (her şey prosedürel), Android öncelikli, masaüstünde de oynanan bir kuşatma RTS'i.
 
-- **Yeni Antakya (savunan):** siper kazar, kum torbası ve dikenli tel çeker, makineli mevzi kurar; malzeme, ikmal,
+- **Yeni Antakya (savunan):** siper kazar, kum torbası ve dikenli tel çeker, makineli mevzi kurar; haritadaki kaynak
+  bölgelerine sivil yerleşimler kurarak yayılır (nüfus → insan gücü, tarla, ağıl, taş ocağı, konvoy); malzeme, ikmal,
   insan gücü ve erzak ile yaşar; cephane ikmal yarıçapı ve arkadan yürüyerek gelen takviye ile savaşır.
-- **Kara Kâse (saldıran):** işçi → maden → kışla yoktur; cesetleri biyokütleye çevirir, enfekte ölüleri düştükleri
-  yerde yeniden kaldırır, Beelzebub sunaklarından sürü yetiştirir, vebayı toprağa yayar, sinek sürüsü salar.
+- **Kara Kâse (saldıran):** işçi → maden → kışla yoktur; hayvanları avlar, cesetleri biyokütleye çevirir, enfekte
+  ölüleri düştükleri yerde yeniden kaldırır, Beelzebub sunaklarından ucuz Köle sürüleri yetiştirir, vebayı toprağa
+  yayar, veba ölçeğini doldurup Büyük Veba'yı salar, sinek sürüsü salar.
 - Akış: **HAZIRLIK** (hasar yok, konuşlanma bölgeleri, tahkimat) → **SAVAŞ** (süre veri ile ayarlı: 5–180 dk)
   → zafer / yenilgi (Kilise Burcu düşerse saldıran, süre dolarsa ya da saldıran tükenirse savunan kazanır).
 
@@ -22,11 +24,13 @@ Gereksinim yok (sıfır bağımlılık). Node.js ≥ 18 yalnızca geliştirme su
 
 ```bash
 node tools/serve.js            # http://localhost:8080  (aynı ağdaki telefon için LAN adresi de yazdırılır)
-npm test                       # = node tests/run.js      — 157 Node testi
+npm test                       # = node tests/run.js      — 195 Node testi
 npm run build                  # = node tools/build.js    — dist/index.html (tek dosya, çevrimdışı çalışır)
-npm run balance                # = node tools/balance.js  — AI'ya karşı AI deterministik maçlar
+npm run balance                # = node tools/balance.js  — AI'ya karşı AI deterministik maçlar + Faz 3 denge ölçümleri
+                               #   (--seeds 1,2,…  --minutes 15  --verbose  --json çıktı.json)
 npm run test:browser           # = node tools/browser_smoke.js — (Playwright varsa) 9 gerçek tarayıcı kontrolü
-node tools/showcase.js         # (Playwright varsa) Faz 2 görsel sahneleri → test-output/showcase-*.png
+node tools/showcase.js [ad]    # (Playwright varsa) Faz 2 + Faz 3 görsel sahneleri → test-output/showcase-*.png
+                               #   Faz 3: p3_settlement, p3_units, p3_flame, p3_plague, p3_hud, p3_convoy
 ```
 
 Build çıktısı `dist/index.html` tek başına çift tıklanarak (`file://`) veya herhangi bir statik sunucudan açılır.
@@ -107,6 +111,73 @@ yazılmadan eklendi:
 - **Kayıt:** sürüm 2 + 1→2 göçü (kraterler, takviye istekleri, bastırma, havan yeteneği; eski "takviyeye geri yürü"
   emirleri yerinde bekleyen isteğe dönüşür). Eski kayıtlar sessizce bozulmaz (test).
 
+## 2c. Faz 03 — Yaşayan cephe, asimetrik ekonomi, veba
+
+Çalışan Faz 1–2 sistemleri korunarak, aynı kaynak ağacında eklendi (kayıt sürümü 3):
+
+- **Yeni Antakya yayılmak zorunda:** haritada 10 **kaynak bölgesi** (verimli toprak ×3, mera ×2, harap köy ×2,
+  taş ocağı, hurda sahası, terk edilmiş depo); zenginlik (fakir / orta / zengin) her maçta tohumdan çekilir, en iyi
+  yayılma sırası maçtan maça değişir. Bölgeye **Sivil Yerleşim** kurulur (60 malzeme + 40 ikmal); çevresine tarla,
+  hayvan ağılı, taş ocağı açılır (bölge türü belirler). HAZIRLIK'ta en fazla 2 yerleşim.
+- **Kaynaklar:** erzak / malzeme / ikmal / insan gücü. **Nüfus harcanmaz**; insan gücü üretim kapasitesini belirler:
+  insan gücü = hafif pasif akış (1,5/dk) + güvende olan sivil × 0,1/dk × erzak katsayısı; her acemi 4 erzak yer.
+  Uzak yerleşimlerin üretimi **fiziksel konvoylarla** (katır + araba) eve gider; konvoy yolda vurulabilir.
+- **Siviller:** yerleşim başına görünür iş ekibi (en fazla 6) tarlada çalışır, yük taşır, görünen tehlikede sığınır.
+  **TAHLİYE** komutu insanları güvene yürütür (nüfus korunur); 45 sn güvenlikten sonra yerleşim yeniden dolar.
+  Yerleşim düşerse içindeki nüfus kaybedilir. Siviller komut almaz, seçilmez (performans için grup hâlinde).
+- **İstihkâmcı arama derdi yok:** seçim yokken verilen İNŞA emri, şantiyeye en yakın **müsait** istihkâmcıya gider
+  (meşgulse sıraya — en fazla 4 iş); HUD kenarındaki **istihkâm şeridi** her ekibin durumunu gösterir (Hazır / Yolda /
+  İnşa / Onarım / Temizlik / Tehlike), dokununca seçer ve kamerayı götürür. Atanan ekip 3 sn parlar; haritada nabız
+  halkası + şantiyeye ışın + işaret. İş bitince en yakın yerleşim / atölye / burca döner, HAZIR olur.
+- **Hayvanlar:** koyun, keçi, domuz, sığır, katır, sokak köpeği (fantastik yaratık yok); 10 yaşam alanı, alan başına
+  sınır + toplam 64 sınırı, **yavaş** geri dolma (75–120 sn; ölümden sonra en erken 60 sn). Sürü dolaşımı, kaçma,
+  askerlerden çekinme; Kâse'nin kokusunu uzaktan alırlar. **Hayvan ağılı:** çobanlar (siviller) yakındaki hayvanları
+  canlı sürüp getirir (SÜRÜ ALANI), ağıldakiler sürekli erzak verir; **acil kesim** bütün sürüyü hemen erzağa çevirir
+  (Kâse'ye leş kalmaz).
+- **Kara Kâse beslenmesi:** köle takımlarına **YİYECEK ARA** bölge emri (tek tek hayvan seçmek yok): uygun hayvanı
+  avlar, leşi soyar, en yakın sunağa / ceset yığınına taşır, alan boşalınca bekler; boşta kalan takım yakındaki
+  bilinen cesetlere kendiliğinden gider. Biyokütle kaynakları: hayvan (düşük), eski savaş ölüleri (düşük-orta),
+  sivil (orta), düşman askeri (yüksek), ağır zırhlı (daha yüksek), kendi ölüleri (düşük), sunak pasif geliri
+  (çok düşük: sunak başına 0,14/sn — yalnızca ilk dalgalar için taban).
+- **Ucuz Köle sürüsü:** Kâse Kölesi mangası 12 kişi, 60 biyokütle (kişi başı 5); "Ezici Sürü" bonusu yakındaki Kâse
+  bedenleriyle büyür ama **üst sınırlıdır** (üstel değil). Makineli + tel + alev hâlâ karşılığıdır (test).
+- **Veba (Pestilence) 0–100:** 5 kademe (Uykuda / Çürüyor / Salgın / Veba Dalgası / BÜYÜK VEBA HAZIR), veri odaklı.
+  Enfeksiyon, enfekte ölüler, dirilişler, hayvan ölümleri, enfekte toprak ve veba yapılarıyla artar; yakma, temizlik,
+  tedavi, veba yapılarının yıkımı ve uzun süre başarısızlıkla düşer. Artış yükseldikçe zorlaşır ve savaş süresine
+  göre ölçeklenir. 100'de **Büyük Veba** yeteneği vebanın 60'ını harcar (kalıcı kartopu yok). Bulut tek başına en
+  fazla 3 enfeksiyon bulaştırır: bulutta kalan savunmasız manga ağır kayıp verir, sıhhiyeciyle çekilen manga kurtulur.
+- **Diriliş:** yeterince enfekte ölen asker **enfekte ceset** olur, sayaç dolunca düştüğü yerde Köle olarak kalkar
+  (anında değil). Uyarı: cesedin üstünde sinekler / hastalık zerreleri. Karşılık: yakma (alev, temizlik, rahip,
+  Arınma Ayini), kutsanmış zemin.
+- **Karşı-veba:** Muharebe Sıhhiyecisi (erken enfeksiyonu tedavi, geç enfeksiyonu yavaşlatır, yaralıyı kaldırır —
+  bağışıklık yok), Siper Rahibi (direnç aurası, moral, yakındaki ölüler kalkamaz, enfekte cesetleri yakar), Hücum
+  Alevcisi (atölye gerekir, en fazla 2 takım: sürüyü, cesetleri, enfekte zemini, organik / ahşap yapıları yakar; boşta
+  menzildeki bilinen enfekte cesetleri kendiliğinden yakar), **ALANI TEMİZLE** (istihkâmcılar alandaki her cesedi
+  yakar, sonra zemini kazır; ikmal ister), sınırlı **yaralı asker** (kan kaybından ölür ya da kaldırılır).
+- **Uzmanlıklar:** taraf başına 3 kademe × 3 seçenek (maçın başında / %30 / %60'ında açılır), geri alınamaz, 3 büyük
+  kart + onay; her biri oynanışı değiştirir (yeni birim / yapı / yetenek / kural), küçük stat bonusu değil. Yeni
+  Antakya: Tahkimat Doktrini, Lojistik Kolordusu, İnanç ve Şifa → Ağır Topçu, Mekanize Yedekler, Tahkimatlı
+  Yerleşimler → İleri Lojistik, Arınma Seferi, Seçkin Savunma. Kara Kâse: Ezici Sürü, Beelzebub'un Dokunuşu, Büyük
+  Açlık → Beelzebub'un Habercileri, Kaynaşma, Veba Hâkimiyeti → Kara Dalga, Büyük Veba, Tümörler Lordu.
+  Kanon adlar ayrıca işaretlidir (ör. "Overwhelming Horde", "Beelzebub's Touch" resmî kurallardır); gerisi soyutlama.
+- **Kahraman / seçkin (spam yok):** Teğmen, Siper Rahibi (Yeni Antakya); Beelzebub'un Habercisi (en fazla 2),
+  Amalgam (en fazla 3, ceset yığınında), Tümörler Lordu (en fazla 1) — uzmanlık kilidi + manga sınırı.
+- **Çok mangalı siper:** siper ağı birden çok mangayı **bütün hâlinde** alır (yarım manga yok); dolu ağ yönlendirir veya
+  reddeder. Siper seçilince **"N manga · kullanılan/toplam yer"** rozeti; rozete dokununca mangaların kartları
+  (simge, ad, sağ/toplam, can, cephane, enfeksiyon) açılır, karta dokunmak o mangayı seçer.
+- **Yapay zekâ:** Yeni Antakya HAZIRLIK'ta 1–2 yerleşim kurar (güvenli + zengin önce; ordunun koruyabileceğinden
+  fazla değil), tarla / ağıl / ocak ekler, açıktakileri hafif tahkim eder, ezilmek üzere olanı tahliye eder,
+  tehdit altındaki ağılı keser, görünen hayvanlara çoban yollar, enfekte ölüleri yaktırır, uzmanlık seçer. Kara Kâse
+  görünen hayvanları → bilinen cesetleri → bildiği otlak / ormanı arar, yağma baskınları yapar, Büyük Veba / Kara
+  Dalga kullanır, uzmanlık seçer. Hepsi normal komut hattından; gizli bilgi kullanmaz.
+- **Sunum:** yeni modeller (sıhhiyeci, rahip, alevci, teğmen, 4 sivil çeşidi, haberci, amalgam, lord; aynı iskelete
+  dört ayaklı olarak oturan 6 hayvan; katır arabası; yerleşim, tarla, ağıl, taş ocağı, beton mevzi), hayvan
+  animasyonu (tırıs, dörtnala, otlama, ölüm), alev hüzmesi, yakma ateşi, yanan askerler, veba bulutu, arınma alevleri,
+  kara dalga zerreleri, dönüşmekte olan ceset sinekleri; bölge halkaları + zenginlik noktaları, yerleşim alanı, sürü
+  alanı, yiyecek / temizlik daireleri; mini haritada bölgeler, konvoylar, siviller; sesler (alev, hayvanlar,
+  çatırtı, veba, tahliye çanı, kademe borazanı). Harici varlık yok.
+- **Kayıt:** sürüm 3 + 2→3 göçü (eski kayıt, tohumundan deterministik olarak yaşayan dünyayı kazanır).
+
 ## 3. Mimari
 
 Tek kaynak ağacı, alan (domain) bazlı modüller, **döngüsel bağımlılık yok** (test ile zorunlu), dev `game.js` yok.
@@ -118,21 +189,26 @@ src/
   world/        mapgen (katmanlı harita), terrain, nav (A* + yumuşatma + önbellek), fog, ground, structgrid
   sim/          state (JSON GameState), commands, simulation (sabit 20 Hz tick), match, perception (sis + görünürlük
                 bitmaskeleri + olay filtreleme), production, abilities (+ kraterler, patlamalar), scenario, home (taraf
-                farkında HOME), corpses, runtime (yeniden kurulabilir önbellekler)
-  units/        orders (manga emir makinesi, yol istek kısıtlama), movement (manga + asker yönlendirme), formation
+                farkında HOME), corpses, runtime (yeniden kurulabilir önbellekler); Faz 3: wildlife (hayvanlar,
+                ağıllar), specialities (uzmanlık kuralları), auras (rahip / lider auraları)
+  units/        orders (manga emir makinesi, yol istek kısıtlama), movement (manga + asker yönlendirme), formation,
+                engineers (otomatik istihkâmcı atama, sıra, merkeze dönüş, durum)
   combat/       combat (menzil/yakın dövüş, tepki gecikmesi, ölüm → ceset), cover (arazi + siper + yönlü kum torbası)
   construction/ trench (SİPER TEK DOĞRULUK KAYNAĞI), construction (yerleştirme doğrulama → şantiye → iş → tamam)
   economy/ factions/  ortak ekonomi yardımcıları + Yeni Antakya lojistiği (reinforcement: yürüyen yedekler) /
-                Kara Kâse ceset ekonomisi
-  ai/           ai (zamanlayıcı), black_grail_ai (hat bazlı dalgalar, yeniden emir), new_antioch_ai (savunma planı)
+                Kara Kâse ceset ekonomisi; Faz 3: economy/sectors, settlements (nüfus → insan gücü), convoys;
+                factions/civilians (iş ekipleri, sığınma, tahliye), pestilence (veba ölçeği, enfeksiyon girişi)
+  ai/           ai (zamanlayıcı), black_grail_ai (hat bazlı dalgalar, yeniden emir), new_antioch_ai (savunma planı),
+                new_antioch_econ (yayılma), black_grail_econ (yiyecek arama, baskın), spec_pick (uzmanlık seçimi)
   save/         codec (sürümlü, göç zinciri, typed array base64), storage (slotlar, sandbox yalıtımı)
   render/       renderer (geçiş sırası), shaders, terrain_mesh, units_renderer (instanced skinning, poz dokusu),
                 anim (prosedürel FK+IK, kopuk uzuv / uçan uzuv satırları), gore (DOM'suz vahşet planı + havuzlar),
                 craters (görülen krater hafızası + profil), static_renderer, clutter, fortifications_renderer, fx,
                 overlays, fog_memory, camera, gl, math3d, textures,
-                models/ (humans, props, structures, structures_p2, walls, fortifications…)
+                models/ (humans, humans_p3, animals, props, structures, structures_p2, structures_p3, walls…)
   input/        gestures (DOM'suz jest tanıyıcı), selection, pick (sise saygılı), controller (DOM bağlama)
-  ui/           hud, minimap, menu, debug, i18n (TR/EN), icons (satır içi SVG), dom, style.css
+  ui/           hud (+ hud_p3: veba / nüfus / uzmanlık / istihkâm şeridi / siper paneli), engineer_highlight,
+                trench_panel (DOM'suz, test edilir), minimap, menu, debug, i18n (TR/EN), icons, dom, style.css
   audio/        audio (Web Audio sentezi: katmanlı silahlar, ses bütçesi, uzak cephe), music (prosedürel müzik)
   app/          session (sabit adım, hız, olay dağıtımı, komut günlüğü), actions (niyet → komut), game (bağlama)
   main.js       giriş: ayarlar, menüler, maç yaşam döngüsü
@@ -146,7 +222,7 @@ src/
 - **Determinizm:** aynı başlangıç durumu + tohum + komutlar + tick sayısı ⇒ aynı durum özeti (test edilir).
   Komutlar tick/seq taşır; AI da aynı komut hattını kullanır ⇒ lockstep çok oyunculu mimariye hazır (ağ yok).
 - **GameState** düz JSON'dur (typed array'ler codec ile base64); runtime önbellekleri (nav, grid'ler, indeksler)
-  durumdan yeniden kurulur, kayda girmez. Kayıt sürümü 2, göç zinciri (0→1→2) mevcut.
+  durumdan yeniden kurulur, kayda girmez. Kayıt sürümü 3, göç zinciri (0→1→2→3) mevcut.
 - **Manga düzeyi yapay zekâ:** yol bulma manga başına (4 istek/tick kısıtlamalı, LRU önbellek); askerler düzen
   yuvalarına / siper yuvalarına / iş noktalarına yönlenir; ayırma döngüsü açık döngülerle.
 - **Siper tek doğruluk kaynağı:** `construction/trench.js` — gezinme maliyeti, siper (cover) gücü, doluluk yuvaları,
@@ -174,9 +250,10 @@ src/
   üzerine verilen ilerleme emri mangayı yuvalara dağıtır), siper gücü kazı ilerlemesine bağlı, HUD'da aktif siper.
 - **Siper (cover):** orman / krater (hafif), harabe / kum torbası (orta, yönlü), siper / tahkimat (ağır); hasar
   azaltma + isabet cezası veri odaklı.
-- **Ekonomi:** Yeni Antakya — hurda toplama (fiziksel taşıma), depo/burçtan ikmal, erzak tarlaları, insan gücü,
-  cephane + ikmal yarıçapı, arkadan yürüyen takviye. Kara Kâse — ceset hasadı, enfekte ölüleri yeniden kaldırma,
-  sunaklardan üretim, enfeksiyon ızgarası, sinek sürüsü.
+- **Ekonomi:** Yeni Antakya — kaynak bölgelerine yerleşimler, sivil nüfus → insan gücü, erzak, konvoylar, hurda
+  toplama (fiziksel taşıma), depo/burçtan ikmal, cephane + ikmal yarıçapı, arkadan yürüyen takviye. Kara Kâse —
+  hayvan / ceset / sivil / asker biyokütlesi (yiyecek arama bölgeleri), çok düşük sunak geliri, enfekte ölüleri yeniden
+  kaldırma, sunaklardan üretim, enfeksiyon ızgarası, veba ölçeği, sinek sürüsü, Büyük Veba.
 - **Yapay zekâ:** Kara Kâse savaş başlar başlamaz saldırır (hat/aşama bazlı, yeniden deneme ve yeniden emir,
   destek birimleri hariç), Yeni Antakya savunma planını gerçek inşa hattıyla uygular, garnizon/rezerv/topçu kullanır.
 - **Görsel:** WebGL2; instanced skinned askerler (CPU'da prosedürel poz → RGBA32F poz dokusu, 14 kemik), LOD0/LOD1,
@@ -195,7 +272,7 @@ src/
 
 ## 5. Testler
 
-`npm test` — 157 test (Node, sıfır bağımlılık): mimari (döngü yok, katman kuralları, yasak API'ler, import konumu,
+`npm test` — 195 test (Node, sıfır bağımlılık): mimari (döngü yok, katman kuralları, yasak API'ler, import konumu,
 DOM'suz modüller), simülasyon, savaş, hareket (sıkışma kurtarma, cepler, katılma), inşa/siper, ekonomi, AI,
 kayıt/yükleme + göç, determinizm (kayıt → yükle → devam = kesintisiz), sis (asker bazlı görünürlük, kör atış yok,
 olay temizleme, düşen askerin mangasını açığa çıkarmaması), yol bulma (A* iş bütçesi, önbellekten bağımsızlık), mobil
@@ -206,7 +283,15 @@ yeniden kurma), stres (160 / 320 / 480 asker bütçesi + sunum CPU ölçümü). 
 `render.test.js`, `input.test.js`): taraf farkında HOME, Sinek Sürüsü hasar/enfeksiyon + sis filtresi, yön komutu
 serileştirme + kayıt/yükleme, yürüyen takviye, siperde takviye, yol kesik / kaynak kaybı, yeni yapılar, duvar
 siperleri, Kara Kâse inşası, köle ekonomisi, krater sınırı, kan gölü / uzuv havuzu sınırı, eski kayıt göçü, AI'nın
-yeni komutları kullanması, yön jesti. Düzeltilen her hata için bir regresyon testi eklendi.
+yeni komutları kullanması, yön jesti. Faz 3 (`tests/phase3.test.js`, 36 test + `stress.test.js`'e 2 yaşayan dünya
+ölçümü): çoklu yerleşim bölgeleri, yerleşim ekonomisi, erzak → insan gücü, pasif insan gücü, tahliye, sığınma,
+hayvan sınırı, geri dolma hızı, sürü toplama + kesim, Kâse hayvan hasadı, otomatik yiyecek arama, ucuz Köle sürüsü,
+makineli + tel + alev karşılığı, veba artış/azalış + kademeler + Büyük Veba harcaması, Büyük Veba karşılığı (bulutta
+kalan / sıhhiyeciyle çekilen), enfekte ceset → Köle, yakmanın dirilişi önlemesi, sıhhiyeci / rahip / alevci /
+ALANI TEMİZLE, uzmanlık kademeleri + kayıt/yükleme, istihkâmcı otomatik atama / en yakın müsait / vurgulama / merkeze
+dönüş, çok mangalı siper kapasitesi + kart verisi, sis filtresi (yerleşim, hayvan, konvoy, uzmanlık, diriliş), AI
+yayılması, AI yiyecek araması, determinizm (yaşayan dünya + iki AI + kayıt/yükleme), v2→v3 göçü. Düzeltilen her hata
+için bir regresyon testi eklendi.
 
 `npm run test:browser` — başsız Chromium (GPU yoksa SwiftShader) ile 9 kontrol: menü, Yeni Antakya, dikey telefonda
 Kara Kâse, dokunmatik seç + ilerle, **GPU bağlamı kaybından dönüş**, **başlatma hatasından kurtarma paneli**, stres
@@ -240,6 +325,15 @@ ceset lekesi 48 / 110 / 190, parçalanma olasılığı ve kan parçacığı yoğ
 oranla ve halka tampon içinde; kraterler arazide yalnızca değişen bölgede yeniden oyulur. Sunum CPU ölçümü (Node):
 480 poz + 300 ceset (6 karede bir) + 64 uzuv + havuzlar ≈ 2.9 ms/kare. Gerçek cihaz FPS'i ölçülmedi.
 
+**Faz 3 yaşayan dünya bütçeleri:** hayvan toplam 64 (alan başına sınır), siviller yerleşim başına en fazla 6 kişilik
+tek grup (komut / yol bulma yükü yok; tehlikede sığınırken çizilmez), konvoy en fazla 8, yaralı taraf başına 10,
+yakma ateşi görseli 16, dönüşen ceset sinekleri 30, yanan asker efekti 40 ile sınırlı; bölge halkası sektör başına
+tek decal; noktalı çizgiler yakınlaştırmaya göre seyrekleşir. Ölçüm (Node, bu makine, gürültülü): 488 asker + 43
+hayvan + 4 yerleşim + iki AI ekonomisi ≈ 0.70–0.97 ms/tick ortalama (ilk saniye hariç en kötü ≈ 10 ms); aynı makinede
+saf 480 asker savaşı ≈ 0.57 ms/tick; sunum CPU: 64 dört ayaklı + 40 sivil + 8 araba pozu ≈ 0.8 ms/kare. 16 tohumluk
+15 dk AI'ya karşı AI maçları: ortalama tick medyanı ≈ 0.25 ms, en kötü tick ≈ 20–30 ms (yapı yerleştirmede gezinme
+katmanının yeniden kurulması — Faz 1'den bilinen). Faz 3 için de gerçek cihaz FPS'i ölçülmedi.
+
 ## 7. Bilinen sınırlamalar
 
 - Bu geliştirme ortamında GPU yoktu; tarayıcı testleri yazılım rasterleyici (SwiftShader) ile yapıldı. Gerçek mobil
@@ -249,9 +343,15 @@ oranla ve halka tampon içinde; kraterler arazide yalnızca değişen bölgede y
 - Yapı yerleştirme / tamamlanmasında gezinme katmanları ve bağlantı bileşenleri tüm harita için yeniden kuruluyor
   (masaüstünde birkaç ms; nadir olay) — artımlı güncelleme sonraki faz.
 - Denge yalnızca AI'ya karşı AI ile ölçüldü (16 tohum, 15 dk: Faz 1'de Yeni Antakya 6 / Kara Kâse 10; Faz 2
-  sonrası 5 / 11 — iki taraf da kazanabiliyor, sonuçlar ikmal harcamasına duyarlı); insan oyuncuyla denge testi yok.
+  sonrası 5 / 11; Faz 3 sonrası 10 / 6 — ayar değişikliklerinde 8/8 ile 10/6 arasında oynadı, yani tohuma ve küçük
+  değişikliklere duyarlı); insan oyuncuyla denge testi yok. Faz 3 ölçümleri: `npm run balance`.
+- Faz 3: Kâse biyokütlesinde hayvan payı düşük (%2–12, toplamda ≈ %4) — tasarım gereği hayvan değeri düşük; sunak
+  pasif payı ≈ %21 (%14–39). AI'ya karşı AI'da konvoylar hiç yağmalanmadı (202 varış / 0 kayıp) — konvoy baskını
+  kodu var ama AI nadiren fırsat buluyor. Yeni Antakya AI'sı yerleşimlerin yaklaşık yarısını kaybediyor (38 kuruldu,
+  17 düştü, 20 tahliye).
 - Ağ kodu yok (mimari lockstep'e hazır: deterministik sim + tick'li düz komutlar + komut günlüğü).
-- Tek harita / tek senaryo (siege). Tank, alev makinesi, topçu birimleri, hava durumu etkileri, kampanya yok.
+- Tek harita / tek senaryo (siege). Tank, topçu birimleri, hava durumu etkileri, kampanya yok (alev takımı Faz 3'te
+  geldi). Sivil ihtiyaç yapay zekâsı, şehir yönetimi, hayvan üretme simülasyonu bilinçli olarak yok.
 - Animasyonlar prosedürel (keyframe dosyası yok); yüz ve parmak ayrıntısı yok.
 - Ses ve müzik tamamen sentez; gerçek telefon hoparlöründe dinleme testi yapılmadı (frekans bandı buna göre seçildi).
 - Vahşet görselleri yalnızca yazılım rasterleyicide (SwiftShader) ekran görüntüsüyle kontrol edildi.
@@ -259,8 +359,8 @@ oranla ve halka tampon içinde; kraterler arazide yalnızca değişen bölgede y
 
 ## 8. Yol haritası
 
-[`docs/ROADMAP.md`](docs/ROADMAP.md) — faz planı (sonraki: gerçek cihaz profilleme, ek birimler, ikinci harita,
-hava durumu, kampanya, çok oyunculu lockstep).
+[`docs/ROADMAP.md`](docs/ROADMAP.md) — faz planı (sonraki: gerçek cihazda Faz 3 profili, insanla denge testi,
+konvoy / yerleşim savunma AI'sı, ikinci harita, hava durumu, kampanya, çok oyunculu lockstep).
 
 ## Lisans / telif
 

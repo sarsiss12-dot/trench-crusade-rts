@@ -30,6 +30,8 @@ export function generateWorld(map, seed) {
     props: [], ruins: [], houses: [], craters: [], bridges: [], riverSamples: [],
     graveyards: map.graveyards || [],
     anchors: map.anchors, zones: map.zones, lanes: map.lanes, defensePlan: map.defensePlan || [], grailPlan: map.grailPlan || [],
+    // Phase 3 (static map data; per-match richness / animals live in GameState)
+    sectors: map.sectors || [], habitats: map.habitats || [], oldDead: [],
   };
   buildBaseHeights(world);
   carveRiver(world);
@@ -41,7 +43,63 @@ export function generateWorld(map, seed) {
   placeForests(world, rng);
   scatterProps(world, rng);
   deriveTerrainCells(t);
+  // appended last: the Phase 1/2 world above stays bit-identical
+  sectorProps(world, createRngState((s ^ 0x5ec7) >>> 0));
+  placeOldDead(world, createRngState((s ^ 0x01dd) >>> 0));
   return world;
+}
+
+// ---------------------------------------------------------------- Phase 3: sectors / old dead
+
+function landFree(world, x, z) {
+  const t = world.terrain;
+  const cx = Math.floor(x / t.cell), cz = Math.floor(z / t.cell);
+  if (cx < 0 || cz < 0 || cx >= t.cols || cz >= t.rows) return false;
+  const i = cz * t.cols + cx;
+  const ty = t.types[i];
+  return ty !== TERRAIN.DEEP && ty !== TERRAIN.SHALLOW && ty !== TERRAIN.ROCK && !t.blocked[i];
+}
+
+/** Readable ground dressing per sector kind: quarry outcrops, scrap wrecks, depot stores, fences. */
+function sectorProps(world, rng) {
+  const push = (type, x, z, s, v) => world.props.push({ type, v, x, z, rot: rngFloat(rng) * 6.2832, s, seed: (rngFloat(rng) * 1e9) | 0 });
+  for (const sec of world.sectors) {
+    const around = (n, rMin, rMax, fn) => {
+      for (let i = 0; i < n; i++) {
+        const a = rngFloat(rng) * 6.2832, rr = sec.r * rngRange(rng, rMin, rMax);
+        const x = sec.x + dcos(a) * rr, z = sec.z + dsin(a) * rr;
+        if (!landFree(world, x, z) || nearRoad(world, x, z, 1) || nearStructurePad(world, x, z, 2)) continue;
+        fn(x, z, i);
+      }
+    };
+    if (sec.kind === 'quarry') {
+      around(9, 0.55, 1.05, (x, z, i) => push(i % 3 ? 'rock' : 'rubble', x, z, rngRange(rng, 1.2, 2.6), rngInt(rng, 3)));
+    } else if (sec.kind === 'scrap') {
+      around(8, 0.5, 1.0, (x, z, i) => push(i % 2 ? 'cart' : 'rubble', x, z, rngRange(rng, 0.9, 1.4), rngInt(rng, 3)));
+      around(4, 0.4, 0.9, (x, z) => push('beam', x, z, rngRange(rng, 0.8, 1.2), 0));
+    } else if (sec.kind === 'depot') {
+      around(10, 0.45, 0.95, (x, z, i) => push(i % 3 === 0 ? 'barrel' : 'crate', x, z, rngRange(rng, 0.85, 1.2), rngInt(rng, 3)));
+    } else if (sec.kind === 'pasture') {
+      around(12, 0.85, 1.05, (x, z) => push('stake', x, z, rngRange(rng, 0.8, 1.1), 0));
+      around(6, 0.2, 0.8, (x, z) => push('shrub', x, z, rngRange(rng, 0.7, 1.2), rngInt(rng, 3)));
+    } else if (sec.kind === 'fertile') {
+      around(6, 0.7, 1.05, (x, z) => push('stake', x, z, rngRange(rng, 0.8, 1.0), 0));
+    }
+  }
+}
+
+/** Bodies of older battles (positions only; GameState corpses are created by the scenario). */
+function placeOldDead(world, rng) {
+  for (const band of world.map.oldDead || []) {
+    let n = 0, tries = 0;
+    while (n < band.count && tries < band.count * 10) {
+      tries++;
+      const x = rngRange(rng, band.x0, band.x1), z = rngRange(rng, band.z0, band.z1);
+      if (!landFree(world, x, z) || nearRiver(world, x, z, 2)) continue;
+      world.oldDead.push({ x, z, rot: rngFloat(rng) * 6.2832 });
+      n++;
+    }
+  }
 }
 
 // ---------------------------------------------------------------- heights

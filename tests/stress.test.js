@@ -108,3 +108,73 @@ test('CPU benchmark: 480 posed soldiers + 300 corpses + 64 gibs + gore pools per
   assert.ok(pools.pool.activeCount() <= pools.pool.cap && limbs.activeCount() <= limbs.cap);
   assert.less(ms, 12, 'pose + gore CPU per frame');
 });
+
+// ------------------------------------------------------------------ Phase 3: the living world
+// The stress battle above stays a pure soldier load (comparable between phases); these measure the
+// Phase 3 additions on top of ~480 soldiers: wildlife herds, livestock pens, settlements with their
+// visible civilian crews and carts, the Pestilence meter, plague ground and both AIs' economies.
+import { buildStressForces } from '../src/sim/scenario.js';
+import { createStructure } from '../src/sim/state.js';
+import { structuresChanged } from '../src/sim/runtime.js';
+import { ANIMAL_MODELS } from '../src/render/models/animals.js';
+import { UNIT_MODELS_P3 } from '../src/render/models/humans_p3.js';
+
+function livingWorld480() {
+  const sim = createSimulation({ scenarioId: 'siege_default', seed: 77, settings: { prepSeconds: 0, warMinutes: 30, controllers: { new_antioch: 'ai', black_grail: 'ai' } } });
+  sim.scenario = { ...sim.scenario, stress: { soldiers: 320, centerZ: 330 } };
+  buildStressForces(sim, 320); // + the scenario's own forces => ~480 soldiers
+  for (const [id, pop] of [['fertile_w', 18], ['pasture_e', 16], ['hamlet_w', 20], ['hamlet_e', 20]]) {
+    const sec = sim.state.sectors.find((s) => s.id === id);
+    const st = createStructure(sim.state, 'settlement', 'new_antioch', { x: sec.x, z: sec.z, rot: Math.PI, built: true });
+    sim.state.structures.push(st);
+    sim.rt.structById.set(st.id, st);
+    sec.sid = st.id; st.pop = pop; st.threat = -100000;
+  }
+  structuresChanged(sim);
+  return sim;
+}
+
+test('living world at ~480 soldiers: wildlife + settlements + civilians + both economies within budget', () => {
+  const sim = livingWorld480();
+  const s0 = soldiers(sim);
+  assert.ok(s0 >= 440 && s0 <= 520, 'soldiers ' + s0);
+  let total = 0, worst = 0, civ = 0, animals = 0;
+  const N = 20 * 30;
+  for (let i = 0; i < N; i++) {
+    const t = performance.now();
+    stepSimulation(sim);
+    const dt = performance.now() - t;
+    total += dt;
+    if (i > 20 && dt > worst) worst = dt; // the first second pays one-off path / cache warm-up
+    sim.events.length = 0;
+    civ = Math.max(civ, sim.state.squads.filter((q) => q.civ).length);
+    animals = Math.max(animals, sim.state.animals.length);
+  }
+  const avg = total / N;
+  console.log(`       living world: ${s0} soldiers + ${animals} animals + ${civ} civilian groups + ${sim.state.convoys.length} carts: avg ${avg.toFixed(3)} ms/tick, worst ${worst.toFixed(1)} ms`);
+  assert.greater(animals, 20, 'wildlife present');
+  assert.greater(civ, 0, 'civilian crews out working');
+  assert.less(avg, 8, 'average tick time (same budget as the 480 battle)');
+  for (const sq of sim.state.squads) for (const m of sq.members) assert.ok(Number.isFinite(m.x + m.z + m.hp));
+  for (const a of sim.state.animals) assert.ok(Number.isFinite(a.x + a.z + a.hp));
+});
+
+test('CPU benchmark: living-world presentation (64 quadruped poses + 40 civilians + 8 carts) per frame', () => {
+  const quads = Object.keys(ANIMAL_MODELS).filter((k) => k !== 'cart').map((k) => ANIMAL_MODELS[k](1));
+  const cart = ANIMAL_MODELS.cart(1);
+  const civ = UNIT_MODELS_P3.na_civilian(1);
+  const dst = new Float32Array(POSE_FLOATS * 200);
+  const base = (i, extra) => ({ x: i % 12, y: 0, z: (i / 12) | 0, rot: i * 0.3, scale: 1, phase: i * 0.7, walk: (i % 3) / 2, gallop: i % 5 === 0 ? 1 : 0, graze: i % 4 === 0 ? 1 : 0, aim: 0, aimYaw: 0, aimPitch: 0, recoil: 0, melee: -1, work: i % 2, workPhase: i, hit: 0, hitSide: 1, death: -1, rise: -1, variant: i % 4, time: 1, tint: 0, mud: 0.3, wear: 0.3, highlight: 0, accent: [0.4, 0.3, 0.2], fade: 0, packPulse: 0, inTrench: false, seed: i, lost: 0, blood: 0, sick: 0, bio: false, wheel: i * 0.4, ...extra });
+  const frames = 60;
+  const t0 = performance.now();
+  for (let f = 0; f < frames; f++) {
+    let row = 0;
+    for (let i = 0; i < 64; i++) { const m = quads[i % quads.length]; computePose(dst, (row++) * POSE_FLOATS, { rig: m.rig, quad: true, stride: m.stride }, base(i, { time: f / 60 })); }
+    for (let i = 0; i < 40; i++) computePose(dst, (row++) * POSE_FLOATS, { rig: civ.rig, weapon: civ.weapon, tool: civ.tool, hunch: 0, heavy: false }, base(i, { time: f / 60 }));
+    for (let i = 0; i < 8; i++) computePose(dst, (row++) * POSE_FLOATS, { rig: cart.rig, rigid: true, wheelR: cart.wheelR }, base(i, { time: f / 60 }));
+  }
+  const ms = (performance.now() - t0) / frames;
+  console.log(`       living-world presentation CPU: ${ms.toFixed(3)} ms/frame (64 animals + 40 civilians + 8 carts)`);
+  for (let i = 0; i < 112 * POSE_FLOATS; i++) if (!Number.isFinite(dst[i])) throw new Error('non-finite pose value at ' + i);
+  assert.less(ms, 4, 'living-world pose CPU per frame');
+});

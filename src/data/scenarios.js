@@ -4,10 +4,22 @@
 
 export const MATCH_LENGTH_OPTIONS = [5, 15, 30, 60, 120, 180]; // war minutes
 
+/**
+ * Preparation length by war length (data-driven, Phase 3): short matches plan quickly, long ones
+ * get a little more time to lay out the first settlements. Used when no explicit prepSeconds is set.
+ */
+export const PREP_BY_LENGTH = [[5, 40], [15, 75], [30, 90], [60, 105], [120, 120], [180, 120]];
+
+export function prepSecondsFor(warMinutes, fallback) {
+  let best = fallback;
+  for (const [m, s] of PREP_BY_LENGTH) if (warMinutes >= m) best = s;
+  return best;
+}
+
 export const SCENARIOS = {
   siege_default: {
     id: 'siege_default', mode: 'siege', nameKey: 'scenario.siege_default', map: 'antioch_outskirts',
-    mapSeed: 7331, prepSeconds: 60, warMinutes: 15,
+    mapSeed: 7331, prepSeconds: 60, warMinutes: 15, prepByLength: true,
     roles: { new_antioch: 'defender', black_grail: 'attacker' },
     objective: { type: 'siege', structureType: 'bastion', defender: 'new_antioch', attacker: 'black_grail' },
     resources: {
@@ -21,7 +33,7 @@ export const SCENARIOS = {
         { unit: 'mech_heavy', anchor: 'na_reserve', count: 1 },
       ],
       black_grail: [
-        { unit: 'grail_thrall', anchor: 'bg_mass', count: 9 },
+        { unit: 'grail_thrall', anchor: 'bg_mass', count: 7 },
         { unit: 'corpse_guard', anchor: 'bg_support', count: 2 },
         { unit: 'plague_knight', anchor: 'bg_elite', count: 2 },
       ],
@@ -59,13 +71,23 @@ export const SCENARIOS = {
         { unit: 'yeoman_rifle', anchor: 'gallery_na_a', count: 1 },
         { unit: 'combat_engineer', anchor: 'gallery_na_b', count: 1 },
         { unit: 'mech_heavy', anchor: 'gallery_na_c', count: 1 },
+        { unit: 'combat_medic', anchor: 'gallery_na_d', count: 1 },
+        { unit: 'shock_flamer', anchor: 'gallery_na_e', count: 1 },
+        { unit: 'trench_cleric', anchor: 'gallery_na_f', count: 1 },
+        { unit: 'na_lieutenant', anchor: 'gallery_na_g', count: 1 },
+        { unit: 'civilians', anchor: 'gallery_na_h', count: 1 },
       ],
       black_grail: [
         { unit: 'grail_thrall', anchor: 'gallery_bg_a', count: 1 },
         { unit: 'corpse_guard', anchor: 'gallery_bg_b', count: 1 },
         { unit: 'plague_knight', anchor: 'gallery_bg_c', count: 1 },
+        { unit: 'herald', anchor: 'gallery_bg_d', count: 1 },
+        { unit: 'lord_of_tumours', anchor: 'gallery_bg_e', count: 1 },
+        { unit: 'amalgam', anchor: 'gallery_bg_f', count: 1 },
       ],
     },
+    // Phase 3: one of each livestock species on the gallery_animals row
+    galleryAnimals: ['sheep', 'goat', 'pig', 'cattle', 'mule', 'dog'],
     weather: { type: 'overcast', rain: 0, mud: 0.5 },
     techEra: null,
     sandbox: true,

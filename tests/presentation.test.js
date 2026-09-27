@@ -168,9 +168,10 @@ test('player actions issue plain-data commands through the session (INPUT -> COM
   assert.ok(ok);
   const b = sim.state.pending[sim.state.pending.length - 1];
   assert.equal(b.type, 'BUILD');
-  assert.ok(b.squadIds.length >= 1, 'nearest engineers assigned automatically');
+  assert.ok(!b.squadIds, 'no builder selected: the simulation auto-dispatches (Phase 3)');
   s.step();
   assert.ok(sim.state.structures.some((x) => x.type === 'trench' && !x.built), 'construction site placed');
+  assert.ok(sim.state.squads.some((q) => q.type === 'combat_engineer' && q.order.t === 'build'), 'nearest engineer assigned automatically');
 });
 
 // ------------------------------------------------------------------ localization

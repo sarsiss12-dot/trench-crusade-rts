@@ -17,10 +17,14 @@ import { updateCombat, updateDeaths } from '../combat/combat.js';
 import { updateConstruction } from '../construction/construction.js';
 import { updateProduction } from './production.js';
 import { updateEffects } from './abilities.js';
-import { updateFactions } from '../factions/registry.js';
+import { updateFactions, setupFactions } from '../factions/registry.js';
 import { updateVision } from './perception.js';
 import { runAI } from '../ai/ai.js';
 import { hashState } from '../save/codec.js';
+import { updateEngineers } from '../units/engineers.js';
+import { updateWildlife, setupWildlife } from './wildlife.js';
+import { setupSectors } from '../economy/sectors.js';
+import { rebuildAuras } from './auras.js';
 
 const worldCache = new Map();
 
@@ -58,7 +62,15 @@ export function createSimulation(opts = {}) {
   const sim = { state, world, rt: null, events: [], scenario };
   createRuntime(sim);
   setupScenario(sim, scenario);
+  // Phase 3 living world: sectors (per-match richness), wildlife, faction setup (civilians)
+  setupSectors(state, world);
+  if (scenario.mode !== 'stress') {
+    // the battle benchmark stays a pure soldier load (living-world cost is measured separately)
+    setupWildlife(sim);
+    setupFactions(sim);
+  } else state.habitats = [];
   finishInit(sim);
+  rebuildAuras(sim);
   updateVision(sim);
   sim.events.length = 0;
   return sim;
@@ -70,9 +82,18 @@ export function simulationFromState(state) {
   const world = getWorld(state.mapId, state.mapSeed);
   const sim = { state, world, rt: null, events: [], scenario };
   createRuntime(sim);
+  // a save migrated from Phase 2 has no living world yet: build it deterministically from its seed
+  if (state.p3init === 0) {
+    setupSectors(state, world);
+    setupWildlife(sim);
+    reindexAll(sim);
+    setupFactions(sim);
+    state.p3init = 1;
+  }
   reindexAll(sim);
   structuresChanged(sim);
   rebuildSoldierGrid(sim);
+  rebuildAuras(sim);
   return sim;
 }
 
@@ -101,7 +122,9 @@ export function stepSimulation(sim) {
     runAI(sim);
     processPathRequests(sim);
     updateOrders(sim);
+    updateEngineers(sim);
     updateMovement(sim);
+    updateWildlife(sim);
     updateCombat(sim);
     updateConstruction(sim);
     updateProduction(sim);

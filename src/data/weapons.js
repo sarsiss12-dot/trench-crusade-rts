@@ -65,4 +65,55 @@ export const WEAPONS = {
     acc: 0.75, structureMult: 1.6, cleave: 2, sound: 'hammer', impact: 'blunt',
     lore: { status: 'canon', note: 'Mechanised Heavy Infantry: great hammer' },
   },
+  // ---- Phase 3 --------------------------------------------------------------------------------
+  service_pistol: {
+    id: 'service_pistol', kind: 'rifle', range: 26, damage: 22, reload: 1.6, reloadJitter: 0.3,
+    accNear: 0.62, accFar: 0.25, fireWhileMoving: true, structureMult: 0.04, ammoPerShot: 1,
+    muzzle: 'rifle', tracer: 'rifle', sound: 'pistol', impact: 'bullet',
+    lore: { status: 'abstraction', note: 'Sidearm for medics / clerics (loadout abstraction)' },
+  },
+  smg: {
+    id: 'smg', kind: 'rifle', range: 32, damage: 15, reload: 1.4, reloadJitter: 0.25,
+    burst: 4, burstInterval: 0.09, accNear: 0.6, accFar: 0.2, fireWhileMoving: true, structureMult: 0.05, ammoPerShot: 1,
+    muzzle: 'rifle', tracer: 'mg', sound: 'smg', impact: 'bullet',
+    lore: { status: 'canon', note: 'Submachine gun — New Antioch armoury' },
+  },
+  // Flamethrower: short range, fuel-hungry, every gout burns everything around the aim point —
+  // soldiers (burning), corpses (cremated: they will not rise), infected ground (scoured) and
+  // organic / timber structures. The counter to Thrall swarms and the plague, not a cheap spam.
+  flamethrower: {
+    id: 'flamethrower', kind: 'flame', range: 13, damage: 30, reload: 1.15, reloadJitter: 0.15,
+    accNear: 1, accFar: 1, fireWhileMoving: false, structureMult: 0.6, ammoPerShot: 1, fuel: 3,
+    splash: 2.6, burnSec: 3, burnDps: 7, corpseBurnR: 2.8, cleanse: 70,
+    organicMult: 3, timberMult: 2,
+    muzzle: 'flame', tracer: 'flame', sound: 'flame', impact: 'fire',
+    lore: { status: 'canon', note: 'Flamethrower — New Antioch armoury (official rules)' },
+  },
+  trench_club: {
+    id: 'trench_club', kind: 'melee', range: 1.8, damage: 34, reload: 1.5, reloadJitter: 0.3,
+    acc: 0.7, structureMult: 0.3, sound: 'blunt', impact: 'blunt',
+    lore: { status: 'canon', note: 'Trench club — New Antioch armoury' },
+  },
+  amalgam_maul: {
+    id: 'amalgam_maul', kind: 'melee', range: 2.8, damage: 95, reload: 2.4, reloadJitter: 0.2,
+    acc: 0.8, infect: 1, structureMult: 3, cleave: 3, sound: 'hammer', impact: 'blunt',
+    lore: { status: 'abstraction', note: 'Fused limbs of an Amalgam (abstraction)' },
+  },
+  tumour_blade: {
+    id: 'tumour_blade', kind: 'melee', range: 2.4, damage: 70, reload: 1.7, reloadJitter: 0.2,
+    acc: 0.8, infect: 2, structureMult: 1.6, cleave: 2, sound: 'heavy_blade', impact: 'blade',
+    lore: { status: 'abstraction', note: 'Lord of Tumours blade (loadout abstraction)' },
+  },
+  pillbox_mg: {
+    id: 'pillbox_mg', kind: 'mg', range: 76, damage: 22, reload: 2.0, reloadJitter: 0.2,
+    burst: 10, burstInterval: 0.08, accNear: 0.62, accFar: 0.22, fireWhileMoving: false, structureMult: 0.1,
+    ammoPerShot: 1, muzzle: 'mg', tracer: 'mg', sound: 'mg_heavy', impact: 'bullet',
+    lore: { status: 'abstraction', note: 'Concrete machine-gun bunker (WWI fortification abstraction)' },
+  },
+  settlement_mg: {
+    id: 'settlement_mg', kind: 'mg', range: 52, damage: 17, reload: 2.4, reloadJitter: 0.25,
+    burst: 6, burstInterval: 0.1, accNear: 0.52, accFar: 0.2, fireWhileMoving: false, structureMult: 0.1,
+    ammoPerShot: 1, muzzle: 'mg', tracer: 'mg', sound: 'mg', impact: 'bullet',
+    lore: { status: 'abstraction', note: 'Settlement militia machine gun (Fortified Settlements speciality)' },
+  },
 };

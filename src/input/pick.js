@@ -22,6 +22,7 @@ export function pickSquad(sim, viewer, camera, groundFn, sx, sy, radiusPx, filte
   let best = null, bestD = radiusPx;
   for (const sq of sim.state.squads) {
     if (!isSquadVisibleTo(sq, viewer) || !isSquadAlive(sq)) continue;
+    if (sq.civ && sq.faction === viewer) continue; // own civilians are autonomous (never commanded)
     if (filter && !filter(sq)) continue;
     const gy = groundFn(sq.cx, sq.cz);
     projectToScreen(camera, sq.cx, gy + 1, sq.cz, P);
@@ -88,7 +89,7 @@ export function boxSelect(sim, viewer, camera, groundFn, x0, y0, x1, y1) {
   const minX = Math.min(x0, x1), maxX = Math.max(x0, x1), minY = Math.min(y0, y1), maxY = Math.max(y0, y1);
   const ids = [];
   for (const sq of sim.state.squads) {
-    if (sq.faction !== viewer || !isSquadAlive(sq)) continue;
+    if (sq.faction !== viewer || !isSquadAlive(sq) || sq.civ) continue;
     let hit = false;
     for (const m of sq.members) {
       if (!memberPresent(m)) continue;

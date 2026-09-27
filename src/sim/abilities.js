@@ -9,9 +9,13 @@ import { dist, dsin, dcos } from '../core/dmath.js';
 import { TICK_RATE, INFECTION_MAX, MAX_CRATERS, MAX_CRATER_R } from './constants.js';
 import { COVER_TYPES, COVER_IDS } from '../data/cover.js';
 import { canAfford, pay } from '../economy/economy.js';
-import { isVisibleAt } from '../world/fog.js';
+import { isVisibleAt, isExploredAt } from '../world/fog.js';
 import { damageSoldier, damageStructure } from '../combat/combat.js';
 import { distanceToStructure } from '../units/orders.js';
+import { cremateCorpse } from './corpses.js';
+import { animalsBlast } from './wildlife.js';
+import { specValue, specRule, unlockedBySpec } from './specialities.js';
+import { addInfection, pestSpend, pestLoss, swarmDpsMult, swarmCooldownMult, cleanseInfection, seedInfection } from '../factions/pestilence.js';
 
 export function validateAbility(sim, faction, abilityId, x, z) {
   const { state } = sim;
@@ -19,11 +23,16 @@ export function validateAbility(sim, faction, abilityId, x, z) {
   if (!def || def.faction !== faction) return 'ability.invalid';
   const fs = state.factions[faction];
   if (!fs.abilities[abilityId]) return 'ability.invalid';
+  if (!unlockedBySpec(state, faction, def)) return 'ability.spec';
   if (state.match.phase !== 'WAR') return 'ability.not_war';
   if (fs.abilities[abilityId].readyTick > state.tick) return 'ability.cooldown';
+  if (def.requiresPestilence && (fs.pestilence || 0) < def.requiresPestilence - 1e-9) return 'ability.pestilence';
   if (!canAfford(fs.resources, def.cost)) return 'ability.no_resources';
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return 'ability.invalid';
   const fIdx = FACTIONS[faction].index;
-  if (def.requiresVision && !isVisibleAt(state.fog, fIdx, x, z)) return 'ability.no_vision';
+  // Heavy Artillery Doctrine: map fire on ground seen before (explored), not only in sight
+  const seen = def.effect === 'barrage' && specRule(state, faction, 'artilleryExplored') ? isExploredAt(state.fog, fIdx, x, z) : false;
+  if (def.requiresVision && !seen && !isVisibleAt(state.fog, fIdx, x, z)) return 'ability.no_vision';
   if (def.castRange) {
     let ok = false;
     for (const sq of state.squads) {
@@ -50,10 +59,29 @@ export function supportMult(sim, faction, key) {
   return m;
 }
 
-/** Effective cooldown in seconds (data cooldown x support). */
+/** Effective cooldown in seconds (data cooldown x support structures x specialities / plague tier). */
 export function abilityCooldown(sim, faction, abilityId) {
   const def = ABILITIES[abilityId];
-  return def.cooldown * supportMult(sim, faction, def.supportKey);
+  let cd = def.cooldown * supportMult(sim, faction, def.supportKey);
+  if (abilityId === 'artillery_barrage') cd *= specValue(sim.state, faction, 'artilleryCooldown', 1);
+  if (abilityId === 'fly_swarm') cd *= swarmCooldownMult(sim.state);
+  return cd;
+}
+
+/** Ability numbers after specialities (shells, radius, duration). Plain object. */
+export function abilityParams(state, faction, abilityId) {
+  const def = ABILITIES[abilityId];
+  const p = { radius: def.radius, shells: def.shells || 0, duration: def.duration || 0 };
+  if (abilityId === 'artillery_barrage') {
+    p.shells = def.shells + Math.round(specValue(state, faction, 'artilleryShells', 0));
+    p.radius = def.radius + specValue(state, faction, 'artilleryRadius', 0);
+  } else if (abilityId === 'fly_swarm') {
+    p.radius = def.radius + specValue(state, faction, 'swarmRadius', 0);
+    p.duration = def.duration + specValue(state, faction, 'swarmDuration', 0);
+  } else if (abilityId === 'great_pestilence') {
+    p.radius = def.radius + specValue(state, faction, 'greatRadius', 0);
+  }
+  return p;
 }
 
 export function castAbility(sim, faction, abilityId, x, z) {
@@ -62,38 +90,95 @@ export function castAbility(sim, faction, abilityId, x, z) {
   const fs = state.factions[faction];
   pay(fs.resources, def.cost);
   fs.abilities[abilityId].readyTick = state.tick + Math.round(abilityCooldown(sim, faction, abilityId) * TICK_RATE);
-  const e = { id: state.nextId++, kind: def.effect, ability: abilityId, faction, x, z, radius: def.radius, start: state.tick };
-  if (def.effect === 'swarm') {
-    e.end = state.tick + Math.round(def.duration * TICK_RATE);
+  const prm = abilityParams(state, faction, abilityId);
+  const e = { id: state.nextId++, kind: def.effect, ability: abilityId, faction, x, z, radius: prm.radius, start: state.tick };
+  if (def.effect === 'swarm' || def.effect === 'plague_cloud' || def.effect === 'tide') {
+    e.end = state.tick + Math.round(prm.duration * TICK_RATE);
     e.next = state.tick;
   } else if (def.effect === 'barrage') {
     e.next = state.tick + Math.round(def.delay * TICK_RATE);
-    e.shells = def.shells;
+    e.shells = prm.shells;
+  } else if (def.effect === 'purge') {
+    e.end = state.tick + Math.round(def.duration * TICK_RATE);
+    e.next = state.tick + 10;
+  }
+  if (def.effect === 'plague_cloud') {
+    // the Great Pestilence spends most of the meter: no permanent snowball
+    pestSpend(sim, specValue(state, faction, 'greatCost', def.pestilenceCost));
+    fs.stats.greatPestilence++;
+    seedInfection(sim, x, z, prm.radius, def.groundInfect);
+  }
+  if (def.effect === 'tide') {
+    for (const sq of state.squads) {
+      if (sq.faction !== faction || dist(sq.cx, sq.cz, x, z) > prm.radius) continue;
+      sq.tideUntil = e.end;
+    }
   }
   state.effects.push(e);
-  sim.events.push({ type: EV.ABILITY_CAST, faction, ability: abilityId, x, z, radius: def.radius, duration: def.duration || def.delay + def.shells * def.interval, effectId: e.id, size: def.size || '' });
+  const dur = prm.duration || (def.delay || 0) + (prm.shells || 0) * (def.interval || 0);
+  sim.events.push({ type: EV.ABILITY_CAST, faction, ability: abilityId, x, z, radius: prm.radius, duration: dur, effectId: e.id, size: def.size || '' });
 }
 
 const SWARM = { kind: 'swarm', infect: 0 };
-const BLAST = { kind: 'explosive', infect: 0 };
+const PLAGUE_CLOUD = { kind: 'plague', infect: 0 };
 
-function swarmTick(sim, e, def) {
+/** Great Pestilence: a drifting plague cloud — sickness, damage, infected ground, panic. */
+function plagueCloudTick(sim, e, def) {
   const { state } = sim;
   const r2 = e.radius * e.radius;
   const doInfect = (state.tick - e.start) % Math.round(def.infectInterval * TICK_RATE) < 10;
   for (const sq of state.squads) {
     if (!areHostile(e.faction, sq.faction)) continue;
     if (dist(sq.cx, sq.cz, e.x, e.z) > e.radius + 12) continue;
+    for (const m of sq.members) {
+      if (m.state !== 'alive' && m.state !== 'joining' && m.state !== 'wounded') continue;
+      const dx = m.x - e.x, dz = m.z - e.z;
+      if (dx * dx + dz * dz > r2) continue;
+      // the cloud sickens up to maxStacks — the rest is the infection's own course (medics, clerics,
+      // leaving the cloud and clean ground still save a squad caught in it)
+      if (doInfect && m.infection < (def.maxStacks || INFECTION_MAX)) addInfection(sim, sq, m, 1);
+      damageSoldier(sim, sq, m, def.dps * 0.5, e.faction, PLAGUE_CLOUD, 0, 0);
+    }
+    sq.debuffUntil = state.tick + 14;
+  }
+}
+const BLAST = { kind: 'explosive', infect: 0 };
+
+function swarmTick(sim, e, def) {
+  const { state } = sim;
+  const r2 = e.radius * e.radius;
+  const doInfect = (state.tick - e.start) % Math.round(def.infectInterval * TICK_RATE) < 10;
+  const dps = def.dps * swarmDpsMult(state);
+  for (const sq of state.squads) {
+    if (!areHostile(e.faction, sq.faction)) continue;
+    if (dist(sq.cx, sq.cz, e.x, e.z) > e.radius + 12) continue;
     let touched = false;
     for (const m of sq.members) {
-      if (m.state !== 'alive' && m.state !== 'joining') continue;
+      if (m.state !== 'alive' && m.state !== 'joining' && m.state !== 'wounded') continue;
       const dx = m.x - e.x, dz = m.z - e.z;
       if (dx * dx + dz * dz > r2) continue;
       touched = true;
-      if (doInfect && sq.faction !== 'black_grail') m.infection = Math.min(INFECTION_MAX, m.infection + 1);
-      damageSoldier(sim, sq, m, def.dps * 0.5, e.faction, SWARM, 0, 0); // ignores cover
+      if (doInfect) addInfection(sim, sq, m, 1);
+      damageSoldier(sim, sq, m, dps * 0.5, e.faction, SWARM, 0, 0); // ignores cover
     }
     if (touched) sq.debuffUntil = state.tick + 14;
+  }
+}
+
+/** Purge rite: bodies in the circle burn, the ground is scoured, the plague loses momentum. */
+function purgeTick(sim, e, def) {
+  const { state } = sim;
+  for (let i = state.corpses.length - 1; i >= 0; i--) {
+    const c = state.corpses[i];
+    if (dist(c.x, c.z, e.x, e.z) <= e.radius) cremateCorpse(sim, c, e.faction);
+  }
+  cleanseInfection(sim, e.x, e.z, e.radius, def.cleanse);
+  for (const sq of state.squads) {
+    if (!areHostile(e.faction, sq.faction) || dist(sq.cx, sq.cz, e.x, e.z) > e.radius + 10) continue;
+    for (const m of sq.members) {
+      if (m.state !== 'alive' || dist(m.x, m.z, e.x, e.z) > e.radius) continue;
+      m.burn = Math.max(m.burn || 0, state.tick + 40);
+    }
   }
 }
 
@@ -106,6 +191,7 @@ export function explode(sim, faction, def, x, z, ability = '') {
   const R = def.blastRadius;
   sim.events.push({ type: EV.EXPLOSION, x, z, size: def.size || 'heavy', faction, ability, r: R });
   if (def.craters) addCrater(sim, x, z, R * 0.62);
+  animalsBlast(sim, x, z, R, def.damage, faction);
   for (const sq of state.squads) {
     if (dist(sq.cx, sq.cz, x, z) > R + 10) continue;
     const friendly = !def.indiscriminate && !areHostile(faction, sq.faction);
@@ -173,6 +259,21 @@ export function updateEffects(sim) {
         e.next = state.tick + 10;
         swarmTick(sim, e, def);
       }
+    } else if (e.kind === 'plague_cloud') {
+      if (state.tick >= e.end) { state.effects.splice(i, 1); continue; }
+      if (state.tick >= e.next) {
+        e.next = state.tick + 10;
+        plagueCloudTick(sim, e, def);
+      }
+    } else if (e.kind === 'purge') {
+      if (state.tick >= e.next && !e.done) {
+        e.done = 1;
+        purgeTick(sim, e, def);
+        pestLoss(sim, def.pestilenceDrain, 'purge');
+      }
+      if (state.tick >= e.end) { state.effects.splice(i, 1); continue; }
+    } else if (e.kind === 'tide') {
+      if (state.tick >= e.end) { state.effects.splice(i, 1); continue; }
     } else if (e.kind === 'detonation') {
       if (state.tick >= e.next) {
         explode(sim, e.faction, e.blast, e.x, e.z, 'detonation');

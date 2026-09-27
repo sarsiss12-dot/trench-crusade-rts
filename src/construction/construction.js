@@ -15,7 +15,11 @@ import { footprintCellsVisit } from '../world/nav.js';
 import { snapToTrenchEndpoint, chooseFront } from './trench.js';
 import { WALL_TYPES } from '../data/structures.js';
 import { FACTIONS } from '../data/factions.js';
+import { POPULATION } from '../data/economy.js';
 import { infectionAt } from '../factions/black_grail.js';
+import { specValue, specRule, specAny } from '../sim/specialities.js';
+import { sectorAt } from '../economy/sectors.js';
+import { econHostAt, isSettlement, onSettlementCompleted } from '../economy/settlements.js';
 
 function fail(reason) {
   return { ok: false, reason };
@@ -82,8 +86,76 @@ function endToEnd(a, b, out) {
  */
 export function canBuildAt(sim, faction, x, z) {
   if (inZone(sim.world.zones[faction], x, z)) return true;
-  const th = FACTIONS[faction].buildOnInfection;
-  return !!th && infectionAt(sim.state, x, z) >= th;
+  const base = FACTIONS[faction].buildOnInfection;
+  if (!base) return false;
+  const th = specValue(sim.state, faction, 'buildOnInfection', base);
+  return infectionAt(sim.state, x, z) >= th;
+}
+
+/**
+ * Heavy defenses (fire posts, walls, bunkers) need a logistics anchor nearby (bastion, depot,
+ * muster point, workshop) — or a settlement with the Fortified Settlements speciality. A small
+ * outpost is not a second fortress for free.
+ */
+export function heavyDefenseAllowed(sim, faction, x, z) {
+  const { state } = sim;
+  const settlements = specRule(state, faction, 'settlementHeavyDefense');
+  for (const s of state.structures) {
+    if (s.faction !== faction || s.hp <= 0) continue;
+    const d = STRUCTURES[s.type];
+    if (d.fortAnchor && s.built && dist(s.x, s.z, x, z) <= d.anchorRadius) return true;
+    if (settlements && d.settlement && dist(s.x, s.z, x, z) <= d.settlement.econRadius) return true;
+  }
+  return false;
+}
+
+/** Own settlements (built or under construction). */
+function settlementCount(state, faction) {
+  let n = 0;
+  for (const s of state.structures) if (s.faction === faction && isSettlement(s)) n++;
+  return n;
+}
+
+/** Economy placement rules (Phase 3). Returns a reject reason or null; writes EXTRA.host. */
+function economyRules(sim, faction, def, x, z) {
+  const { state } = sim;
+  EXTRA.host = 0;
+  if (def.requiresSector) {
+    const sec = sectorAt(state, x, z);
+    if (!sec) return 'build.needs_sector';
+    if (sec.sid) return 'build.sector_taken';
+    if (state.match.phase === 'PREPARATION' && settlementCount(state, faction) >= POPULATION.prepSettlementCap) return 'build.prep_settlement_cap';
+  }
+  if (def.requiresSettlement) {
+    const host = econHostAt(sim, faction, x, z);
+    if (!host) return 'build.needs_settlement';
+    const max = POPULATION.maxEconomyBuildings[def.id];
+    if (max) {
+      let n = 0;
+      for (const s of state.structures) if (s.faction === faction && s.type === def.id && s.host === host.id) n++;
+      if (n >= max) return 'build.econ_limit';
+    }
+    EXTRA.host = host.id;
+  }
+  if (def.requiresSectorKind) {
+    const sec = sectorAt(state, x, z);
+    if (!sec || def.requiresSectorKind.indexOf(sec.kind) < 0) return 'build.needs_sector_kind';
+  }
+  return null;
+}
+const EXTRA = { host: 0 };
+
+/** Resource cost of a structure after speciality modifiers. */
+export function structureCost(state, faction, type, length) {
+  const def = STRUCTURES[type];
+  let cost;
+  if (def.kind === 'linear') {
+    const k = type === 'wire' ? specValue(state, faction, 'wireCost', 1) : 1;
+    const per = {};
+    for (const r in def.costPerM) per[r] = def.costPerM[r] * k;
+    cost = linearCost(per, length);
+  } else cost = { ...def.cost };
+  return cost;
 }
 
 /** Linear types that may not cross each other (the wall family counts as one kind). */
@@ -97,7 +169,9 @@ export function validatePlacement(sim, faction, type, params) {
   if (!def || !def.buildable) return fail('build.invalid');
   if (def.builder !== faction) return fail('build.not_faction');
   if (state.match.phase === 'ENDED') return fail('build.match_over');
-  if (def.requires && !state.structures.some((s) => s.faction === faction && s.type === def.requires && s.built)) return fail('build.requires');
+  if (def.requiresSpec && !specAny(state, faction, def.requiresSpec)) return fail('build.spec');
+  const needs = def.requires && !(type === 'fortified_wall' && specRule(state, faction, 'fortifiedNoWorkshop'));
+  if (needs && !state.structures.some((s) => s.faction === faction && s.type === def.requires && s.built)) return fail('build.requires');
   const t = world.terrain;
   const f = state.factions[faction];
   if (def.kind === 'linear') {
@@ -145,7 +219,8 @@ export function validatePlacement(sim, faction, type, params) {
       }
       if (hitB) return fail('build.blocked');
     }
-    const cost = linearCost(def.costPerM, len);
+    if (def.heavyDefense && !heavyDefenseAllowed(sim, faction, (x1 + x2) / 2, (z1 + z2) / 2)) return fail('build.needs_anchor');
+    const cost = structureCost(state, faction, type, len);
     if (!canAfford(f.resources, cost)) return { ok: false, reason: 'build.no_resources', cost };
     enemyDirection(sim, faction, (x1 + x2) / 2, (z1 + z2) / 2, DIR);
     const front = chooseFront(x1, z1, x2, z2, DIR[0], DIR[1]);
@@ -155,6 +230,10 @@ export function validatePlacement(sim, faction, type, params) {
   const { x, z } = params;
   const rot = params.rot || 0;
   if (!canBuildAt(sim, faction, x, z)) return fail('build.out_of_zone');
+  if (def.heavyDefense && !heavyDefenseAllowed(sim, faction, x, z)) return fail('build.needs_anchor');
+  const econ = economyRules(sim, faction, def, x, z);
+  if (econ) return fail(econ);
+  const host = EXTRA.host;
   let bad = null;
   const probe = { type, x, z, rot };
   footprintCellsVisit(rt.nav, probe, (ci) => {
@@ -167,9 +246,11 @@ export function validatePlacement(sim, faction, type, params) {
   if (bad) return fail(bad);
   for (const s of state.structures) {
     const sd = STRUCTURES[s.type];
-    if (sd.kind === 'building') {
+    if (sd.kind === 'building' || sd.kind === 'area') {
+      // fields may border each other and sit next to buildings: only a real overlap is refused
+      const k = sd.kind === 'area' || def.kind === 'area' ? 0.8 : 0.85;
       const minD = (Math.max(sd.footprint.w, sd.footprint.d) + Math.max(def.footprint.w, def.footprint.d)) * 0.5;
-      if (dist(x, z, s.x, s.z) < minD * 0.85) return fail('build.overlap');
+      if (dist(x, z, s.x, s.z) < minD * k) return fail('build.overlap');
     } else if (sd.kind === 'linear' && s.progress < 0.3 && !s.built) {
       const dx = s.x2 - s.x1, dz = s.z2 - s.z1;
       const len2 = dx * dx + dz * dz;
@@ -177,9 +258,9 @@ export function validatePlacement(sim, faction, type, params) {
       if (dist(x, z, s.x1 + dx * u, s.z1 + dz * u) < Math.max(def.footprint.w, def.footprint.d) * 0.5 + sd.width * 0.5) return fail('build.overlap');
     }
   }
-  const cost = { ...def.cost };
+  const cost = structureCost(state, faction, type, 0);
   if (!canAfford(f.resources, cost)) return { ok: false, reason: 'build.no_resources', cost };
-  return { ok: true, cost, params: { x, z, rot } };
+  return { ok: true, cost, params: host ? { x, z, rot, host } : { x, z, rot } };
 }
 
 /** Place a validated construction site; pay; return the structure. */
@@ -189,6 +270,18 @@ export function placeStructure(sim, faction, type, v) {
   pay(f.resources, v.cost);
   const s = createStructure(state, type, faction, { ...v.params, built: false, progress: 0 });
   s.paid = { ...v.cost };
+  // speciality modifiers on the new site: digging / wall work, sturdier settlements
+  const def = STRUCTURES[type];
+  let wk = 1;
+  if (type === 'trench') wk = specValue(state, faction, 'trenchWork', 1);
+  else if (WALL_TYPES.indexOf(type) >= 0) wk = specValue(state, faction, 'wallWork', 1);
+  if (wk !== 1) { s.workRequired *= wk; }
+  if (def.settlement) {
+    const hk = specValue(state, faction, 'settlementHp', 1);
+    if (hk !== 1) { s.maxHp = Math.round(def.hp * hk); s.hp = Math.max(1, Math.round(s.maxHp * 0.12)); }
+    const sec = sectorAt(state, s.x, s.z);
+    if (sec) sec.sid = s.id;
+  }
   state.structures.push(s);
   rt.structById.set(s.id, s);
   structuresChanged(sim);
@@ -220,12 +313,12 @@ export function updateConstruction(sim) {
     const s = rt.structById.get(sid);
     if (!s) continue;
     const def = STRUCTURES[s.type];
-    const eff = workEfficiency(w.n) * w.rate * DT;
+    const eff = workEfficiency(w.n) * w.rate * DT * specValue(state, w.faction, 'builderSpeed', 1);
     if (!s.built) {
       const before = s.progress;
       s.work = Math.min(s.workRequired, s.work + eff);
       s.progress = s.workRequired > 0 ? s.work / s.workRequired : 1;
-      s.hp = Math.min(s.maxHp, s.hp + def.hp * (s.progress - before));
+      s.hp = Math.min(s.maxHp, s.hp + s.maxHp * (s.progress - before));
       const b10 = Math.floor(before * 10), a10 = Math.floor(s.progress * 10);
       if (a10 !== b10) sim.events.push({ type: EV.STRUCTURE_PROGRESS, id: s.id, stype: s.type, faction: s.faction, progress: s.progress, x: s.x, z: s.z });
       if (def.kind === 'linear' && before < 0.3 && s.progress >= 0.3) structuresChanged(sim);
@@ -249,6 +342,7 @@ export function completeStructure(sim, s) {
   s.work = s.workRequired;
   s.hp = s.maxHp;
   state.factions[s.faction].stats.built++;
+  if (STRUCTURES[s.type].settlement) onSettlementCompleted(sim, s);
   structuresChanged(sim);
   sim.events.push({ type: EV.STRUCTURE_COMPLETED, id: s.id, stype: s.type, faction: s.faction, x: s.x, z: s.z });
 }
@@ -258,6 +352,7 @@ export function cancelStructure(sim, s) {
   if (s.built) return false;
   const f = state.factions[s.faction];
   if (s.paid) for (const k in s.paid) f.resources[k] = (f.resources[k] || 0) + Math.floor(s.paid[k] * 0.75);
+  for (const sec of state.sectors || []) if (sec.sid === s.id) sec.sid = 0;
   for (const sq of state.squads) for (const m of sq.members) if (m.postId === s.id) { m.postId = 0; m.postSlot = -1; }
   const i = state.structures.indexOf(s);
   if (i >= 0) state.structures.splice(i, 1);

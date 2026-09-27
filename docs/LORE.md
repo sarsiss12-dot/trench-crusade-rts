@@ -28,7 +28,16 @@ Oyun içinde **Ana menü → Evren Notları** ekranı bu tabloyu doğrudan veril
 | Kâse Kölesi (Grail Thrall) | canon | Ekipmansız "içi boşaltılmış kabuklar", toplu hâlde güçlenir | Sürü bonusu sayıları, ölülerden kaldırma kuralı |
 | Ceset Muhafızı (Corpse Guard) | canon | Seçkin muhafız müritler | Enfekte tüfek donanımı ve sırt paraziti görseli bu projenin yorumu |
 | Veba Şövalyesi (Plague Knight) | canon | Kara Kâse'nin zırhlı savaşçısı | Arma kabuğu görünümü ve veba kılıcı bu projenin yorumu |
-| Köle Çalışma Takımı | canon-inspired | Grail Thrall resmî birimdir | Ceset taşıyan / organik yapı diken işçi takımı biçimi bu projenin uyarlaması |
+| Köle Çalışma Takımı | canon-inspired | Grail Thrall resmî birimdir | Ceset taşıyan / organik yapı diken / yiyecek arayan işçi takımı biçimi bu projenin uyarlaması |
+| Muharebe Sıhhiyecisi (Combat Medic) | canon | Yeni Antakya resmî listesinde | İyileştirme, erken enfeksiyon tedavisi, yaralı kaldırma bu projenin mekaniği |
+| Siper Rahibi (Trench Cleric) | canon | Yeni Antakya resmî listesinde | Direnç / moral aurası, ölüleri kutsama ve yakma soyutlamadır |
+| Teğmen (Lieutenant) | canon | Yeni Antakya savaş grubu lideri | Komuta aurası soyutlamadır |
+| Hücum Alevcisi | canon-inspired | Alev makinesi Yeni Antakya cephaneliğinde (resmî kurallar; Shocktrooper'lar taşıyabilir) | İki kişilik alev takımı biçimi soyutlamadır |
+| Beelzebub'un Habercisi (Herald of Beelzebub) | canon | Kara Kâse seçkini | Sinek bulutu aurası soyutlamadır |
+| Amalgam | canon | Kara Kâse birlik türü | Ceset yığınında yükseltilmesi soyutlamadır |
+| Tümörler Lordu (Lord of Tumours) | canon | Kara Kâse lideri | İyileştirme / öfke aurası soyutlamadır |
+| Siviller | abstraction | Yeni Antakya kalabalık bir kale-şehirdir (kanon) | Yerleşim iş ekipleri, sığınma, tahliye tamamen oynanış soyutlaması |
+| Hayvanlar (koyun, keçi, domuz, sığır, katır, köpek) | abstraction / canon-inspired | Sıradan hayvanlar; köpekler evrende geçer | Fantastik yaratık yok; sürü, kaçma, ağıl soyutlamadır |
 
 ## Yapılar ve yetenekler
 
@@ -49,11 +58,43 @@ Oyun içinde **Ana menü → Evren Notları** ekranı bu tabloyu doğrudan veril
 | Ceset Yığını, Veba Çukuru, Kemik Barikat | abstraction | Ceset kullanımı ve veba teması kanon; yapıların kendisi soyutlama |
 | Sinek Yuvası | canon-inspired | Cehennem sinekleri, Beelzebub, Herald of Beelzebub, Fly Thrall resmî; yuva yapısı soyutlama |
 | Kara Kâse kanı / parçalanma görselleri | abstraction | Görsel soyutlama; uydurma kanon biyoloji sunulmaz |
+| Kaynak bölgeleri, Sivil Yerleşim, Tarla, Hayvan Ağılı, Taş Ocağı, konvoy | abstraction | Kale-şehrin çevresini besleyen kırsal ekonomi soyutlaması; bölge adları tür adıdır, kanon yer adı değildir |
+| Beton Makineli Mevzi | abstraction | 1. Dünya Savaşı tahkimatından esinli |
+| Veba ölçeği (Pestilence) ve kademeleri | abstraction | Veba / salgın Kara Kâse'nin kanon teması; ölçek ve kademe adları oynanış soyutlaması |
+| Büyük Veba, Kara Dalga | abstraction | Kanon temadan esinli yetenek biçimleri |
+| Arınma Ayini | abstraction | Ateşle arınma (alev makinesi resmî cephanelikte); ayin biçimi soyutlamadır |
+
+## Uzmanlıklar (Faz 3)
+
+Oyun içindeki kartlar da bu durumları gösterir. Adı resmî kurala / listeye dayanan seçenekler `canon-inspired`
+olarak işaretlidir; kuralın kendisi (bonuslar, açtıkları) yine oyun soyutlamasıdır.
+
+| Uzmanlık | Taraf / kademe | Durum | Dayanak |
+|---|---|---|---|
+| Tahkimat Doktrini | Yeni Antakya I | abstraction | Siper savaşı doktrini; Yeni Antakya surlu kale-şehirdir (kanon) |
+| Lojistik Kolordusu | Yeni Antakya I | abstraction | — |
+| İnanç ve Şifa | Yeni Antakya I | canon-inspired | Siper Rahibi ve Muharebe Sıhhiyecisi resmî listede |
+| Ağır Topçu Doktrini | Yeni Antakya II | canon-inspired | "Topçu taburları Yeni Antakya'nın gururu" (resmî lore) |
+| Mekanize Yedekler | Yeni Antakya II | canon-inspired | Mekanize Ağır Piyade resmî listede; yedek doktrini soyutlama |
+| Tahkimatlı Yerleşimler | Yeni Antakya II | abstraction | — |
+| İleri Lojistik | Yeni Antakya III | abstraction | — |
+| Arınma Seferi | Yeni Antakya III | canon-inspired | Alev makineleri resmî cephanelikte; ayin soyutlama |
+| Seçkin Savunma | Yeni Antakya III | canon-inspired | Teğmen resmî savaş grubu lideri |
+| Ezici Sürü | Kara Kâse I | canon-inspired | "Overwhelming Horde" resmî Kara Kâse kuralı |
+| Beelzebub'un Dokunuşu | Kara Kâse I | canon-inspired | "Beelzebub's Touch" resmî Kara Kâse kuralı |
+| Büyük Açlık | Kara Kâse I | canon-inspired | "Great Hunger" resmî bir savaş grubu varyantının adı; ceset ekonomisi soyutlama |
+| Beelzebub'un Habercileri | Kara Kâse II | canon-inspired | Herald of Beelzebub resmî seçkin |
+| Kaynaşma | Kara Kâse II | canon-inspired | Amalgam resmî birlik türü |
+| Veba Hâkimiyeti | Kara Kâse II | abstraction | — |
+| Kara Dalga | Kara Kâse III | abstraction | — |
+| Büyük Veba | Kara Kâse III | abstraction | — |
+| Tümörler Lordu | Kara Kâse III | canon-inspired | Lord of Tumours resmî lider |
 
 ## Bilinçli olarak eklenmeyenler
 
-Tanklar, alev makineli tanklar, Communicant'lar, Hounds / Amalgam / Fly Thrall / Herald of Beelzebub gibi birimler resmî kaynaklarda var
-ancak bu fazda uygulanmadı (bkz. `ROADMAP.md`). `scenario.techEra` alanı ileride yıl/teknoloji ön ayarları için
+Tanklar, alev makineli tanklar, Communicant'lar, Hounds / Fly Thrall gibi birimler resmî kaynaklarda var ancak henüz
+uygulanmadı (bkz. `ROADMAP.md`). Amalgam, Herald of Beelzebub, Lord of Tumours, Combat Medic, Trench Cleric ve
+Lieutenant Faz 3'te eklendi. `scenario.techEra` alanı ileride yıl/teknoloji ön ayarları için
 ayrıldı; kaynakla doğrulanmadan içerik eklenmeyecek.
 
 ## Kaynaklar

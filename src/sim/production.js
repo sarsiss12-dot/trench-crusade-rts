@@ -8,6 +8,7 @@ import { dsin, dcos } from '../core/dmath.js';
 import { canAfford, pay, refund } from '../economy/economy.js';
 import { createSquad } from './state.js';
 import { setOrder } from '../units/orders.js';
+import { unlockedBySpec, specHas, unitCost, unitTrainTime, unitSquadSize, unitMaxSquads } from './specialities.js';
 
 export const MAX_QUEUE = 5;
 
@@ -24,11 +25,17 @@ export function canTrain(sim, faction, st, unitType) {
   const def = STRUCTURES[st.type];
   if (!def.trains || def.trains.indexOf(unitType) < 0) return 'train.invalid';
   const u = unitDef(unitType);
-  if (u.faction !== faction) return 'train.invalid';
+  if (u.faction !== faction || !u.cost) return 'train.invalid';
+  const state = sim.state;
+  // speciality-gated units / trainers, structure-gated units (flamer teams need a workshop)
+  if (!unlockedBySpec(state, faction, u)) return 'train.spec';
+  if (def.trainsSpec && def.trainsSpec[unitType] && !specHas(state, faction, def.trainsSpec[unitType])) return 'train.spec';
+  if (u.requiresStructure && !state.structures.some((s) => s.faction === faction && s.type === u.requiresStructure && s.built)) return 'train.requires';
   if (st.queue.length >= MAX_QUEUE) return 'train.queue_full';
-  if (u.maxSquads && squadCount(sim, faction, unitType) >= u.maxSquads) return 'train.cap';
-  if (!canAfford(sim.state.factions[faction].resources, u.cost)) return 'train.no_resources';
-  if (sim.state.match.phase === 'ENDED') return 'train.invalid';
+  const cap = unitMaxSquads(state, faction, unitType);
+  if (cap && squadCount(sim, faction, unitType) >= cap) return 'train.cap';
+  if (!canAfford(state.factions[faction].resources, unitCost(state, faction, unitType))) return 'train.no_resources';
+  if (state.match.phase === 'ENDED') return 'train.invalid';
   return null;
 }
 
@@ -44,16 +51,17 @@ export function squadCount(sim, faction, unitType) {
 }
 
 export function queueTraining(sim, faction, st, unitType) {
-  const u = unitDef(unitType);
-  pay(sim.state.factions[faction].resources, u.cost);
-  st.queue.push({ unit: unitType, remaining: Math.round(u.trainTime * TICK_RATE), total: Math.round(u.trainTime * TICK_RATE) });
+  const cost = unitCost(sim.state, faction, unitType);
+  pay(sim.state.factions[faction].resources, cost);
+  const ticks = Math.round(unitTrainTime(sim.state, faction, unitType) * TICK_RATE);
+  st.queue.push({ unit: unitType, remaining: ticks, total: ticks, paid: { ...cost } });
   sim.events.push({ type: EV.TRAIN_QUEUED, id: st.id, faction, unit: unitType });
 }
 
 export function cancelTraining(sim, st) {
   if (!st.queue || !st.queue.length) return false;
   const item = st.queue.pop();
-  refund(sim.state.factions[st.faction].resources, unitDef(item.unit).cost, 1);
+  refund(sim.state.factions[st.faction].resources, item.paid || unitDef(item.unit).cost, 1);
   return true;
 }
 
@@ -71,7 +79,8 @@ export function updateProduction(sim) {
     exitPoint(st, P);
     const u = unitDef(item.unit);
     const emerging = st.faction === 'black_grail';
-    const sq = createSquad(state, st.faction, item.unit, P[0], P[1], st.rot, { soldierState: emerging ? 'rising' : 'alive' });
+    const size = unitSquadSize(state, st.faction, item.unit);
+    const sq = createSquad(state, st.faction, item.unit, P[0], P[1], st.rot, { soldierState: emerging ? 'rising' : 'alive', size });
     state.squads.push(sq);
     rt.squadById.set(sq.id, sq);
     for (const m of sq.members) rt.soldierIndex.set(m.id, sq);

@@ -9,6 +9,9 @@ import { UNITS } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS } from '../data/factions.js';
 import { ABILITIES } from '../data/abilities.js';
+import { SPECIALITIES } from '../data/specialities.js';
+import { SECTOR_KINDS } from '../data/economy.js';
+import { SPECIES } from '../data/animals.js';
 import { TICK_RATE } from '../sim/constants.js';
 
 const LORE_SOURCES = [
@@ -186,6 +189,10 @@ export function createMenu(env) {
       for (const u of Object.values(UNITS)) rows.push([t(u.nameKey), u.lore]);
       for (const s of Object.values(STRUCTURES)) rows.push([t(s.nameKey), s.lore]);
       for (const a of Object.values(ABILITIES)) rows.push([t(a.nameKey), a.lore]);
+      // Phase 3: specialities (per faction, per tier), resource sectors, animals
+      for (const fid of Object.keys(SPECIALITIES)) for (const tier of SPECIALITIES[fid]) for (const o of tier) rows.push([t('spec.' + o.id), o.lore]);
+      for (const k of Object.values(SECTOR_KINDS)) rows.push([t(k.nameKey), k.lore]);
+      for (const a of Object.values(SPECIES)) rows.push([t(a.nameKey), a.lore]);
       for (const [name, lore] of rows) {
         list.append(el('div.lr', { html: `<b>${name}</b>${badge(lore.status)}${lore.ref ? `<small>${lore.ref}</small>` : ''}` }));
       }

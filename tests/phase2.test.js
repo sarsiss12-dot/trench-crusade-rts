@@ -259,8 +259,9 @@ test('New Antioch buildings: placement rules, aid station, muster levy, signal p
     assert.ok(v.ok, t + ' placeable in the New Antioch zone: ' + v.reason);
     assert.equal(validatePlacement(sim, 'black_grail', t, { x: 80, z: 470, rot: 0 }).reason, 'build.not_faction');
   }
-  // fortified wall needs a workshop
-  const wp = { x1: 60, z1: 440, x2: 68, z2: 440 };
+  // fortified wall needs a workshop (Phase 3: and, as a heavy defense, a logistics anchor nearby —
+  // this spot is within the bastion's anchor radius)
+  const wp = { x1: 120, z1: 470, x2: 128, z2: 470 };
   assert.equal(validatePlacement(sim, 'new_antioch', 'fortified_wall', wp).reason, 'build.requires');
   addStructure(sim, 'workshop', 'new_antioch', { x: 250, z: 500, rot: 0, built: true });
   assert.ok(validatePlacement(sim, 'new_antioch', 'fortified_wall', wp).ok);
@@ -476,7 +477,9 @@ test('AI uses the new command set through the normal pipeline (no cheats)', () =
   assert.ok(has('n:BUILD:low_sandbags') || has('n:BUILD:breastwork') || has('n:BUILD:aid_station'), 'New Antioch builds Phase 2 structures');
   assert.ok(has('b:TRAIN:thrall_gang'), 'Black Grail raises work gangs');
   assert.ok(has('b:BUILD:corpse_mound') || has('b:BUILD:fly_nest') || has('b:BUILD:plague_pit'), 'Black Grail builds organic structures');
-  assert.ok(has('b:GATHER') && [...seen].some((x) => x.startsWith('b:GATHER') && x.endsWith(':corpse')), 'gangs haul corpses');
+  // Phase 3: gangs harvest by FORAGE (area: animals + bodies, no per-body orders) — the successor
+  // of single-body GATHER hauling
+  assert.ok(has('b:FORAGE') || [...seen].some((x) => x.startsWith('b:GATHER') && x.endsWith(':corpse')), 'gangs haul corpses');
   assert.ok(has('b:USE_ABILITY:fly_swarm'), 'Fly Swarm used');
   assert.ok(has('n:USE_ABILITY:artillery_barrage') || has('n:USE_ABILITY:mortar_barrage'), 'fire support used');
 });

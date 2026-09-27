@@ -4,6 +4,7 @@ import { MeshBuilder, MAT } from './meshbuilder.js';
 import { C, mix } from './palette.js';
 import { hash32 } from '../../core/rng.js';
 import { STRUCTURE_MODELS_P2 } from './structures_p2.js';
+import { STRUCTURE_MODELS_P3 } from './structures_p3.js';
 
 function rnd(seed, i) {
   return hash32(seed, i, 313) / 4294967296;
@@ -572,5 +573,7 @@ export const STRUCTURE_MODELS = {
   grail_altar: (lod) => buildGrailAltar(lod),
   // Phase 2: new buildings + the reworked Altar of Beelzebub (overrides the Phase 1 altar)
   ...STRUCTURE_MODELS_P2,
+  // Phase 3: settlement, farm, livestock pen, quarry, pillbox
+  ...STRUCTURE_MODELS_P3,
 };
 

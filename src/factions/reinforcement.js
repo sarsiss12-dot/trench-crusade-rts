@@ -18,12 +18,13 @@ import { exitPoint } from '../sim/production.js';
 import { approachPoint, distanceToStructure } from '../units/orders.js';
 import { isPointPassable, cellAt, isPassable, nearestPassable, findPath } from '../world/nav.js';
 import { PATH_WORK_PER_TICK } from '../sim/constants.js';
+import { specRule, specValue } from '../sim/specialities.js';
 
 const P = [0, 0];
 
 /** Soldiers the squad still misses (members includes walking replacements). */
 export function missingMembers(sq) {
-  return Math.max(0, unitDef(sq.type).squadSize - sq.members.length);
+  return Math.max(0, Math.max(sq.cap || 0, unitDef(sq.type).squadSize) - sq.members.length);
 }
 
 function compAt(nav, x, z) {
@@ -40,8 +41,21 @@ function spawnPoint(sim, src, sq, out) {
   return out;
 }
 
-export function isReinforceSource(st, fid) {
-  return st.faction === fid && st.built && st.hp > 0 && !!STRUCTURES[st.type].reinforceSource;
+/**
+ * Reinforcement sources: bastion / supply depot / muster point — and, with the Logistics
+ * speciality, every inhabited, non-evacuated settlement (replacements are raised locally).
+ */
+export function isReinforceSource(st, fid, state) {
+  if (st.faction !== fid || !st.built || st.hp <= 0) return false;
+  const d = STRUCTURES[st.type];
+  if (d.reinforceSource) return true;
+  return !!(state && d.settlement && !st.evac && st.pop >= SETTLEMENT_SOURCE_POP && specRule(state, fid, 'settlementReinforce'));
+}
+const SETTLEMENT_SOURCE_POP = 4;
+const SETTLEMENT_REINFORCE_R = 34;
+
+function sourceRadius(st) {
+  return STRUCTURES[st.type].reinforceRadius || SETTLEMENT_REINFORCE_R;
 }
 
 /**
@@ -53,7 +67,7 @@ export function pickSource(sim, sq) {
   const target = compAt(nav, sq.x, sq.z);
   let best = null, bestD = Infinity, bestR = false;
   for (const st of sim.state.structures) {
-    if (!isReinforceSource(st, sq.faction)) continue;
+    if (!isReinforceSource(st, sq.faction, sim.state)) continue;
     spawnPoint(sim, st, sq, P);
     const reachable = target >= 0 && compAt(nav, P[0], P[1]) === target;
     const d = dist(sq.x, sq.z, st.x, st.z);
@@ -91,8 +105,8 @@ function autoRequests(sim, fid) {
     if ((o.t !== 'idle' && o.t !== 'hold_trench') || state.tick - sq.lastHitTick <= 200) continue;
     let near = false;
     for (const st of state.structures) {
-      if (!isReinforceSource(st, fid)) continue;
-      if (distanceToStructure(st, sq.x, sq.z) <= STRUCTURES[st.type].reinforceRadius) { near = true; break; }
+      if (!isReinforceSource(st, fid, state)) continue;
+      if (distanceToStructure(st, sq.x, sq.z) <= sourceRadius(st)) { near = true; break; }
     }
     if (near) requestReinforcement(sim, sq, true);
   }
@@ -104,19 +118,21 @@ export function updateReinforcements(sim, fid) {
   const conf = FACTIONS[fid].reinforcements;
   if (!conf) return;
   const f = state.factions[fid];
+  const interval = Math.max(1, Math.round(conf.intervalTicks * specValue(state, fid, 'reinfInterval', 1)));
+  const supplyCost = conf.supply * specValue(state, fid, 'reinfSupply', 1);
   if (state.tick % conf.intervalTicks === 7) autoRequests(sim, fid);
   for (const sq of state.squads) {
     const r = sq.reinf;
     if (!r || sq.faction !== fid) continue;
     if (state.tick < r.next) continue;
-    r.next = state.tick + conf.intervalTicks;
+    r.next = state.tick + interval;
     if (missingMembers(sq) <= 0) {
       sq.reinf = null;
       if (!r.auto) notice(sim, sq, 'reinf.complete');
       continue;
     }
     let src = rt.structById.get(r.src);
-    if (!src || !isReinforceSource(src, fid)) {
+    if (!src || !isReinforceSource(src, fid, state)) {
       const pick = pickSource(sim, sq);
       if (!pick) { sq.reinf = null; notice(sim, sq, 'reinf.source_lost'); continue; }
       src = pick.st;
@@ -133,11 +149,11 @@ export function updateReinforcements(sim, fid) {
       continue;
     }
     r.cut = 0;
-    if (f.resources.manpower < conf.manpower || f.resources.supply < conf.supply) { r.wait = 1; continue; }
+    if (f.resources.manpower < conf.manpower || f.resources.supply < supplyCost) { r.wait = 1; continue; }
     if (rt.pathWork >= PATH_WORK_PER_TICK) continue; // the walk path is budgeted A* work: next tick
     r.wait = 0;
     f.resources.manpower -= conf.manpower;
-    f.resources.supply -= conf.supply;
+    f.resources.supply -= supplyCost;
     const def = unitDef(sq.type);
     const m = createSoldier(state, def, sq.members.length, P[0], P[1], sq.rot, 'joining');
     // the walk itself: a squad-style path from the source to the squad (steering follows it)

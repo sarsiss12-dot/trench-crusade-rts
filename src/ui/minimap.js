@@ -6,14 +6,18 @@ import { TERRAIN_TYPES } from '../data/terrain_types.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS } from '../data/factions.js';
 import { CELL_FLAG } from '../world/terrain.js';
-import { isSquadVisibleTo, isStructureKnownTo, isNodeKnownTo, visibleCentroid } from '../sim/perception.js';
+import { isSquadVisibleTo, isStructureKnownTo, isNodeKnownTo, visibleCentroid, isSectorKnownTo, isConvoyVisibleTo } from '../sim/perception.js';
 import { isSquadAlive } from '../sim/state.js';
 import { viewFootprint } from '../render/camera.js';
 import { EV } from '../core/events.js';
 
 const COL = {
   own: '#d8c48e', ownDim: '#9c8c62', enemy: '#c4402c', enemyDim: '#7a2a20', neutral: '#6c6456',
-  sel: '#fff6d8', cam: 'rgba(235,225,190,0.85)', node: '#8fa0a8',
+  sel: '#fff6d8', cam: 'rgba(235,225,190,0.85)', node: '#8fa0a8', civ: '#b9b6a4', convoy: '#a88252',
+};
+// resource sector kinds (same hues as the world overlay)
+const SECTOR_COL = {
+  fertile: '#9aa45a', pasture: '#7fa06a', quarry: '#9c9a92', scrap: '#8a7f70', depot: '#b08c52', hamlet: '#c2a878',
 };
 
 export function createMinimap(game) {
@@ -101,6 +105,10 @@ export function createMinimap(game) {
       ping(ev.x, ev.z, COL.enemy); lastHitPing = now;
     } else if (ev.type === EV.ABILITY_CAST) {
       ping(ev.x, ev.z, ev.faction === viewer ? COL.own : COL.enemy, 3);
+    } else if ((ev.type === EV.CONVOY_LOST || ev.type === EV.EVACUATION) && ev.faction === viewer) {
+      ping(ev.x, ev.z, ev.type === EV.CONVOY_LOST ? COL.enemy : '#e0b050', 3);
+    } else if (ev.type === EV.NOTICE && ev.faction === viewer && ev.key === 'settle.lost') {
+      ping(ev.x, ev.z, COL.enemy, 4);
     }
   }
 
@@ -129,6 +137,21 @@ export function createMinimap(game) {
     }
     ctx.restore();
     const sx = cw / W;
+    // resource sectors the faction knows (economic map: where to expand)
+    for (const sec of sim.state.sectors || []) {
+      if (!isSectorKnownTo(sec, viewer)) continue;
+      toMini(sec.x, sec.z, P);
+      const rr = Math.max(3 * dpr, sec.r * sx);
+      ctx.strokeStyle = SECTOR_COL[sec.kind] || COL.neutral;
+      ctx.globalAlpha = sec.sid ? 0.45 : 0.9;
+      ctx.lineWidth = dpr;
+      ctx.setLineDash([2 * dpr, 2 * dpr]);
+      ctx.beginPath(); ctx.arc(P[0], P[1], rr, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = SECTOR_COL[sec.kind] || COL.neutral;
+      for (let k = 0; k <= sec.rich; k++) ctx.fillRect(P[0] - 2.5 * dpr + k * 2.2 * dpr, P[1] - 0.8 * dpr, 1.5 * dpr, 1.5 * dpr);
+      ctx.globalAlpha = 1;
+    }
     // structures (known)
     const known = game.renderer.knownStructures ? game.renderer.knownStructures() : sim.state.structures.filter((s) => s.faction === viewer || s.faction === 'neutral' || isStructureKnownTo(s, viewer));
     for (const st of known) {
@@ -161,6 +184,13 @@ export function createMinimap(game) {
       toMini(n.x, n.z, P);
       ctx.fillRect(P[0] - dpr, P[1] - dpr, 2 * dpr, 2 * dpr);
     }
+    // supply convoys (own; enemy ones only while seen)
+    for (const c of sim.state.convoys || []) {
+      if (!isConvoyVisibleTo(c, viewer)) continue;
+      toMini(c.x, c.z, P);
+      ctx.fillStyle = c.faction === viewer ? COL.convoy : COL.enemy;
+      ctx.fillRect(P[0] - 1.8 * dpr, P[1] - 1.8 * dpr, 3.6 * dpr, 3.6 * dpr);
+    }
     // squads (visible only)
     const sel = game.selection.squads;
     for (const sq of sim.state.squads) {
@@ -168,8 +198,8 @@ export function createMinimap(game) {
       if (!visibleCentroid(sim, sq, viewer, VC)) continue; // enemies: where they are actually seen
       toMini(VC[0], VC[1], P);
       const own = sq.faction === viewer;
-      const r = (own ? 2.2 : 2.4) * dpr;
-      ctx.fillStyle = own ? COL.own : COL.enemy;
+      const r = (sq.civ ? 1.5 : own ? 2.2 : 2.4) * dpr;
+      ctx.fillStyle = sq.civ ? COL.civ : own ? COL.own : COL.enemy;
       ctx.beginPath(); ctx.arc(P[0], P[1], r, 0, Math.PI * 2); ctx.fill();
       if (sel.has(sq.id)) { ctx.strokeStyle = COL.sel; ctx.lineWidth = dpr; ctx.stroke(); }
     }

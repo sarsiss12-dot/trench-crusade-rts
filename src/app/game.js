@@ -9,6 +9,7 @@ import { createCamera } from '../render/camera.js';
 import { createSelection } from '../input/selection.js';
 import { createInputController } from '../input/controller.js';
 import { EV } from '../core/events.js';
+import { createEngineerHighlights } from '../ui/engineer_highlight.js';
 
 function homeView(sim, viewer) {
   const h = factionHome(sim, viewer);
@@ -62,6 +63,8 @@ export function createGame(env, opts) {
   /** A structure as the local player knows it: live when own / visible, else the remembered snapshot. */
   game.knownStructure = (id) => (renderer.memory ? renderer.memory.known(sim, viewer, id) : sim.rt.structById.get(id) || null);
   game.actions = createActions(game);
+  // auto-dispatched engineers: HUD chip glow + world beam for a few seconds (presentation only)
+  game.engineerHighlights = createEngineerHighlights();
   game.notify = (key, level, params) => { if (game.hud) game.hud.notify(key, level, params); };
 
   game.home = () => {
@@ -104,6 +107,7 @@ export function createGame(env, opts) {
 
   // presentation event fan-out (already fog-filtered by the session)
   session.subscribe((ev, show) => {
+    game.engineerHighlights.onEvent(ev, viewer, performance.now() / 1000);
     renderer.onEvent(ev, show);
     if (game.hud) game.hud.onEvent(ev, show);
     if (game.audio) game.audio.onEvent(ev, show, game);
@@ -156,6 +160,7 @@ export function createGame(env, opts) {
     f.alpha = session.alpha;
     f.selection = game.selection.squads;
     f.selectedStruct = game.selection.struct;
+    f.engineerHighlights = game.engineerHighlights.active(performance.now() / 1000);
     renderer.render(camera, f);
     if (game.hud) game.hud.update(dt);
     if (game.minimap) game.minimap.update(dt);

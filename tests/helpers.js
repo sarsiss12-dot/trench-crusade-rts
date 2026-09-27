@@ -3,9 +3,13 @@ import { createSimulation, stepSimulation } from '../src/sim/simulation.js';
 import { createSquad, createStructure } from '../src/sim/state.js';
 import { structuresChanged } from '../src/sim/runtime.js';
 
-/** New siege sim; both factions player-controlled (no AI) unless overridden. */
+/**
+ * New siege sim; both factions player-controlled (no AI) unless overridden. The Phase 3 living
+ * world (wildlife, old battlefield bodies) is stripped unless opts.living — older regression tests
+ * measure their mechanics in isolation; Phase 3 tests opt in.
+ */
 export function makeSim(opts = {}) {
-  return createSimulation({
+  const sim = createSimulation({
     scenarioId: opts.scenarioId || 'siege_default',
     seed: opts.seed !== undefined ? opts.seed : 1234,
     settings: {
@@ -16,6 +20,15 @@ export function makeSim(opts = {}) {
       stressSoldiers: opts.stressSoldiers,
     },
   });
+  if (!opts.living) stripLivingWorld(sim);
+  return sim;
+}
+
+export function stripLivingWorld(sim) {
+  const { state, rt } = sim;
+  for (const c of state.corpses.slice()) if (c.old) { state.corpses.splice(state.corpses.indexOf(c), 1); rt.corpseById.delete(c.id); }
+  state.animals.length = 0;
+  state.habitats = [];
 }
 
 export function clearUnits(sim) {

@@ -67,6 +67,36 @@ export const ICONS = {
   corpse: S(`<path ${st} d="M3 17 h18 M5 17 l3 -4 h7 l2 4 M8 13 a2 2 0 1 1 0 .1"/>`),
   ammo: S(`<path ${st} d="M7 21 v-11 l2 -5 2 5 v11 z M13 21 v-11 l2 -5 2 5 v11 z"/>`),
   cover: S(`<path ${st} d="M12 3 l8 3 v6 c0 5 -4 8 -8 9 c-4 -1 -8 -4 -8 -9 v-6 z"/>`),
+  // Phase 3: units
+  medic: S(`<circle cx="12" cy="12" r="8" ${st}/><path ${st} stroke-width="2.6" d="M12 7.5 v9 M7.5 12 h9"/>`),
+  cleric: S(`<path ${st} d="M12 2 v6 M9.5 4.5 h5 M7 21 l2-11 h6 l2 11 z M10 14 h4"/>`),
+  flame: S(`<path ${st} d="M12 21 c-4 0 -6 -3 -6 -6 c0 -4 4 -5 3 -10 c3 2 5 4 5 7 c1 -1 1 -2 1 -3 c2 2 3 4 3 6 c0 3 -2 6 -6 6 z M12 21 c-1.5 0 -2.5 -1 -2.5 -2.5 c0 -1.5 2.5 -3 2.5 -3 s2.5 1.5 2.5 3 c0 1.5 -1 2.5 -2.5 2.5"/>`),
+  officer: S(`<path ${st} d="M5 10 c2 -5 12 -5 14 0 z M4 10 h16 l-2 2 h-12 z M12 6 v2 M8 21 v-5 l4 -3 4 3 v5"/>`),
+  civilian: S(`<circle cx="12" cy="6" r="2.6" ${st}/><path ${st} d="M8 21 l1-8 3-2 3 2 1 8 M5 5 h14"/>`),
+  herald: S(`<ellipse cx="12" cy="14" rx="2.6" ry="4" ${st}/><path ${st} d="M9.5 12 c-6 -5 -8 2 -3 4 M14.5 12 c6 -5 8 2 3 4 M12 10 v-4 M8 4 l4 2 4 -2"/>`),
+  amalgam: S(`<path ${st} d="M4 20 c0 -8 3 -13 8 -13 s8 5 8 13 z M9 10 a1.6 1.6 0 1 1 0 .1 M14.5 9 a1.6 1.6 0 1 1 0 .1 M12 13 a1.6 1.6 0 1 1 0 .1 M3 12 l3 1 M21 12 l-3 1"/>`),
+  lord: S(`<path ${st} d="M6 8 l2 -5 2 3 2 -4 2 4 2 -3 2 5 z M7 8 h10 v3 c0 5 -2 9 -5 10 c-3 -1 -5 -5 -5 -10 z M10 13 h4"/>`),
+  // Phase 3: structures
+  settlement: S(`<path ${st} d="M3 20 v-8 l6-5 6 5 v8 z M15 20 v-6 h6 v6 M7 20 v-4 h4 v4 M18 14 v-4"/>`),
+  farm: S(`<path ${st} d="M3 20 h18 M4 16 h16 M5 12 h14 M7 8 l1-3 M12 8 v-4 M17 8 l-1-3"/>`),
+  livestock_pen: S(`<path ${st} d="M3 19 h18 M3 14 h18 M5 20 v-9 M10 20 v-9 M14 20 v-9 M19 20 v-9"/>`),
+  quarry: S(`<path ${st} d="M3 20 l4-9 h4 l3-5 h7 v14 z M7 20 v-4 h5 M5 7 l6 6"/>`),
+  pillbox: S(`<path ${st} d="M3 18 l2-8 h14 l2 8 z M7 13 h4 M13 13 h4 M9 10 v-3 h6 v3"/>`),
+  // Phase 3: abilities / commands
+  great_pestilence: S(`<circle cx="12" cy="12" r="7" ${st} stroke-dasharray="2 2"/><circle cx="12" cy="12" r="3" ${st}/><path ${st} d="M12 2 v3 M12 19 v3 M2 12 h3 M19 12 h3"/>`),
+  purge: S(`<path ${st} d="M12 21 c-3 0 -5 -2 -5 -5 c0 -3 3 -4 2 -8 c2 1 4 3 4 6 c1 -1 1 -2 1 -3 c2 2 3 3 3 5 c0 3 -2 5 -5 5 z"/><path ${st} stroke-width="2" d="M12 2 v5 M9.5 4 h5"/>`),
+  black_tide: S(`<path ${st} d="M2 15 c3 -3 5 3 8 0 s5 3 8 0 s3 1 4 1 M2 20 c3 -3 5 3 8 0 s5 3 8 0 M6 9 l3 -5 3 5 M14 9 l3 -5 3 5"/>`),
+  evacuate: S(`<path ${st} d="M4 12 h11 M11 7 l5 5 -5 5 M18 4 h2 v16 h-2"/>`),
+  slaughter: S(`<path ${st} d="M5 19 l10 -10 M13 5 l6 6 -3 3 -6 -6 z M4 20 l2 -2"/>`),
+  herd: S(`<path ${st} d="M5 14 c0 -3 3 -5 6 -5 h3 c2 0 4 2 4 4 v1 h-13 z M7 14 v4 M16 14 v4 M18 11 l3 -2 M4 12 l-1 -3"/>`),
+  forage: S(`<path ${st} d="M4 20 c2 -6 6 -9 11 -9 M11 7 l4 4 -4 4 M17 4 c2 2 3 5 2 8"/>`),
+  sanitize: S(`<path ${st} d="M12 20 c-3 0 -5 -2 -5 -5 c0 -3 3 -4 2 -8 c2 1 4 3 4 6 c1 -1 1 -2 1 -3 c2 2 3 3 3 5 c0 3 -2 5 -5 5 z M4 21 h16"/>`),
+  doctrine: S(`<path ${st} d="M5 3 h14 v18 l-7 -4 -7 4 z M12 7 v6 M9 10 h6"/>`),
+  lock: S(`<rect x="5" y="11" width="14" height="10" rx="1.5" ${st}/><path ${st} d="M8 11 v-3 a4 4 0 0 1 8 0 v3"/>`),
+  population: S(`<circle cx="7" cy="8" r="2.4" ${st}/><circle cx="17" cy="8" r="2.4" ${st}/><circle cx="12" cy="11" r="2.4" ${st}/><path ${st} d="M3 19 c0 -4 8 -4 8 0 M13 19 c0 -4 8 -4 8 0"/>`),
+  pestilence: S(`<circle cx="12" cy="12" r="8.5" ${st}/><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path ${st} d="M12 3.5 v4 M12 16.5 v4 M3.5 12 h4 M16.5 12 h4"/>`),
+  convoy: S(`<path ${st} d="M3 16 h12 v-7 h-12 z M15 12 h4 l2 3 v1 h-6 M6 19 a1.8 1.8 0 1 1 0 .1 M17 19 a1.8 1.8 0 1 1 0 .1"/>`),
+  squads: S(`<path ${st} d="M4 7 h6 v5 h-6 z M14 7 h6 v5 h-6 z M9 15 h6 v5 h-6 z"/>`),
   // system
   pause: S(`<rect x="6" y="5" width="4" height="14" fill="currentColor"/><rect x="14" y="5" width="4" height="14" fill="currentColor"/>`),
   play: S(`<path d="M7 4 v16 l13 -8 z" fill="currentColor"/>`),
@@ -90,7 +120,7 @@ export function iconForUnit(def) {
 }
 
 export function iconForStructure(id) {
-  const map = { grail_altar: 'altar', supply_depot: 'depot', field: 'food' };
+  const map = { grail_altar: 'altar', supply_depot: 'depot', field: 'food', observation_post: 'observation_post' };
   if (!ICONS[map[id] || id]) return 'build';
   return map[id] || id;
 }

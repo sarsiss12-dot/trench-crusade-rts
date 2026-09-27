@@ -9,8 +9,10 @@ import { PATHS_PER_TICK, PATH_WORK_PER_TICK, REPATH_TICKS, MELEE_CHARGE_RANGE } 
 import { WEAPONS } from '../data/weapons.js';
 import { factionBit, isPointVisibleTo, visibleCentroid } from '../sim/perception.js';
 import { removeCorpse } from '../sim/corpses.js';
+import { forageAnimal, damageAnimal, animalById } from '../sim/wildlife.js';
+import { specRule } from '../sim/specialities.js';
 import {
-  trenchSlot, ensureOccupancy, trenchConnected, trenchSlotCount, trenchFrame,
+  trenchSlot, ensureOccupancy, trenchSlotCount, trenchFrame, trenchNetwork, networkCapacity,
 } from '../construction/trench.js';
 
 const SLOT = {};
@@ -155,16 +157,41 @@ export function releaseSoldierPost(sim, m) {
 
 /** Connected trench network (same faction or neutral), breadth-first, bounded. */
 export function connectedTrenches(sim, seg, faction, maxCount = 12) {
-  const list = [seg];
-  for (let i = 0; i < list.length && list.length < maxCount; i++) {
-    const cur = list[i];
-    for (const s of sim.state.structures) {
-      if (s.type !== 'trench' || list.indexOf(s) >= 0) continue;
-      if (s.faction !== faction && s.faction !== 'neutral') continue;
-      if (trenchConnected(cur, s)) list.push(s);
-    }
+  return trenchNetwork(sim.state.structures, seg, faction, maxCount);
+}
+
+function presentCount(sq) {
+  let n = 0;
+  for (const m of sq.members) if (m.state === 'alive' || m.state === 'joining') n++;
+  return n;
+}
+
+/**
+ * MULTI-SQUAD TRENCH OCCUPANCY: a trench that can take the WHOLE squad (no half squad left
+ * outside). The given segment's network first; with radius > 0, otherwise the nearest other
+ * network within radius that has room (slots already promised to incoming squads count as taken).
+ */
+export function trenchForSquad(sim, sq, seg, x, z, radius) {
+  const need = presentCount(sq);
+  const seen = new Set();
+  if (seg) {
+    const net = connectedTrenches(sim, seg, sq.faction);
+    if (networkCapacity(sim.state, net, sq.faction, sq).free >= need) return seg;
+    for (const s of net) seen.add(s.id);
   }
-  return list;
+  if (radius <= 0) return null;
+  let best = null, bd = radius;
+  for (const s of sim.state.structures) {
+    if (s.type !== 'trench' || seen.has(s.id)) continue;
+    if (s.faction !== sq.faction && s.faction !== 'neutral') continue;
+    if (!s.built && s.progress < 0.35) continue;
+    const d = distanceToStructure(s, x, z);
+    if (d >= bd) continue;
+    const net = connectedTrenches(sim, s, sq.faction);
+    if (networkCapacity(sim.state, net, sq.faction, sq).free >= need) { bd = d; best = s; }
+    else for (const n of net) seen.add(n.id);
+  }
+  return best;
 }
 
 const cands = [];
@@ -315,10 +342,21 @@ export function updateOrders(sim) {
         else if (sq.pathState === 'done') {
           if (o.trench) {
             const seg = rt.structById.get(o.trench);
-            if (seg) {
+            // the whole squad has to fit (another squad may have filled the network meanwhile)
+            if (seg && trenchForSquad(sim, sq, seg, o.x, o.z, 0)) {
               assignTrenchPosts(sim, sq, seg, o.x, o.z);
               sq.order = { t: 'hold_trench', sid: seg.id };
-            } else sq.order = { t: 'idle' };
+              clearPath(sq);
+            } else {
+              const alt = seg && !o.alt ? trenchForSquad(sim, sq, null, o.x, o.z, 30) : null;
+              clearPath(sq);
+              if (alt) sq.order = { t: 'move', x: alt.x, z: alt.z, am: 0, trench: alt.id, alt: 1 };
+              else {
+                sq.order = { t: 'idle' };
+                if (seg) sim.events.push({ type: EV.NOTICE, faction: sq.faction, key: 'trench.full', squadId: sq.id, x: sq.cx, z: sq.cz });
+              }
+            }
+            break;
           } else sq.order = o.fh === undefined ? { t: 'idle' } : { t: 'idle', fh: o.fh }; // keeps its facing
           clearPath(sq);
         } else if (sq.pathState === 'failed') {
@@ -373,10 +411,9 @@ export function updateOrders(sim) {
         const st = rt.structById.get(o.sid);
         if (!st || (o.t === 'build' && st.built) || (o.t === 'repair' && st.hp >= st.maxHp)) {
           for (const m of sq.members) m.working = 0;
-          // continue with the nearest unfinished friendly site, if any (engineer initiative)
-          const next = o.t === 'build' ? nearestSite(sim, sq, 45) : null;
-          if (next) { sq.order = { t: 'build', sid: next.id, arrived: 0 }; clearPath(sq); }
-          else { sq.order = { t: 'idle' }; clearPath(sq); }
+          // job done: units/engineers.js continues with the queue, a nearby site or a hub
+          sq.order = { t: 'idle', done: 1 };
+          clearPath(sq);
           break;
         }
         const dd = distanceToStructure(st, sq.x, sq.z);
@@ -442,56 +479,109 @@ export function updateOrders(sim) {
   }
 }
 
-function nearestSite(sim, sq, radius) {
-  let best = null, bestD = radius;
-  for (const st of sim.state.structures) {
-    if (st.faction !== sq.faction || st.built) continue;
-    const d = distanceToStructure(st, sq.x, sq.z);
-    if (d < bestD) { bestD = d; best = st; }
-  }
-  return best;
+/** Biomass source class of a body (Black Grail economy statistics and priorities). */
+export function corpseKind(c) {
+  if (c.sp) return 'animal';
+  if (c.old) return 'old';
+  if (c.faction === 'black_grail') return 'corpse';
+  return c.unit === 'civilians' ? 'civilian' : 'soldier';
 }
 
 /**
  * Corpse gathering (Grail work gangs): the order remembers the field (fx,fz); the gang strips the
  * current body, then the next known, uninfected, not-rising corpse nearby (infected bodies are the
- * plague's: they rise instead). Returns the corpse or null.
+ * plague's: they rise instead). Richer bodies are preferred. Returns the corpse or null.
  */
 function corpseTarget(sim, sq, o) {
   const { rt, state } = sim;
   let c = o.cid ? rt.corpseById.get(o.cid) : null;
   if (c && !c.infected && !c.riseAt && c.biomass > 0.01) return c;
   const bit = factionBit(sq.faction);
-  let best = null, bestD = CORPSE_FIELD_R;
+  const R = o.mode === 'forage' ? o.fr : CORPSE_FIELD_R;
+  let best = null, bestS = Infinity;
   const fx = o.fx !== undefined ? o.fx : sq.x, fz = o.fz !== undefined ? o.fz : sq.z;
   for (const k of state.corpses) {
     if (k.infected || k.riseAt || k.biomass <= 0.01 || !(k.seenBy & bit)) continue;
     const d = dist(fx, fz, k.x, k.z);
-    if (d < bestD || (d === bestD && best && k.id < best.id)) { bestD = d; best = k; }
+    if (d > R) continue;
+    const sc = d - k.biomass * 1.5;
+    if (sc < bestS || (sc === bestS && best && k.id < best.id)) { bestS = sc; best = k; }
   }
   o.cid = best ? best.id : 0;
   return best;
 }
 const CORPSE_FIELD_R = 16;
 
+/**
+ * FORAGE (Black Grail gangs): in an area, hunt living animals and strip bodies — whichever is
+ * closer / richer — haul the biomass to the nearest mound / altar, and come back for more until the
+ * area is empty. No per-animal / per-corpse orders.
+ */
+function updateHunt(sim, sq, def, o, cap) {
+  const { state } = sim;
+  const tick = state.tick;
+  if (o.phase === 'seek') {
+    if (sq.carry >= cap - 0.001 && sq.carry > 0) { o.phase = 'to_drop'; clearPath(sq); return; }
+    const c = corpseTarget(sim, sq, o);
+    const a = forageAnimal(sim, sq.faction, o.fx, o.fz, o.fr);
+    const dc = c ? dist(sq.cx, sq.cz, c.x, c.z) - c.biomass * 1.5 : Infinity;
+    const da = a ? dist(sq.cx, sq.cz, a.x, a.z) : Infinity;
+    if (c && dc <= da) { o.phase = 'to_node'; clearPath(sq); return; }
+    if (a) { o.aid = a.id; o.cid = 0; o.phase = 'hunt'; o.t2 = tick; requestPath(sim, sq, a.x, a.z); return; }
+    // nothing left here
+    if (sq.carry > 0) { o.phase = 'to_drop'; clearPath(sq); return; }
+    if (o.auto) { sq.order = { t: 'idle', ready: 1 }; clearPath(sq); return; }
+    if (dist(sq.cx, sq.cz, o.fx, o.fz) > o.fr * 0.5 && (sq.pathState === 'none' || sq.pathState === 'done')) requestPath(sim, sq, o.fx, o.fz);
+    return;
+  }
+  // hunt
+  const an = animalById(state, o.aid);
+  if (!an) { o.phase = 'seek'; o.aid = 0; clearPath(sq); return; }
+  const reach = specRule(state, sq.faction, 'pounce') ? 5 : 3.2;
+  if (dist(sq.cx, sq.cz, an.x, an.z) <= reach) {
+    if ((tick + sq.id) % 10 === 0) {
+      let n = 0;
+      for (const m of sq.members) if (m.state === 'alive') n++;
+      const x = an.x, z = an.z;
+      damageAnimal(sim, an, n * 9, sq.faction, 'forage');
+      if (!animalById(state, an.id)) {
+        // the carcass it left is what the gang strips next
+        let best = null, bd = 2;
+        for (const c of state.corpses) if (c.sp && dist(c.x, c.z, x, z) < bd) { bd = dist(c.x, c.z, x, z); best = c; }
+        o.cid = best ? best.id : 0;
+        o.aid = 0;
+        o.phase = best ? 'to_node' : 'seek';
+        clearPath(sq);
+      }
+    }
+    return;
+  }
+  if (tick - (o.t2 || 0) > 30 || sq.pathState === 'none' || sq.pathState === 'done') { o.t2 = tick; requestPath(sim, sq, an.x, an.z); }
+  else if (sq.pathState === 'failed' && tick - sq.pathReqTick > 30) { o.phase = 'seek'; o.aid = 0; clearPath(sq); }
+}
+
 function updateGather(sim, sq, def, o) {
   const { state, rt } = sim;
   const corpseMode = def.gathers === 'corpse';
-  const node = corpseMode ? corpseTarget(sim, sq, o) : rt.nodeById.get(o.nid);
-  const amountOf = (n) => (corpseMode ? n.biomass : n.amount);
   let alive = 0;
   for (const m of sq.members) if (m.state === 'alive') alive++;
   const cap = alive * (def.carryCapacity || 0);
+  if (corpseMode && o.mode === 'forage' && (o.phase === 'seek' || o.phase === 'hunt')) { updateHunt(sim, sq, def, o, cap); return; }
+  const node = corpseMode ? corpseTarget(sim, sq, o) : rt.nodeById.get(o.nid);
+  const amountOf = (n) => (corpseMode ? n.biomass : n.amount);
+  const forage = o.mode === 'forage';
+  const finished = () => { sq.order = forage && o.auto ? { t: 'idle', ready: 1 } : { t: 'idle', done: 1 }; clearPath(sq); };
   if (o.phase === 'to_node') {
     if (!node || amountOf(node) <= 0) {
       if (sq.carry > 0) { o.phase = 'to_drop'; clearPath(sq); }
-      else { sq.order = { t: 'idle' }; clearPath(sq); }
+      else if (forage) { o.phase = 'seek'; clearPath(sq); }
+      else finished();
       return;
     }
     if (dist(sq.x, sq.z, node.x, node.z) < 4.5) { o.phase = 'gathering'; clearPath(sq); return; }
     if (sq.pathState === 'none' || sq.pathState === 'done') requestPath(sim, sq, node.x, node.z);
     else if (sq.pathState === 'failed' && state.tick - sq.pathReqTick > 30) {
-      if (sq.pathFails > 4) { sq.order = { t: 'idle' }; clearPath(sq); } else requestPath(sim, sq, node.x, node.z);
+      if (sq.pathFails > 4) { if (forage) { o.phase = 'seek'; o.cid = 0; clearPath(sq); } else finished(); } else requestPath(sim, sq, node.x, node.z);
     }
     return;
   }
@@ -499,7 +589,8 @@ function updateGather(sim, sq, def, o) {
     if (node && dist(sq.x, sq.z, node.x, node.z) > 6) { o.phase = 'to_node'; clearPath(sq); return; } // next body
     if (!node || amountOf(node) <= 0 || sq.carry >= cap - 0.001) {
       for (const m of sq.members) m.working = 0;
-      o.phase = sq.carry > 0 ? 'to_drop' : 'to_node';
+      // full, or nothing left to strip with something in hand -> deliver; else look further
+      o.phase = sq.carry > 0 && (sq.carry >= cap - 0.001 || !node) ? 'to_drop' : forage ? 'seek' : 'to_node';
       clearPath(sq);
       return;
     }
@@ -509,6 +600,9 @@ function updateGather(sim, sq, def, o) {
     if (workers > 0) {
       const amt = Math.min(amountOf(node), cap - sq.carry, workers * def.gatherRate * (1 / 20));
       if (corpseMode) {
+        const kind = corpseKind(node);
+        if (!sq.carryBy) sq.carryBy = {};
+        sq.carryBy[kind] = (sq.carryBy[kind] || 0) + amt;
         node.biomass -= amt;
         if (node.biomass <= 0.0001) {
           state.factions[sq.faction].stats.corpsesHarvested++;
@@ -529,11 +623,18 @@ function updateGather(sim, sq, def, o) {
       const amount = Math.floor(sq.carry * 100) / 100;
       const res = corpseMode ? 'biomass' : 'material';
       f.resources[res] = (f.resources[res] || 0) + amount;
+      if (corpseMode) {
+        const by = f.stats.biomass;
+        if (sq.carryBy) for (const k in sq.carryBy) by[k] = (by[k] || 0) + sq.carryBy[k];
+        if (f.stats.firstBiomassTick < 0 && amount > 0) f.stats.firstBiomassTick = state.tick;
+      }
+      sq.carryBy = null;
       sim.events.push({ type: EV.RESOURCE_DELIVERED, faction: sq.faction, squadId: sq.id, resource: res, amount, x: sq.x, z: sq.z });
       sq.carry = 0;
       clearPath(sq);
-      if (node && amountOf(node) > 0) o.phase = 'to_node';
-      else sq.order = { t: 'idle' };
+      if (forage) o.phase = 'seek';
+      else if (node && amountOf(node) > 0) o.phase = 'to_node';
+      else finished();
       return;
     }
     if (sq.pathState === 'none' || sq.pathState === 'done') {
