@@ -84,9 +84,9 @@ export const SPECIALITIES = {
       },
       {
         id: 'na_elite', icon: 'officer',
-        lore: { status: 'canon-inspired', ref: 'Lieutenant — New Antioch warband leader (official roster)' },
-        mods: {},
-        unlocks: { units: ['na_lieutenant'] },
+        lore: { status: 'canon-inspired', ref: 'Sniper Priest — New Antioch elite (official roster); the doctrine itself is a gameplay abstraction' },
+        mods: { eliteCost: 0.8 },
+        unlocks: { units: ['sniper_priest'] },
         rules: { trenchStand: 1 },
       },
     ],

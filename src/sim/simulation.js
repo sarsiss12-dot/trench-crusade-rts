@@ -3,7 +3,6 @@
 // Render / UI / audio never mutate state; they consume sim.events after each tick.
 import { updateGarrisons, addRuinGarrisons } from '../units/garrison.js';
 import { updateEmplacements } from '../combat/emplacements.js';
-import { updateCommanders } from './commander.js';
 import { scenarioDef } from '../data/scenarios.js';
 import { mapDef } from '../data/maps.js';
 import { generateWorld } from '../world/mapgen.js';
@@ -28,6 +27,7 @@ import { updateEngineers } from '../units/engineers.js';
 import { updateWildlife, setupWildlife } from './wildlife.js';
 import { setupSectors } from '../economy/sectors.js';
 import { rebuildAuras } from './auras.js';
+import { updateWeather } from './weather.js';
 
 const worldCache = new Map();
 
@@ -129,6 +129,7 @@ export function stepSimulation(sim) {
   updateMatch(sim);
   if (state.match.phase !== 'ENDED') {
     runAI(sim);
+    updateWeather(sim);
     processPathRequests(sim);
     updateOrders(sim);
     updateGarrisons(sim);
@@ -137,7 +138,6 @@ export function stepSimulation(sim) {
     updateWildlife(sim);
     updateCombat(sim);
     updateEmplacements(sim);
-    updateCommanders(sim);
     updateConstruction(sim);
     updateProduction(sim);
     updateEffects(sim);

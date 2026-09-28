@@ -5,6 +5,13 @@
 // muzzle/tracer/sound/impact: presentation hints consumed by render/audio (no gameplay effect).
 
 export const WEAPONS = {
+  // Phase 4.1: Sniper Priest — very long range, heavy single shots, slow to reload
+  sniper_rifle: {
+    id: 'sniper_rifle', kind: 'rifle', range: 72, damage: 95, reload: 6.5, reloadJitter: 0.1,
+    accNear: 0.9, accFar: 0.72, fireWhileMoving: false, structureMult: 0.05, ammoPerShot: 1,
+    muzzle: 'rifle', tracer: 'rifle', sound: 'rifle', impact: 'bullet',
+    lore: { status: 'canon-inspired', note: 'Sniper Priest rifle (official elite); numbers are abstractions' },
+  },
   bolt_rifle: {
     id: 'bolt_rifle', kind: 'rifle', range: 50, damage: 40, reload: 2.6, reloadJitter: 0.35,
     accNear: 0.72, accFar: 0.28, fireWhileMoving: false, structureMult: 0.08, ammoPerShot: 1,

@@ -17,7 +17,7 @@ import { WILDLIFE } from '../data/animals.js';
 import { unitDef } from '../data/units.js';
 import { EV } from '../core/events.js';
 import { dist, dsin, dcos } from '../core/dmath.js';
-import { rngFloat } from '../core/rng.js';
+import { rngFloat, hash32 } from '../core/rng.js';
 import { TICK_RATE } from '../sim/constants.js';
 import { createSquad, createSoldier } from '../sim/state.js';
 import { exitPoint } from '../sim/production.js';
@@ -140,6 +140,13 @@ export function evacuateSettlement(sim, st) {
 }
 
 // ------------------------------------------------------------------ helpers
+
+function infectionAt(state, x, z) {
+  const inf = state.infection;
+  const cx = Math.floor(x / inf.cs), cz = Math.floor(z / inf.cs);
+  if (cx < 0 || cz < 0 || cx >= inf.cols || cz >= inf.rows) return 0;
+  return inf.v[cz * inf.cols + cx];
+}
 
 function hide(sim, sq, st) {
   for (const m of sq.members) {
@@ -335,8 +342,28 @@ function updateCrew(sim, sq) {
   // home destroyed
   if (!home && c.mode !== 'evac' && c.mode !== 'settle') {
     if (c.mode === 'hidden') {
-      // they were inside when it fell
-      for (const m of sq.members) if (m.state === 'sheltered') { m.state = 'alive'; killSoldier(sim, sq, m, '', 'collapse', 0, 0); }
+      // Phase 4.1: they were inside when it fell — a deterministic share dies under the rubble
+      // (hash of the person, no RNG stream), the survivors crawl out of the wreck and run for the
+      // nearest safe settlement / bastion. On rotten ground they may carry the plague with them —
+      // at most one stack (never enough to turn where they fall: no exploit for the Grail).
+      const k = POPULATION.collapse;
+      let survivors = 0, j = 0;
+      for (const m of sq.members) {
+        if (m.state !== 'sheltered') continue;
+        m.state = 'alive';
+        if (hash32(m.id, 0xc011a) / 4294967296 < k.killShare) { killSoldier(sim, sq, m, '', 'collapse', 0, 0); continue; }
+        const a = (j++ * 2.399963) % 6.283185307179586; // golden-angle spread around the wreck
+        m.x = sq.x + dsin(a) * k.spread; m.z = sq.z + dcos(a) * k.spread; m.wx = m.x; m.wz = m.z;
+        if (infectionAt(state, m.x, m.z) > k.infectGround) m.infection = Math.max(m.infection || 0, 1);
+        survivors++;
+      }
+      if (!survivors) return;
+      sim.events.push({ type: EV.NOTICE, faction: fid, key: 'civ.survivors', n: survivors, x: sq.x, z: sq.z });
+      const haven = safeHaven(sim, fid, sq.x, sq.z, 0, false) || homeDropOff(sim, fid, sq.x, sq.z);
+      if (!haven) { c.mode = 'flee'; return; }
+      c.mode = 'evac'; c.dest = haven.id; c.pop = 0; c.start = survivors;
+      approachPoint(haven, sq.x, sq.z, P, 2.5);
+      moveTo(sim, sq, P[0], P[1]);
       return;
     }
     const haven = safeHaven(sim, fid, sq.cx, sq.cz, 0, false) || homeDropOff(sim, fid, sq.cx, sq.cz);

@@ -8,7 +8,7 @@
 //  - 'cloud' weapons spew a short-lived corrosive cloud (plague_cloud effect) on the target
 //  - minimum range (a field gun cannot hit what is at its wheels), supply per round (New Antioch),
 //    and enemies close to the gun keep the crew from serving it (weak up close)
-//  - only visible targets; operational-lull rules like any other fire
+//  - only visible targets (operational reorganisation windows never stop the guns)
 // Deterministic: plain state on the structure (cooldown, aim, targetId, tk), rng from state.
 import { STRUCTURES } from '../data/structures.js';
 import { EMPLACEMENT_WEAPONS } from '../data/emplacements.js';
@@ -18,7 +18,6 @@ import { EV } from '../core/events.js';
 import { rngFloat } from '../core/rng.js';
 import { dist, dsin, dcos, headingOf, turnToward, wrapAngle } from '../core/dmath.js';
 import { TICK_RATE, TARGET_INTERVAL } from '../sim/constants.js';
-import { lullQuiet, lullAllowsTarget } from '../sim/lull.js';
 import { distanceToStructure } from '../units/orders.js';
 
 const DT = 1 / TICK_RATE;
@@ -51,19 +50,24 @@ function inArc(st, def, x, z) {
   return Math.abs(wrapAngle(headingOf(x - st.x, z - st.z) - st.rot)) <= (def.arc * Math.PI) / 360;
 }
 
-/** Pick a target: the thickest visible enemy group, or (field gun) a visible enemy structure. */
+/**
+ * Pick a target: the thickest visible enemy group, or (field gun) a visible enemy structure.
+ * Records WHY nothing could be engaged (st.gs, "why can't I?" in the HUD): a visible enemy only
+ * inside the minimum range ('min_range') or only outside the laid sector ('traverse').
+ */
 function pickTarget(sim, st, def, w) {
   const { state } = sim;
   const bit = 1 << FACTIONS[st.faction].index;
-  const quiet = lullQuiet(state);
   let best = null, bestS = Infinity, kind = '';
+  let tooClose = 0, outArc = 0;
   for (const e of state.squads) {
     if (!areHostile(st.faction, e.faction) || !(e.visibleTo & bit)) continue;
     const n = aliveCount(e);
     if (!n) continue;
     const d = dist(st.x, st.z, e.cx, e.cz);
-    if (d > w.range || d < w.minRange || !inArc(st, def, e.cx, e.cz)) continue;
-    if (quiet && !lullAllowsTarget(sim, st.faction, e.cx, e.cz, st.lastHitTick)) continue;
+    if (d > w.range) continue;
+    if (d < w.minRange) { tooClose++; continue; }
+    if (!inArc(st, def, e.cx, e.cz)) { outArc++; continue; }
     const s = d * 0.25 - n * 3;
     if (s < bestS || (s === bestS && best && e.id < best.id)) { bestS = s; best = e; kind = 'squad'; }
   }
@@ -72,13 +76,13 @@ function pickTarget(sim, st, def, w) {
       if (!areHostile(st.faction, o.faction) || !(o.visibleTo & bit) || o.hp <= 0) continue;
       const d = distanceToStructure(o, st.x, st.z);
       if (d > w.range || d < w.minRange || !inArc(st, def, o.x, o.z)) continue;
-      if (quiet && !lullAllowsTarget(sim, st.faction, o.x, o.z)) continue;
       const s = d * 0.25 - (o.objective ? 30 : 16);
       if (s < bestS || (s === bestS && best && o.id < best.id)) { bestS = s; best = o; kind = 'struct'; }
     }
   }
   st.targetId = best ? best.id : 0;
   st.tk = kind;
+  st.gs = best ? '' : tooClose ? 'min_range' : outArc ? 'traverse' : 'no_target';
   return best;
 }
 
@@ -103,6 +107,7 @@ function fire(sim, st, w, t) {
         sim.events.push({ type: EV.NOTICE, faction: st.faction, key: 'gun.no_supply', x: st.x, z: st.z });
       }
       st.cooldown = TICK_RATE; // try again in a second
+      st.gs = 'no_supply';
       return;
     }
     f.resources.supply -= w.supplyPerShot;
@@ -147,6 +152,8 @@ export function updateEmplacements(sim) {
     const def = STRUCTURES[st.type];
     if (st.aim === undefined) st.aim = st.rot;
     if (st.cooldown > 0) st.cooldown--;
+    // re-laying the gun (REORIENT): out of action until the crew has it bedded in again
+    if (st.relayUntil > state.tick) { st.gs = 'relay'; st.aim = turnToward(st.aim, st.rot, w.traverse * DT); continue; }
     let t = resolveTarget(sim, st);
     if (!t || (state.tick + st.id) % TARGET_INTERVAL === 0) t = pickTarget(sim, st, def, w);
     if (!t) continue;
@@ -157,7 +164,8 @@ export function updateEmplacements(sim) {
     const want = headingOf(tx - st.x, tz - st.z);
     st.aim = turnToward(st.aim, want, w.traverse * DT);
     if (st.cooldown > 0 || Math.abs(wrapAngle(want - st.aim)) > LAID) continue;
-    if (crewThreatened(sim, st, w)) continue;
+    if (crewThreatened(sim, st, w)) { st.gs = 'crew'; continue; }
+    st.gs = '';
     fire(sim, st, w, t);
   }
 }

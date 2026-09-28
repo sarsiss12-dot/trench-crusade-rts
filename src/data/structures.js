@@ -16,7 +16,7 @@ export const STRUCTURES = {
     lore: { status: 'abstraction', ref: 'New Antioch is a walled fortress-city that endured eight great sieges (official lore); this fortified church-bastion is a gameplay objective abstraction' },
     footprint: { w: 26, d: 22 }, hp: 9000, blocks: true, vision: 64, buildable: false,
     dropOff: true, resupplyRadius: 42, reinforceRadius: 46, supplyRate: 0.6, materialRate: 0.25,
-    trains: ['yeoman_rifle', 'combat_engineer', 'mech_heavy', 'combat_medic', 'shock_flamer', 'trench_cleric', 'na_lieutenant'], canBeObjective: true,
+    trains: ['yeoman_rifle', 'combat_engineer', 'mech_heavy', 'combat_medic', 'shock_flamer', 'trench_cleric', 'na_lieutenant', 'sniper_priest'], canBeObjective: true,
     hq: true, reinforceSource: true, hub: true, fortAnchor: true, anchorRadius: 90, homeEcon: 70, shelter: true,
     model: 'bastion',
   },
@@ -223,7 +223,7 @@ export const STRUCTURES = {
     lore: { status: 'canon', ref: '"Altars of Beelzebub... constructed from the remains of their victims shaped into the form of monstrous flies" (official lore)' },
     footprint: { w: 10, d: 10 }, hp: 3600, blocks: true, vision: 46, buildable: true, builder: 'black_grail',
     cost: { biomass: 220 }, work: 110,
-    trains: ['grail_thrall', 'corpse_guard', 'plague_knight', 'thrall_gang', 'herald', 'lord_of_tumours'], biomassRate: 0.17,
+    trains: ['grail_thrall', 'corpse_guard', 'plague_knight', 'thrall_gang', 'herald', 'lord_of_tumours'], biomassRate: 0.14,
     infectionSource: { radius: 34, rate: 6 }, dropOff: true, hq: true,
     hub: true,
     model: 'grail_altar',
@@ -264,7 +264,9 @@ export const STRUCTURES = {
     lore: { status: 'canon-inspired', ref: 'New Antioch foundries cast artillery (official lore); this field gun emplacement is a gameplay abstraction with no canon name' },
     footprint: { w: 6, d: 6 }, hp: 1500, blocks: true, vision: 44, buildable: true, builder: 'new_antioch',
     cost: { material: 110, supply: 90 }, work: 90, cat: 'defense', heavyDefense: true,
-    emplacement: 'field_gun_shell', arc: 150, crew: 3, blastResist: 0.25,
+    // Phase 4.1: a narrower laid sector makes the placement direction matter; re-laying the gun
+    // (REORIENT) costs material and takes it out of action for a while
+    emplacement: 'field_gun_shell', arc: 120, crew: 3, blastResist: 0.25, relay: { material: 20, sec: 18 },
     model: 'field_gun',
   },
   viscera_nest: {

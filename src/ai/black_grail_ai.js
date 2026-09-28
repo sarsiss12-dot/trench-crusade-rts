@@ -35,8 +35,8 @@ const RAID_EVERY = 20 * 120; // between raids (x2 while biomass is plentiful)
 const RAID_MAX = 20 * 150; // a raid gives up after this
 
 function combatSquads(sim, fid) {
-  // the commander is not a wave member: he follows the horde (command(), Phase 4)
-  return sim.state.squads.filter((sq) => sq.faction === fid && unitDef(sq.type).combatUnit && !unitDef(sq.type).commander && sq.members.some((m) => m.state === 'alive' || m.state === 'rising'));
+  // Lords of Tumours are not wave members: they follow the horde (escortLords())
+  return sim.state.squads.filter((sq) => sq.faction === fid && unitDef(sq.type).combatUnit && sq.type !== 'lord_of_tumours' && sq.members.some((m) => m.state === 'alive' || m.state === 'rising'));
 }
 
 function aliveCount(sq) {
@@ -200,14 +200,9 @@ export const blackGrailAI = {
       return;
     }
     if (state.match.phase !== 'WAR') return;
-    if (isLull(state)) {
-      // operational lull: pull back and regroup at the staging points, grow the horde, forage,
-      // raise structures; the formed waves launch when the front stirs again
-      this.lullRegroup(sim, fid, ai);
-      this.produce(sim, fid, ai);
-      this.gangs(sim, fid, ai);
-      return;
-    }
+    // reorganisation window (no ceasefire): waves that are not in contact pull back to regroup
+    // and gather in strength; waves already fighting keep fighting, raids / abilities go on
+    if (isLull(state)) this.lullRegroup(sim, fid, ai);
     if (ai.phase === 'deploy') {
       ai.phase = 'assault';
       ai.launchedTick = state.tick;
@@ -216,21 +211,24 @@ export const blackGrailAI = {
     this.manageGroups(sim, fid, ai);
     if (!stress) this.raids(sim, fid, ai);
     this.useAbility(sim, fid, ai);
-    this.command(sim, fid, ai);
+    this.escortLords(sim, fid, ai);
     this.plague(sim, fid, ai);
     this.produce(sim, fid, ai);
     this.gangs(sim, fid, ai);
   },
 
-  /** Once per lull: every wave / raid becomes a forming group back at its lane's staging point. */
+  /**
+   * Once per reorganisation window: every wave NOT in contact becomes a forming group back at its
+   * lane's staging point (it prefers to regroup; nothing stops it from fighting).
+   */
   lullRegroup(sim, fid, ai) {
     const { state, rt } = sim;
     const l = state.match.lull;
     if (ai.lullSeen === l.idx + 1) return;
     ai.lullSeen = l.idx + 1;
-    if (ai.raid) ai.raid = null;
     for (const g of ai.groups) {
-      if (!g.squadIds.length) continue;
+      if (!g.squadIds.length || g.mode === 'raid') continue;
+      if (g.squadIds.some((id) => { const q = rt.squadById.get(id); return q && (q.engaged || q.order.t === 'attack'); })) continue;
       g.mode = 'forming';
       g.formedTick = state.tick;
       g.stage = 0;
@@ -475,46 +473,33 @@ export const blackGrailAI = {
   },
 
   /**
-   * The Lord of Tumours rides BEHIND the strongest advancing wave (22 m back toward the altars),
-   * fights what reaches him, and falls back to an altar when badly hurt: a commander, not a
-   * battering ram (his death costs the whole faction).
+   * Lords of Tumours ride BEHIND the strongest advancing waves (22 m back toward the altars; with
+   * several lords, each follows a different wave — their courts do not stack), fight what reaches
+   * them, and fall back to an altar when badly hurt.
    */
-  escortLord(sim, fid, ai, lord) {
+  escortLords(sim, fid, ai) {
     const { state } = sim;
-    let hp = 0;
-    for (const m of lord.members) if (m.state === 'alive') hp += m.hp;
+    if ((state.tick + 3) % 40 !== 0) return;
+    const lords = state.squads.filter((q) => q.faction === fid && q.type === 'lord_of_tumours' && q.members.some((m) => m.state === 'alive')).sort((a, b) => a.id - b.id);
+    if (!lords.length) return;
     const altar = state.structures.find((s) => s.faction === fid && s.type === 'grail_altar' && s.built);
-    if (hp < unitDef(lord.type).hp * 0.45 && altar) {
-      if (dist(lord.cx, lord.cz, altar.x, altar.z) > 20 && lord.order.t !== 'move') aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lord.id], x: altar.x, z: altar.z + 14 });
-      return;
-    }
-    let best = null, bn = 0;
-    for (const g of ai.groups) {
-      if (g.mode !== 'advance' || g.squadIds.length <= bn || !groupCentroid(sim, g, C)) continue;
-      bn = g.squadIds.length; best = [C[0], C[1]];
-    }
-    if (!best || lord.engaged || lord.order.t === 'attack') return;
-    const home = altar ? [altar.x, altar.z] : [lord.cx, lord.cz - 30];
-    const dx = home[0] - best[0], dz = home[1] - best[1], d = Math.max(1, dist(0, 0, dx, dz));
-    const tx = best[0] + (dx / d) * 22, tz = best[1] + (dz / d) * 22;
-    if (dist(lord.cx, lord.cz, tx, tz) > 10) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lord.id], x: tx, z: tz, attackMove: true });
-  },
-
-  /** PLAGUE BLESSING when the Lord of Tumours and his horde are in the thick of it. */
-  command(sim, fid, ai) {
-    const { state } = sim;
-    if ((state.tick + 3) % 10 !== 0) return;
-    const c = state.factions[fid].cmdr;
-    if (!c || !c.sq) return;
-    const lord0 = sim.rt.squadById.get(c.sq);
-    if (lord0 && (state.tick + 3) % 40 === 0) this.escortLord(sim, fid, ai, lord0);
-    if (state.tick < c.abReady) return;
-    const lord = lord0;
-    if (!lord || (state.factions[fid].resources.biomass || 0) < 30) return;
-    let engaged = 0;
-    for (const sq of state.squads) if (sq.faction === fid && sq.engaged && dist(sq.cx, sq.cz, lord.cx, lord.cz) < 18) engaged++;
-    if (engaged >= 2) aiIssue(sim, { type: CMD.COMMANDER_ABILITY, faction: fid });
-    void ai;
+    const waves = [];
+    for (const g of ai.groups) if (g.mode === 'advance' && g.squadIds.length && groupCentroid(sim, g, C)) waves.push({ n: g.squadIds.length, x: C[0], z: C[1], id: g.id });
+    waves.sort((a, b) => b.n - a.n || a.id - b.id);
+    lords.forEach((lord, i) => {
+      let hp = 0;
+      for (const m of lord.members) if (m.state === 'alive') hp += m.hp;
+      if (hp < unitDef(lord.type).hp * 0.45 && altar) {
+        if (dist(lord.cx, lord.cz, altar.x, altar.z) > 20 && lord.order.t !== 'move') aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lord.id], x: altar.x, z: altar.z + 14 });
+        return;
+      }
+      const w = waves[i % Math.max(1, waves.length)];
+      if (!w || lord.engaged || lord.order.t === 'attack') return;
+      const home = altar ? [altar.x, altar.z] : [lord.cx, lord.cz - 30];
+      const dx = home[0] - w.x, dz = home[1] - w.z, d = Math.max(1, dist(0, 0, dx, dz));
+      const tx = w.x + (dx / d) * 22, tz = w.z + (dz / d) * 22;
+      if (dist(lord.cx, lord.cz, tx, tz) > 10) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lord.id], x: tx, z: tz, attackMove: true });
+    });
   },
 
   manageGroups(sim, fid, ai) {
@@ -530,7 +515,10 @@ export const blackGrailAI = {
         // Phase 4: the first minutes of the war come in smaller, quicker swarms (the horde should be
         // felt early); later waves gather in strength
         const early = state.tick - (ai.launchedTick || state.tick) < 20 * 180;
-        if (g.squadIds.length >= (early ? 2 : 3) || state.tick - g.formedTick > 20 * (early ? 25 : 40)) {
+        // in a reorganisation window the horde gathers in strength before it goes again
+        const lull = isLull(state);
+        const need = lull ? 5 : early ? 2 : 3, wait = lull ? 60 : early ? 25 : 40;
+        if (g.squadIds.length >= need || state.tick - g.formedTick > 20 * wait) {
           g.lane = safestLane(ai, state.rng.ai);
           this.launch(sim, fid, ai, g);
         } else {
@@ -648,9 +636,14 @@ export const blackGrailAI = {
     // keep a reserve for the swarm when it is almost ready
     const ab = f.abilities.fly_swarm;
     const reserve = (ab && ab.readyTick - state.tick < 20 * 10 ? ABILITIES.fly_swarm.cost.biomass : 0) + (ai.planReserve || 0);
+    // Phase 4.1: elites have no game cap — the horde keeps its own proportions (a Lord per ~10
+    // fighting squads, at most two; two Heralds)
+    const fighting = combatSquads(sim, fid).length;
+    const soft = { lord_of_tumours: Math.min(2, 1 + Math.floor(fighting / 10)), herald: 2 };
     const room = (type) => {
       if (!unlockedBySpec(state, fid, unitDef(type))) return false;
       const max = unitMaxSquads(state, fid, type);
+      if (soft[type] !== undefined && squadCount(sim, fid, type) >= soft[type]) return false;
       return !max || squadCount(sim, fid, type) < max;
     };
     ai.trainCounter++;

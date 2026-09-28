@@ -28,7 +28,7 @@ import { specValue, specRule } from '../sim/specialities.js';
 import { damageAnimal, releasePen } from '../sim/wildlife.js';
 import { onSettlementLost } from '../economy/settlements.js';
 import { rebuildAuras, auraValue } from '../sim/auras.js';
-import { lullQuiet, lullAllowsTarget } from '../sim/lull.js';
+import { lullBonus } from '../sim/lull.js';
 
 const PROT = { dmg: 0, acc: 0, cover: 0 };
 const GARRISON_FLAME = 1.3; // flame vs a ruin garrison (data: structures.js garrison.flameTaken)
@@ -83,16 +83,16 @@ function acquireTarget(sim, sq) {
   if (ranged) range = passive ? ranged.range * 0.8 : ranged.range + ACQUIRE_EXTRA;
   else range = passive ? 4 : MELEE_CHARGE_RANGE;
   let best = null, bestD = 1e9;
-  const quiet = lullQuiet(state);
   for (const e of state.squads) {
     if (!areHostile(sq.faction, e.faction)) continue;
     if (!(e.visibleTo & myBit)) continue;
     if (!hasAlive(e)) continue;
     const d = dist(sq.x, sq.z, e.cx, e.cz);
     if (d > range + 3) continue;
-    if (quiet && !lullAllowsTarget(sim, sq.faction, e.cx, e.cz, sq.lastHitTick)) continue;
-    // prefer threats already shooting at us, then proximity
-    const score = d - (state.tick - sq.lastHitTick < 60 && e.target && e.target.id === sq.id ? 10 : 0);
+    // prefer threats already shooting at us, then proximity; a MARKSMAN (Sniper Priest) prefers
+    // valuable targets — elites, leaders, crews, support — over the nearest mass
+    let score = d - (state.tick - sq.lastHitTick < 60 && e.target && e.target.id === sq.id ? 10 : 0);
+    if (def.marksman) score -= marksmanValue(def.marksman, unitDef(e.type));
     if (score < bestD) { bestD = score; best = e; }
   }
   if (best) {
@@ -118,7 +118,6 @@ function acquireTarget(sim, sq) {
     if (!areHostile(sq.faction, st.faction)) continue;
     if (!(st.visibleTo & myBit)) continue;
     if (st.type === 'field') continue;
-    if (quiet && !lullAllowsTarget(sim, sq.faction, st.x, st.z)) continue;
     const d = distanceToStructure(st, sq.x, sq.z);
     if (d > sRange) continue;
     const score = d - (st.objective ? 25 : 0) - (st.type === 'wire' && d < 4 ? 8 : 0);
@@ -168,7 +167,6 @@ export function damageSoldier(sim, vsq, v, amount, attackerFaction, weapon, dx, 
   let d = amount * (1 - vdef.armor);
   if (vsq.hordeBonus) d *= 1 - vsq.hordeBonus * 0.6;
   if (v.postId && specRule(sim.state, vsq.faction, 'trenchStand')) d *= 0.75; // Elite Defense: they hold
-  if (sim.rt.auras) d *= 1 - auraValue(sim, vsq.faction, v.x, v.z, 'holdLine'); // HOLD THE LINE
   v.hp -= d;
   vsq.lastHitTick = sim.state.tick;
   if (weapon && weapon.infect) addInfection(sim, vsq, v, weapon.infect);
@@ -482,6 +480,18 @@ export function flamerPurge(sim, sq) {
   }
 }
 
+/** Target value for a marksman (Phase 4.1): elites / leaders / crews / support / heavies. */
+export function marksmanValue(mk, tdef) {
+  const P = mk.prefer;
+  let v = 0;
+  if (tdef.elite) v = Math.max(v, P.elite || 0);
+  if (tdef.roles.indexOf('leader') >= 0) v = Math.max(v, P.leader || 0);
+  if (tdef.roles.indexOf('builder') >= 0 || tdef.roles.indexOf('medic') >= 0) v = Math.max(v, P.crew || 0);
+  if (tdef.roles.indexOf('support') >= 0) v = Math.max(v, P.support || 0);
+  if (tdef.heavy) v = Math.max(v, P.heavy || 0);
+  return v;
+}
+
 // --------------------------------------------------------------- per squad firing
 
 function squadFire(sim, sq) {
@@ -671,12 +681,10 @@ function structureFire(sim, st, sw) {
   if (!tsq || (state.tick + st.id) % TARGET_INTERVAL === 0 || !hasAlive(tsq) || !(tsq.visibleTo & myBit)) {
     tsq = null;
     let bestD = w.range + 2;
-    const quiet = lullQuiet(state);
-    for (const e of state.squads) {
+      for (const e of state.squads) {
       if (!areHostile(st.faction, e.faction) || !(e.visibleTo & myBit) || !hasAlive(e)) continue;
       const d = dist(gx, gz, e.cx, e.cz);
       if (d > bestD) continue;
-      if (quiet && !lullAllowsTarget(sim, st.faction, e.cx, e.cz, st.lastHitTick)) continue;
       const ang = Math.abs(wrapAngle(headingOf(e.cx - gx, e.cz - gz) - st.rot));
       if (ang > halfArc) continue;
       bestD = d; tsq = e;
@@ -728,6 +736,12 @@ function updateStatus(sim) {
   const tick = state.tick;
   for (const sq of state.squads) {
     const def = unitDef(sq.type);
+    // suppression wears off faster: reorganisation window (out of combat) and, non-stacking,
+    // a Lieutenant's COMMAND COHESION nearby (the two different sources add)
+    if (sq.suppressUntil > tick) {
+      const k = lullBonus(state, 'suppressRecover', sq.lastHitTick) - 1 + (sim.rt.auras ? auraValue(sim, sq.faction, sq.cx, sq.cz, 'suppressRecover') : 0);
+      if (k > 0) sq.suppressUntil = Math.max(tick, sq.suppressUntil - Math.round(10 * k));
+    }
     for (const m of sq.members) {
       if (m.state === 'alive') m.cover = coverAt(sim, m.x, m.z);
       // burning soldiers (flamethrower) keep taking fire damage for a few seconds

@@ -213,7 +213,7 @@ function flash(text) {
 /** "Play again" after a loaded / resumed match: a fresh war with the same side and settings. */
 function againLike(state) {
   const st = state.settings || {};
-  return () => startMatch({ faction: st.playerFaction, warMinutes: st.warMinutes, prepSeconds: st.prepSeconds, controllers: st.controllers });
+  return () => startMatch({ faction: st.playerFaction, warMinutes: st.endless ? 'endless' : st.warMinutes, prepSeconds: st.prepSeconds, controllers: st.controllers, lulls: st.lulls });
 }
 
 function loadSlot(slot) {
@@ -307,6 +307,8 @@ function quit() {
 // ---------------------------------------------------------------- menus
 const menu = createMenu({
   root: app, settings, storage,
+  // 5 / 15 minute wars are development lengths only (?dev=1 or a local dev server)
+  dev: q.get('dev') === '1' || location.hostname === 'localhost' || location.hostname === '127.0.0.1',
   saveSettings,
   startMatch, startStress, startGallery, loadSlot,
   resume, quit,
@@ -376,7 +378,7 @@ function bootFromUrl() {
   } else if (q.get('autostart')) {
     startMatch({
       faction: q.get('faction') || 'new_antioch',
-      warMinutes: Number(q.get('minutes') || 15),
+      warMinutes: q.get('minutes') === 'endless' ? 'endless' : Number(q.get('minutes') || 30),
       seed: q.get('seed') !== null ? Number(q.get('seed')) : undefined,
       prepSeconds: q.get('prep') !== null ? Number(q.get('prep')) : undefined,
       controllers: q.get('aiai') ? { new_antioch: 'ai', black_grail: 'ai' } : undefined,

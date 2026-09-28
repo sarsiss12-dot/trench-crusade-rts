@@ -8,6 +8,7 @@
 //  - source destroyed while requested   -> another source is used, else cancelled
 //  - route cut (source and squad in different nav components) -> delayed (notice), retried
 // Everything here is plain state (sq.reinf) + deterministic iteration: saves / replays agree.
+import { lullBonus } from '../sim/lull.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS } from '../data/factions.js';
 import { unitDef } from '../data/units.js';
@@ -96,58 +97,58 @@ function notice(sim, sq, key) {
 }
 
 /**
- * AUTO REINFORCEMENT policy (Phase 4). Faction default f.autoReinf: 'off' | 'important' | 'all';
- * per-squad override sq.autoReinf: -1 follow the default, 0 never, 1 always. IMPORTANT = squads
- * holding a trench / garrison, heavies, leaders and auras (the line that must not thin out).
+ * POSITIONAL AUTO REINFORCEMENT (Phase 4.1, final design). A squad in the OPEN FIELD never tops
+ * itself up (the player asks with REINFORCE). A squad that settles into a real DEFENSIVE POSITION —
+ * a trench (hold_trench) or a ruin garrison (inside), later bunkers / wall firing positions —
+ * switches it ON by itself; the player may switch it OFF for that squad (kept while it stays in
+ * that position). Leaving the position clears the positional state; the next position starts ON
+ * again. Replacements already walking are never cancelled — only NEW dispatches stop.
+ * State: sq.posId (the position's structure id, 0 = open field), sq.posAuto (1 on / 0 off).
  */
-export const AUTO_REINF_MODES = ['off', 'important', 'all'];
-export function isImportantSquad(sq) {
-  const def = unitDef(sq.type);
-  return sq.order.t === 'hold_trench' || sq.order.t === 'garrison' || !!def.heavy || !!def.aura || !!def.commander;
-}
-export function wantsAutoReinforce(state, sq) {
-  const o = sq.autoReinf === undefined ? -1 : sq.autoReinf;
-  if (o === 0) return false;
-  if (o === 1) return true;
-  const mode = state.factions[sq.faction].autoReinf || 'off';
-  return mode === 'all' || (mode === 'important' && isImportantSquad(sq));
+export function positionOf(sq) {
+  const o = sq.order;
+  if (o.t === 'hold_trench') return o.sid || 0;
+  if (o.t === 'garrison' && o.phase === 'inside') return o.sid || 0;
+  return 0;
 }
 
-/**
- * Automatic top-up: (a) idle / garrisoned squads resting inside a source's reinforce radius (as
- * before); (b) squads under the AUTO policy anywhere, once at least a quarter is missing (or two
- * men), with a reachable source and the price of one man in stock — never more than one request
- * per squad per 20 s (no spam), never while it is being hit this very moment.
- */
+/** Auto reinforcement currently on for this squad (in a position and not switched off). */
+export function autoReinforceOn(sq) {
+  return !!(sq.posId && sq.posAuto);
+}
+
+/** Track position entry / exit (positional default ON on entry, cleared on exit). */
+export function trackPosition(sq) {
+  const pos = positionOf(sq);
+  if (pos === (sq.posId || 0)) return;
+  if (pos) {
+    if (!sq.posId) sq.posAuto = 1; // entering a position from the open field: default ON
+    sq.posId = pos; // moving between segments of the same line keeps the player's choice
+  } else {
+    sq.posId = 0;
+    sq.posAuto = 0;
+    if (sq.reinf && sq.reinf.auto) sq.reinf = null; // no NEW dispatches; walkers keep walking
+  }
+}
+
 function autoRequests(sim, fid) {
   const { state } = sim;
-  const f = state.factions[fid];
-  const conf = FACTIONS[fid].reinforcements;
   for (const sq of state.squads) {
-    if (sq.faction !== fid || sq.reinf) continue;
-    const miss = missingMembers(sq);
-    if (miss <= 0 || !unitDef(sq.type).combatUnit) continue;
-    const o = sq.order;
-    const quiet = state.tick - sq.lastHitTick > 200;
-    if ((o.t === 'idle' || o.t === 'hold_trench') && quiet) {
-      let near = false;
-      for (const st of state.structures) {
-        if (!isReinforceSource(st, fid, state)) continue;
-        if (distanceToStructure(st, sq.x, sq.z) <= sourceRadius(st)) { near = true; break; }
-      }
-      if (near) { requestReinforcement(sim, sq, true); continue; }
-    }
-    if (!wantsAutoReinforce(state, sq)) continue;
-    const size = Math.max(sq.cap || 0, unitDef(sq.type).squadSize);
-    if (miss < Math.max(1, Math.min(2, Math.ceil(size * 0.25)))) continue;
-    if (state.tick - (sq.autoReinfT || -1e9) < 20 * 20) continue;
-    if (state.tick - sq.lastHitTick < 40) continue;
-    if (f.resources.manpower < conf.manpower || f.resources.supply < conf.supply) continue;
+    if (sq.faction !== fid || !unitDef(sq.type).combatUnit) continue;
+    trackPosition(sq);
+    if (!autoReinforceOn(sq)) { if (sq.reinf && sq.reinf.auto) sq.reinf = null; continue; }
+    if (sq.reinf || missingMembers(sq) <= 0) continue;
     const pick = pickSource(sim, sq);
     if (!pick || !pick.reachable) continue;
-    sq.autoReinfT = state.tick;
     requestReinforcement(sim, sq, true);
   }
+}
+
+/** Men missing across squads waiting for resources on an automatic request (the notice's count). */
+function waitingMen(state, fid) {
+  let n = 0;
+  for (const sq of state.squads) if (sq.faction === fid && sq.reinf && sq.reinf.auto && sq.reinf.wait) n += missingMembers(sq);
+  return n;
 }
 
 /** Dispatch one replacement per requesting squad per interval. */
@@ -163,7 +164,7 @@ export function updateReinforcements(sim, fid) {
     const r = sq.reinf;
     if (!r || sq.faction !== fid) continue;
     if (state.tick < r.next) continue;
-    r.next = state.tick + interval;
+    r.next = state.tick + Math.max(1, Math.round(interval * lullBonus(state, 'reinfInterval', sq.lastHitTick)));
     if (missingMembers(sq) <= 0) {
       sq.reinf = null;
       if (!r.auto) notice(sim, sq, 'reinf.complete');
@@ -187,7 +188,17 @@ export function updateReinforcements(sim, fid) {
       continue;
     }
     r.cut = 0;
-    if (f.resources.manpower < conf.manpower || f.resources.supply < supplyCost) { r.wait = 1; continue; }
+    const need = supplyCost + (r.auto && conf.autoReserve ? conf.autoReserve.supply || 0 : 0); // ammunition first
+    if (f.resources.manpower < conf.manpower || f.resources.supply < need) {
+      r.wait = 1;
+      // ONE meaningful notice ("waiting: supply short · 11 men"), then silence until it flows again
+      if (r.auto && !f.reinfWait) {
+        f.reinfWait = 1;
+        sim.events.push({ type: EV.NOTICE, faction: fid, key: 'reinf.auto_waiting', res: f.resources.supply < need ? 'supply' : 'manpower', n: waitingMen(state, fid), x: sq.cx, z: sq.cz });
+      }
+      continue;
+    }
+    f.reinfWait = 0;
     if (rt.pathWork >= PATH_WORK_PER_TICK) continue; // the walk path is budgeted A* work: next tick
     r.wait = 0;
     f.resources.manpower -= conf.manpower;

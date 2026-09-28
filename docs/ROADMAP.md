@@ -41,6 +41,29 @@ korunur, kayıt sürümü gerekiyorsa artırılır ve göç yazılır.
 - Operasyonel duraklama, harabe garnizonu, sahra topu, komutanlar, Kara Kâse erken oyun + organik savunmalar.
 - Kayıt sürümü 4 + göç; 235 Node testi.
 
+## Faz 4.1 — Karar uyumu (tamamlandı)
+- Duraklama ateşkes değil (yalnızca çatışma dışı bonuslar); komutan → pasif SEÇKİN sistemi (sınır yok, yığılmayan
+  auralar, Keskin Nişancı Rahip); konumsal otomatik takviye; sunak 0.14; Köle / çalışma takımı hızları ve bağlamları;
+  başlangıç Ceset Yığını; etki alanı görselleştirmesi; dünya uzayında ceset durumları + kalıcı arınma; sürükle-döndür
+  yerleştirme + sahra topu yayı / yeniden yönlendirme; tek seferlik çoklu seçim; kart X'i; kaynak merceği; "neden
+  yapamıyorum?"; 30 / 60 / 120 / 180 / SÜRESİZ; savunmanın sınırlı karşı taarruzu; yağmur + trafik çamuru; çöküşten
+  kurtulan siviller; istihkâmcı kendini koruma; kayıt sürümü 5 + v4 göçü; 256 Node testi.
+
+## Faz 05A — Iron Sultanate (yalnızca kaynakla doğrulanmış içerik)
+- Taraf verisi, 3–4 çekirdek birim (resmî listeden), ekonomi farkı, AI; Iron Wall / Grand Cannon gibi yapılar
+  yalnızca resmî kaynak doğrulamasından sonra. Kanon olmayan hiçbir şey kanon diye sunulmaz.
+
+## Faz 05B — Heretic Legion
+- Taraf verisi ve çekirdek birimler (resmî liste), Heretic tankı ancak doğrulanırsa; mevcut seçkin / aura / takviye
+  sistemleriyle uyum; üç taraflı eşleşmelerde AI rol ataması.
+
+## Faz 05C — Yeraltı ve çok oyunculu
+- Yeraltı katmanı (tüneller: çamurdan etkilenmez), Burrower / Countermine; lockstep çok oyunculu (komutlar zaten
+  tick + seq taşıyor, stateHash ile desenkron tespiti).
+- Faz 4.1'den kalanlar: gerçek Android ölçümü (yağmur çizgileri, çamur dokusu, ceset rozetleri dahil), insanla denge
+  testi (AI'ya karşı AI 30 dk'da Kara Kâse ağır basıyor), organik yuvaların AI'da neredeyse hiç ateş etmemesi,
+  otomatik takviyenin ikmal baskısı (%42–85 bekleme), Yeni Antakya AI'sının keşif / karşı taarruz sıklığı.
+
 ## Faz 4b — Gerçek cihaz ve his
 - Gerçek Android cihazlarda (Adreno / Mali / PowerVR) profil: GPU zamanlayıcı sorguları, kalite ön ayarı kalibrasyonu.
 - Ölçüme göre: poz dokusu için doku döndürme (2–3 doku), iOS Safari'de `flat` varyasyon maliyeti, gezinme
@@ -54,13 +77,13 @@ korunur, kayıt sürümü gerekiyorsa artırılır ve göç yazılır.
 - Duvar aralıkları için açılır/kapanır geçit; mangaların duvar arkasına otomatik dizilmesi.
 
 ## Faz 5 — İçerik (kaynakla doğrulanarak)
-- Yeni Antakya: Shocktrooper, Sniper Priest; tank ve alev makineli tank (resmî lore'da var).
+- Yeni Antakya: Shocktrooper; tank ve alev makineli tank (resmî lore'da var). (Sniper Priest Faz 4.1'de geldi.)
 - Kara Kâse: Fly Thrall, Hounds of the Black Grail.
 - Yeni yapılar: sığınak (dugout), iletişim siperi.
 - `techEra` ön ayarları yalnızca resmî kaynakla doğrulandıktan sonra.
 
 ## Faz 6 — Harita ve mod çeşitliliği
-- İkinci harita (sarp vadi / liman), hava durumu (yağmur → çamur hızı, sis → görüş), gece.
+- İkinci harita (sarp vadi / liman), sis → görüş, gece (yağmur → çamur Faz 4.1'de geldi).
 - Senaryolar: hat tutma, köprü savunması, rehine / ikmal konvoyu.
 - Kampanya: maçlar arası kalıcı gazi mangalar, tahkimat mirası.
 

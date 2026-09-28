@@ -16,6 +16,7 @@ import { sphereInFrustum, lerpAngle, clamp01 } from './math3d.js';
 import { unitDef } from '../data/units.js';
 import { groundHeightAt } from '../world/ground.js';
 import { isSquadVisibleTo, isCorpseKnownTo, isSoldierVisibleTo, isAnimalVisibleTo, isConvoyVisibleTo } from '../sim/perception.js';
+import { corpseTwitching } from '../sim/corpse_view.js';
 import { hash32 } from '../core/rng.js';
 import { DT, DYING_TICKS, RISING_TICKS } from '../sim/constants.js';
 
@@ -456,6 +457,7 @@ export function createUnitRenderer(gl, program, opts) {
     gl.bindTexture(gl.TEXTURE_2D, poseTex);
     if (row > 0) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, POSE_TEXELS, row, gl.RGBA, gl.FLOAT, poseData, 0);
     updateCorpses(sim, dt, time);
+    if (frame % 2 === 0) twitchCorpses(sim, viewer, time);
     updateGibs(dt, time);
   }
 
@@ -572,6 +574,8 @@ export function createUnitRenderer(gl, program, opts) {
         c.y = c.y2;
         computePose(poseData, row * POSE_TEXELS * 4, c.model, c);
         c.y = y;
+        c.row = row;
+        c.tw = 0;
         row++;
       }
       list.rowCount = row - list.rowBase;
@@ -580,6 +584,35 @@ export function createUnitRenderer(gl, program, opts) {
     const n = row - MAX_LIVE_ROWS;
     gl.bindTexture(gl.TEXTURE_2D, poseTex);
     if (n > 0) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, MAX_LIVE_ROWS, POSE_TEXELS, n, gl.RGBA, gl.FLOAT, poseData, MAX_LIVE_ROWS * POSE_TEXELS * 4);
+  }
+
+  // Phase 4.1: a body about to rise TWITCHES in its last seconds (only bodies the viewer may know
+  // are about to rise, sim/corpse_view.js). Just those rows are re-posed and uploaded (bounded).
+  const TWITCH_MAX = 16;
+  function twitchCorpses(sim, viewer, time) {
+    let n = 0;
+    for (const cv of corpses) {
+      if (cv.fadeOut >= 0 || cv.row === undefined || cv.row >= TEX_H) continue;
+      const c = sim.rt.corpseById.get(cv.id);
+      const tw = !!c && corpseTwitching(sim, viewer, c);
+      if (!tw && !cv.tw) continue;
+      if (n++ >= TWITCH_MAX) break;
+      const d0 = cv.death, r0 = cv.rise;
+      if (tw) {
+        const k = Math.sin(time * 11 + cv.seed * 0.01);
+        cv.death = -1;
+        cv.rise = 0.03 + 0.05 * Math.max(0, k) * Math.max(0, Math.sin(time * 3.1 + cv.seed * 0.02));
+      }
+      cv.tw = tw ? 1 : 0;
+      cv.time = time;
+      const y = cv.y;
+      cv.y = cv.y2 !== undefined ? cv.y2 : cv.y;
+      computePose(poseData, cv.row * POSE_TEXELS * 4, cv.model, cv);
+      cv.y = y;
+      cv.death = d0; cv.rise = r0;
+      gl.bindTexture(gl.TEXTURE_2D, poseTex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, cv.row, POSE_TEXELS, 1, gl.RGBA, gl.FLOAT, poseData, cv.row * POSE_TEXELS * 4);
+    }
   }
 
   /** Draw soldiers + corpses. `prog` overrides the program (shadow depth pass). */

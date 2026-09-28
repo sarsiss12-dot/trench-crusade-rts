@@ -354,8 +354,10 @@ test('Black Grail construction: organic structures on own ground or infected gro
   // a thrall work gang raises it with the normal BUILD pipeline
   const gang = spawn(sim, 'black_grail', 'thrall_gang', 126, 175, 0);
   enqueueCommand(sim, { type: CMD.BUILD, faction: 'black_grail', stype: 'corpse_mound', x: 120, z: 160, rot: 0, squadIds: [gang.id] });
-  const ev = run(sim, 120, (s) => !s.state.structures.some((x) => x.type === 'corpse_mound' && x.built) || false);
-  assert.ok(structs(sim, 'corpse_mound')[0].built, 'mound completed');
+  const had = new Set(structs(sim, 'corpse_mound').map((x) => x.id)); // Phase 4.1: one mound stands at the start
+  const fresh = () => structs(sim, 'corpse_mound').find((x) => !had.has(x.id));
+  const ev = run(sim, 120, () => !(fresh() && fresh().built));
+  assert.ok(fresh() && fresh().built, 'mound completed');
   assert.ok(ev.some((e) => e.type === EV.STRUCTURE_COMPLETED && e.stype === 'corpse_mound'));
   // gangs are slower builders than engineers (data)
   assert.less(unitRate('thrall_gang'), unitRate('combat_engineer'));
@@ -471,13 +473,14 @@ test('AI uses the new command set through the normal pipeline (no cheats)', () =
   for (let i = 0; i < 20 * 600 && sim.state.match.phase !== 'ENDED'; i++) {
     for (const c of sim.state.pending) { assert.equal(c.source, 'ai'); seen.add(byType(c)); }
     if (i % 20 === 0 && sim.state.squads.some((sq) => sq.faction === 'new_antioch' && sq.reinf)) seen.add('n:walking_request');
+    if (i % 20 === 0 && sim.state.squads.some((sq) => sq.faction === 'new_antioch' && sq.reinf && sq.reinf.auto)) seen.add('n:auto_request');
     stepSimulation(sim);
     sim.events.length = 0;
   }
   const has = (k) => [...seen].some((x) => x.startsWith(k));
-  // Phase 4: the AI sets the auto-reinforcement default ("important" squads) and tops up the rest
-  // with explicit REINFORCE; either way replacements must really be requested (walking)
-  assert.ok(has('n:REINFORCE') || has('n:SET_AUTO_REINFORCE_DEFAULT'), 'New Antioch asks for replacements');
+  // Phase 4.1: squads in trenches / garrisons top up by POSITIONAL auto reinforcement (no command);
+  // open-field squads are topped up with explicit REINFORCE
+  assert.ok(has('n:REINFORCE') || has('n:auto_request'), 'New Antioch asks for replacements');
   assert.ok(has('n:walking_request'), 'New Antioch requests walking replacements');
   assert.ok(has('n:BUILD:low_sandbags') || has('n:BUILD:breastwork') || has('n:BUILD:aid_station'), 'New Antioch builds Phase 2 structures');
   assert.ok(has('b:TRAIN:thrall_gang'), 'Black Grail raises work gangs');

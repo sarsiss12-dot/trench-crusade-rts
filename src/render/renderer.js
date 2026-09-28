@@ -10,6 +10,7 @@ import { createStaticRenderer } from './static_renderer.js';
 import { createFortificationRenderer } from './fortifications_renderer.js';
 import { createFx } from './fx.js';
 import { createOverlays } from './overlays.js';
+import { createRain } from './rain.js';
 import { createStructureMemory } from './fog_memory.js';
 import { createCraterMemory } from './craters.js';
 import { createCanvasSizer } from './viewport.js';
@@ -143,6 +144,13 @@ export function createRenderer(canvas, opts = {}) {
     const inf = sim.state.infection;
     r.infData = new Uint8Array(inf.cols * inf.rows);
     r.infTex = createTexture2D(gl, inf.cols, inf.rows, { internal: gl.R8, format: gl.RED, data: r.infData });
+    // Phase 4.1 traffic mud (low-res grid) as the viewer has SEEN it (tracks reveal movement)
+    const mud = sim.state.mud;
+    r.mudData = new Uint8Array(mud ? mud.cols * mud.rows : 1);
+    if (memory && memory.mud && mud && memory.mud.length === r.mudData.length) r.mudData.set(memory.mud);
+    r.mudTex = createTexture2D(gl, mud ? mud.cols : 1, mud ? mud.rows : 1, { internal: gl.R8, format: gl.RED, data: r.mudData });
+    r.mudVer = -1;
+    r.rain = createRain(gl, P.line, quality);
     syncFow(true);
     const ground = (x, z) => r.groundAt(x, z);
     r.units = createUnitRenderer(gl, P.skinned, { quality, ground, extras: (t, dt) => r.extraInstances(t, dt) });
@@ -159,7 +167,7 @@ export function createRenderer(canvas, opts = {}) {
   };
 
   /** The viewer's knowledge for a save / a renderer rebuild (presentation only; not GameState). */
-  r.exportMemory = () => ({ ...r.memory.exportState(), corpses: r.units ? r.units.exportCorpses() : [], craters: r.craters ? r.craters.exportState() : [] });
+  r.exportMemory = () => ({ ...r.memory.exportState(), corpses: r.units ? r.units.exportCorpses() : [], craters: r.craters ? r.craters.exportState() : [], mud: r.mudData ? Array.from(r.mudData) : [] });
 
   function knownSignature(list) {
     let h = list.length;
@@ -188,6 +196,26 @@ export function createRenderer(canvas, opts = {}) {
     }
     gl.bindTexture(gl.TEXTURE_2D, r.fowTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, fog.cols, fog.rows, gl.RG, gl.UNSIGNED_BYTE, out);
+  }
+
+  function syncMud() {
+    const mud = r.sim.state.mud;
+    if (!mud || mud.ver === r.mudVer) return;
+    r.mudVer = mud.ver;
+    const fog = r.sim.state.fog;
+    const vis = fog.vis[FACTIONS[r.viewer] ? FACTIONS[r.viewer].index : 0];
+    const d = r.mudData, v = mud.v;
+    for (let j = 0; j < mud.rows; j++) {
+      const fz = Math.min(fog.rows - 1, Math.floor(((j + 0.5) * mud.cs) / fog.cs));
+      for (let i = 0; i < mud.cols; i++) {
+        const k = j * mud.cols + i;
+        if (!r.fogEnabled) { d[k] = v[k]; continue; }
+        const fx = Math.min(fog.cols - 1, Math.floor(((i + 0.5) * mud.cs) / fog.cs));
+        if (vis[fz * fog.cols + fx]) d[k] = v[k]; // unseen ground keeps the mud last seen there
+      }
+    }
+    gl.bindTexture(gl.TEXTURE_2D, r.mudTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, mud.cols, mud.rows, gl.RED, gl.UNSIGNED_BYTE, d);
   }
 
   function syncInfection() {
@@ -230,6 +258,8 @@ export function createRenderer(canvas, opts = {}) {
     if (u.uFowTex) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, r.fowTex); gl.uniform1i(u.uFowTex, 1); }
     if (u.uHeightTex) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, r.heightTex); gl.uniform1i(u.uHeightTex, 2); }
     if (u.uInfTex) { gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, r.infTex); gl.uniform1i(u.uInfTex, 4); }
+    if (u.uMudTex) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, r.mudTex); gl.uniform1i(u.uMudTex, 6); }
+    if (u.uWeather) { const wx = r.sim && r.sim.state.weather; gl.uniform4f(u.uWeather, wx ? wx.rain || 0 : 0, wx ? wx.wet || 0 : 0, 0, 0); }
     if (u.uShadowTex) {
       gl.activeTexture(gl.TEXTURE5);
       gl.bindTexture(gl.TEXTURE_2D, shadow.tex);
@@ -374,13 +404,14 @@ export function createRenderer(canvas, opts = {}) {
     }
     syncFow(false, dt);
     infTimer -= realDt;
-    if (infTimer <= 0) { infTimer = 0.5; syncInfection(); }
+    if (infTimer <= 0) { infTimer = 0.5; syncInfection(); syncMud(); }
 
     r.units.update(sim, camera, r.viewer, frame.alpha, dt, frame.selection, r.time);
     r.statics.update(sim, camera, r.viewer, dt, r.time, known, vsig, r.memory.nodes());
     r.forts.update(sim, camera, r.viewer, dt, known);
     r.fx.update(sim, camera, r.viewer, dt, r.time);
     r.overlays.update(sim, camera, r, frame);
+    r.rain.update(camera, sim.state.weather ? sim.state.weather.rain : 0, r.time, r.groundAt);
 
     const shadowsActive = shadow.size > 0 && r.shadowsOn;
     if (shadowsActive) {
@@ -443,6 +474,8 @@ export function createRenderer(canvas, opts = {}) {
     r.fx.drawDecals((p) => setCommon(p, camera), true);
     gl.disable(gl.POLYGON_OFFSET_FILL);
     if (!skip.particles) r.fx.drawParticles((p) => setCommon(p, camera));
+    // rain streaks (depth-tested, no depth writes)
+    if (!skip.rain) r.rain.draw((p) => setCommon(p, camera));
 
     // placement ghosts & debug lines
     r.overlays.drawWorld((p) => setCommon(p, camera), r);

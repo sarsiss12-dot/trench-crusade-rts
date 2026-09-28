@@ -1,5 +1,6 @@
 // Real construction: placement -> construction site -> engineer work -> progress -> completed.
 // Placement validation is shared by player UI (ghost preview reasons) and AI.
+import { lullBonus } from '../sim/lull.js';
 import { STRUCTURES } from '../data/structures.js';
 import { unitDef, hasRole } from '../data/units.js';
 import { TERRAIN } from '../data/terrain_types.js';
@@ -313,7 +314,9 @@ export function updateConstruction(sim) {
     const s = rt.structById.get(sid);
     if (!s) continue;
     const def = STRUCTURES[s.type];
-    const eff = workEfficiency(w.n) * w.rate * DT * specValue(state, w.faction, 'builderSpeed', 1);
+    // reorganisation window: out-of-combat sites build / repair faster (sim/lull.js)
+    const eff = workEfficiency(w.n) * w.rate * DT * specValue(state, w.faction, 'builderSpeed', 1) *
+      lullBonus(state, w.repair ? 'repair' : 'build', s.lastDamageTick);
     if (!s.built) {
       const before = s.progress;
       s.work = Math.min(s.workRequired, s.work + eff);

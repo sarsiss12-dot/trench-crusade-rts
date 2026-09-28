@@ -1,5 +1,5 @@
 // Phase 4 strings (TR / EN): control groups, multi-select, auto reinforcement, operational lulls,
-// audio, ruins, field gun, commanders, Black Grail defences, salvage, economy view.
+// audio, ruins, field gun, Black Grail defences, salvage, economy view.
 export const TR_P4 = {
   // control groups
   'cg.tip': 'Hızlı gruplar: uzun bas = kaydet, dokun = seç, çift dokun = seç + kamera',
@@ -13,15 +13,12 @@ export const TR_P4 = {
   // auto reinforcement
   'hud.autoreinf_on': 'Oto takviye ✓', 'hud.autoreinf_off': 'Oto takviye',
   'hud.autoreinf_tip': 'Otomatik takviye: manga eksildikçe (kaynak, insan gücü, ikmal ve yol varsa) yedek ister',
-  'menu.autoreinf': 'Otomatik takviye (varsayılan)',
-  'autoreinf.off': 'Kapalı', 'autoreinf.important': 'Önemli mangalar', 'autoreinf.all': 'Tümü',
   // operational lull
   'phase.LULL': 'YENİDEN ÖRGÜTLENME',
   'lull.coming': 'Cephe sakinleşiyor…',
   'lull.begins': 'Yeniden örgütlenme — {s} sn: inşa et, onar, takviye et. Yeni saldırı yok.',
   'lull.ending': 'Cephe yeniden hareketleniyor!',
   'lull.over': 'SAVAŞ YENİDEN BAŞLADI',
-  'lull.no_attack': 'Yeniden örgütlenme: şu an saldırı emri verilemez',
   'menu.lulls': 'Operasyonel duraklamalar', 'lulls.auto': 'Otomatik', 'lulls.0': 'Kapalı', 'lulls.1': '1', 'lulls.2': '2',
   // salvage / economy view
   'hud.salvage_area': 'Hurda alanı', 'hud.salvage_tip': 'Alan hurdası: mühendisler alandaki bilinen tüm hurda yığınlarını toplar, bitince merkeze döner',
@@ -48,18 +45,6 @@ export const TR_P4 = {
   'struct.belcher_nest.desc': 'Kısa menzilli alan inkârı: yaklaşan düşmanın üstüne aşındırıcı, hastalıklı gaz kusar.',
   'ability.belcher_cloud': 'Yozlaşma gazı', 'ability.belcher_cloud.desc': 'Püskürtücü yuvasının kısa ömürlü gaz bulutu',
   'gun.no_supply': 'Top susuyor: ikmal yok',
-  // commanders
-  'ability.hold_the_line': 'HATTI TUT', 'ability.hold_the_line.short': 'Hattı tut',
-  'ability.hold_the_line.desc': '25 sn: teğmenin çevresindeki (20 m) mangalar bastırılamaz, korkmaz, %25 daha az hasar alır ve daha isabetli atar. Alan onunla birlikte hareket eder.',
-  'ability.plague_blessing': 'VEBA KUTSAMASI', 'ability.plague_blessing.short': 'Kutsama',
-  'ability.plague_blessing.desc': '20 sn: Tümörler Efendisi çevresindeki (18 m) Grail birlikleri hızla iyileşir, yakın dövüşte %30 daha sert vurur, korkmaz.',
-  'cmdr.tip': 'komutan · dokun: seç · çift dokun: kamera', 'cmdr.fallen_tip': 'düştü — bekleme süresinden sonra iki kat bedelle yenisi yetiştirilebilir',
-  'cmdr.lost_tip': 'düştü — yerine yenisi konamaz', 'cmdr.replace_in': 'Yeni: {s}s', 'cmdr.replace_ready': 'Yenisi hazır', 'cmdr.lost': 'Kayıp',
-  'cmdr.active': 'Etkin', 'cmdr.none': 'Komutan yok',
-  'cmdr.fallen': 'KOMUTAN DÜŞTÜ — moral sarsıldı, yetenekler yavaş dolacak',
-  'cmdr.fallen_final': 'KOMUTAN DÜŞTÜ — yerine yenisi gelmeyecek', 'cmdr.enemy_fallen': 'Düşman komutanı düştü!',
-  'train.commander_limit': 'Sahada zaten bir komutan var', 'train.commander_wait': 'Yeni komutan için bekleme sürüyor',
-  'train.commander_lost': 'Komutan artık yenilenemez',
   'swarm.incoming': 'Sinek sürüsü! İsabet düşer, hastalık bulaşır — alandan çık',
 };
 
@@ -73,14 +58,11 @@ export const EN_P4 = {
   'hud.multi_tip': 'Multi-select: while on, tapped squads are added to / removed from the selection',
   'hud.autoreinf_on': 'Auto reinf. ✓', 'hud.autoreinf_off': 'Auto reinf.',
   'hud.autoreinf_tip': 'Auto reinforcement: the squad asks for replacements as it thins (source, manpower, supply and a route needed)',
-  'menu.autoreinf': 'Auto reinforcement (default)',
-  'autoreinf.off': 'Off', 'autoreinf.important': 'Important squads', 'autoreinf.all': 'All',
   'phase.LULL': 'REORGANIZATION',
   'lull.coming': 'The front is going quiet…',
   'lull.begins': 'Reorganization — {s} s: build, repair, reinforce. No new attacks.',
   'lull.ending': 'The front stirs again!',
   'lull.over': 'THE WAR RESUMES',
-  'lull.no_attack': 'Reorganization: no attack orders right now',
   'menu.lulls': 'Operational lulls', 'lulls.auto': 'Auto', 'lulls.0': 'Off', 'lulls.1': '1', 'lulls.2': '2',
   'hud.salvage_area': 'Salvage area', 'hud.salvage_tip': 'Salvage area: engineers strip every known heap in the area, then return to a hub',
   'hud.salvage_hint': 'Pick the salvage area — every heap inside the ring is stripped in turn',
@@ -104,16 +86,5 @@ export const EN_P4 = {
   'struct.belcher_nest.desc': 'Short-range area denial: belches corrosive, diseased gas over approaching enemies.',
   'ability.belcher_cloud': 'Corruption gas', 'ability.belcher_cloud.desc': 'Short-lived gas cloud of a belcher nest',
   'gun.no_supply': 'The gun falls silent: no supply',
-  'ability.hold_the_line': 'HOLD THE LINE', 'ability.hold_the_line.short': 'Hold line',
-  'ability.hold_the_line.desc': '25 s: squads around the Lieutenant (20 m) cannot be suppressed, know no fear, take 25% less damage and shoot straighter. The area moves with him.',
-  'ability.plague_blessing': 'PLAGUE BLESSING', 'ability.plague_blessing.short': 'Blessing',
-  'ability.plague_blessing.desc': '20 s: Grail troops around the Lord of Tumours (18 m) regenerate fast, strike 30% harder in melee and know no fear.',
-  'cmdr.tip': 'commander · tap: select · double tap: camera', 'cmdr.fallen_tip': 'fallen — after the wait a new one can be trained at double cost',
-  'cmdr.lost_tip': 'fallen — cannot be replaced', 'cmdr.replace_in': 'New: {s}s', 'cmdr.replace_ready': 'New ready', 'cmdr.lost': 'Lost',
-  'cmdr.active': 'Active', 'cmdr.none': 'No commander',
-  'cmdr.fallen': 'THE COMMANDER HAS FALLEN — morale shaken, abilities recharge slower',
-  'cmdr.fallen_final': 'THE COMMANDER HAS FALLEN — no one will replace him', 'cmdr.enemy_fallen': 'The enemy commander has fallen!',
-  'train.commander_limit': 'A commander is already on the field', 'train.commander_wait': 'A new commander is not ready yet',
-  'train.commander_lost': 'The commander can no longer be replaced',
   'swarm.incoming': 'Fly swarm! Accuracy drops, disease spreads — get out of the cloud',
 };

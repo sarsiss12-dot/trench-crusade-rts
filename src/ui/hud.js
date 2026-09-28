@@ -9,6 +9,7 @@ import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS } from '../data/factions.js';
 import { ABILITIES } from '../data/abilities.js';
+import { WEAPONS } from '../data/weapons.js';
 import { COVER_TYPES, COVER_IDS } from '../data/cover.js';
 import { PLAYER_FORMATIONS } from '../units/formation.js';
 import { EV } from '../core/events.js';
@@ -22,6 +23,10 @@ import { unitCost, unlockedBySpec } from '../sim/specialities.js';
 import { structureCost } from '../construction/construction.js';
 import { createP3Hud } from './hud_p3.js';
 import { createP4Hud } from './hud_p4.js';
+import { fixFor, requirementText } from './reasons.js';
+import { lensItems, netPerMinute } from './lens.js';
+import { mudLevelAt, mudSpeedAt } from '../sim/weather.js';
+import { MUD_LEVELS } from '../data/weather.js';
 
 function costText(cost) {
   if (!cost) return '';
@@ -48,8 +53,10 @@ export function createHud(game) {
   for (const k of resList) {
     const v = el('b');
     const n = el('span.r', { title: t('res.' + k) + ' — ' + t('res.' + k + '.tip'), html: icon(k) }, v);
-    // economy readability: a tap on a resource explains where it comes from / what it buys
-    n.addEventListener('click', () => notify('res.' + k + '.tip', 'info', null, 0.5));
+    // Phase 4.1 RESOURCE LENS: a tap shows where it comes from on the map (camera stays put);
+    // a second tap closes it
+    n.addEventListener('click', () => toggleLens(k));
+    n.dataset.res = k;
     resNodes[k] = v;
     resBox.appendChild(n);
   }
@@ -101,6 +108,61 @@ export function createHud(game) {
     setText(qBox.querySelector('i'), game.ui.boxMode ? t('hud.on') : t('hud.box_short'));
     setText(qMulti.querySelector('i'), t(mv.labelKey));
     dirty = true;
+  }
+
+  // ------------------------------------------------------------------ resource lens (Phase 4.1)
+  const lensBox = el('div.lens');
+  root.appendChild(lensBox);
+  const samples = {}; // res -> [{ t, v }] own stockpile samples (income meter)
+  let sampleAcc = 0, lensAcc = 0;
+  function resValue(k) {
+    const f = sim.state.factions[viewer];
+    if (k === 'corpses') { let n = 0; for (const c of sim.state.corpses) if (isCorpseKnownTo(c, viewer)) n++; return n; }
+    if (k === 'population') return f.population || 0;
+    if (k === 'pestilence') return f.pestilence || 0;
+    return f.resources[k] || 0;
+  }
+  function toggleLens(k) {
+    game.ui.lens = game.ui.lens === k ? null : k;
+    for (const n of resBox.querySelectorAll('.r')) toggleClass(n, 'lens-on', n.dataset.res === game.ui.lens);
+    renderLens(true);
+    if (game.audio) game.audio.ui('select');
+  }
+  function renderLens(rebuild) {
+    const k = game.ui.lens;
+    if (!k) { game.frame.lens = null; toggleClass(lensBox, 'open', false); clear(lensBox); return; }
+    const items = lensItems(sim, viewer, k);
+    game.frame.lens = { res: k, items };
+    if (rebuild) {
+      clear(lensBox);
+      lensBox.append(
+        el('div.lh', { html: `${icon(k, 'sm')}<b>${t('lens.title', { res: t('res.' + k) })}</b>` }, button('lx', icon('deselect', 'sm'), () => toggleLens(k), t('lens.close'))),
+        el('div.lt', { text: t('res.' + k + '.tip') }),
+        el('div.li'),
+      );
+    }
+    const counts = {};
+    for (const it of items) counts[it.kind] = (counts[it.kind] || 0) + 1;
+    const parts = Object.keys(counts).map((kk) => `${t('lens.src.' + kk)} ${counts[kk]}`);
+    const rate = netPerMinute(samples[k] || []);
+    const txt = (parts.length ? parts.join(' · ') : t('lens.none')) + (k !== 'corpses' ? ' — ' + t('lens.income', { v: (rate >= 0 ? '+' : '') + rate.toFixed(1) }) : '');
+    setText(lensBox.querySelector('.li'), txt);
+    toggleClass(lensBox, 'open', true);
+  }
+  function updateLens(dt) {
+    sampleAcc += dt;
+    if (sampleAcc >= 1) {
+      sampleAcc = 0;
+      const now = sim.state.tick / TICK_RATE; // game time: pausing / speed-up keep the rate honest
+      for (const k of [...resList, 'population', 'pestilence']) {
+        const a = samples[k] || (samples[k] = []);
+        if (a.length && a[a.length - 1].t === now) continue;
+        a.push({ t: now, v: resValue(k) });
+        while (a.length > 40) a.shift();
+      }
+    }
+    lensAcc += dt;
+    if (game.ui.lens && lensAcc >= 0.5) { lensAcc = 0; renderLens(false); }
   }
 
   // ------------------------------------------------------------------ bottom panel
@@ -233,8 +295,7 @@ export function createHud(game) {
       }
       if (p3) { const extra = []; p3.squadCommands(own, extra); cmds.append(...extra); }
       if (p4) { const extra = []; p4.squadCommands(own, extra); cmds.append(...extra); }
-      cmds.append(cmd('deselect', '', () => game.selection.clear(), { title: t('hud.deselect') }));
-      return;
+      return; // Phase 4.1: clearing the selection is the info card's small X, not a command slot
     }
     if (st) {
       const def = STRUCTURES[st.type];
@@ -244,7 +305,8 @@ export function createHud(game) {
             const ud = unitDef(u);
             // speciality-locked units stay visible (what a doctrine would give) but locked
             const lockedSpec = !unlockedBySpec(sim.state, viewer, ud) || (def.trainsSpec && def.trainsSpec[u] && !sim.state.factions[viewer].spec.includes(def.trainsSpec[u]));
-            const b = cmd(lockedSpec ? 'lock' : iconForUnit(ud), `${t(ud.nameKey)}<br><small>${lockedSpec ? t('train.spec') : costText(unitCost(sim.state, viewer, u))}</small>`, () => game.actions.train(st, u), { title: t(ud.descKey) });
+            const req = lockedSpec ? requirementText('units', u) || t('train.spec') : '';
+            const b = cmd(lockedSpec ? 'lock' : iconForUnit(ud), `${t(ud.nameKey)}<br><small>${lockedSpec ? req : costText(unitCost(sim.state, viewer, u))}</small>`, () => game.actions.train(st, u), { title: lockedSpec ? req + ' — ' + t(ud.descKey) : t(ud.descKey) });
             b.dataset.unit = u;
             b.classList.add('train');
             if (lockedSpec) b.classList.add('locked');
@@ -259,13 +321,10 @@ export function createHud(game) {
         }
       }
       if (p3) { const extra = []; p3.structCommands(st, extra); cmds.append(...extra); }
-      cmds.append(cmd('deselect', '', () => game.selection.clear(), { title: t('hud.deselect') }));
+      if (p4) { const extra = []; p4.structCommands(st, extra); cmds.append(...extra); }
       return;
     }
-    if (game.selection.squads.size) {
-      cmds.append(cmd('deselect', '', () => game.selection.clear(), { title: t('hud.deselect') }));
-      return;
-    }
+    if (game.selection.squads.size) return; // enemy squad inspected: nothing to command
     // nothing selected: faction-level actions
     if (fdef.buildList.length) cmds.append(cmd('build', t('hud.build'), () => toggleBuildMenu(), { on: buildOpen }));
     if (p3) { const extra = []; p3.factionCommands(extra); cmds.append(...extra); }
@@ -321,10 +380,18 @@ export function createHud(game) {
       if (def.kind === 'linear') {
         text = !m.p1 ? t('hud.place_linear') : !m.p2 ? t('hud.place_linear_end') : t('hud.place_confirm');
         if (m.p1 && (m.p2 || m.hover)) text += ' · ' + t('hud.length', { m: (m.len || 0).toFixed(1) });
-      } else text = m.pinned ? t('hud.place_confirm') : t('hud.place_building');
-      if (m.reason) text += ' — ' + t(m.reason);
-      else if (m.cost) text += ' — ' + costText(m.cost);
-      if (def.kind !== 'linear') btns.push(cmd('rotate', '', () => game.input.rotatePlacement(), { title: t('hud.rotate') }));
+      } else if (m.reorient) text = t('gun.reorient_tip', { m: def.relay ? def.relay.material : 0, s: def.relay ? def.relay.sec : 0 });
+      else text = m.pinned ? t('hud.place_hint') : t('hud.place_building');
+      // Phase 4.1: a firing structure shows its arc; the "why" comes with its fix
+      if (def.kind !== 'linear' && (def.arc || def.emplacement) && (def.arc || 360) < 360) text += ' · ' + t('hud.place_arc', { a: def.arc });
+      if (m.reason) {
+        text += ' — ' + t(m.reason);
+        const fix = fixFor(sim, viewer, { reason: m.reason, stype: m.stype });
+        if (fix) text += '<br><small>' + t('why.fix', { s: fix }) + '</small>';
+      } else if (m.cost) text += ' — ' + costText(m.cost);
+      // corpse mound: bodies inside its processing area (filled in by update from the overlay)
+      if (def.harvestRadius && !m.linear) text += '<br><small class="mprev"></small>';
+      // no 45° rotate button: tap pins the ghost, a drag around it turns it freely
       const ok = cmd('confirm', '', () => game.input.confirmPlacement(), { title: t('hud.confirm') });
       if (!m.valid) ok.disabled = true;
       ok.classList.add('ok');
@@ -340,10 +407,12 @@ export function createHud(game) {
     modebar.append(el('span.mt', { html: text }));
     for (const b of btns) modebar.append(b);
     modebar.append(cmd('cancel', '', () => {
-      if (game.mode.kind !== 'normal') game.input.cancelMode();
+      // in build mode ✕ drops this spot and stays in build mode (a second ✕ leaves)
+      if (game.mode.kind === 'place') game.input.cancelSpot();
+      else if (game.mode.kind !== 'normal') game.input.cancelMode();
       game.ui.attackMove = false;
       dirty = true;
-    }, { title: t('hud.cancel') }));
+    }, { title: game.mode.kind === 'place' ? t('hud.place_cancel') : t('hud.cancel') }));
   }
 
   // ------------------------------------------------------------------ selection info (live)
@@ -355,8 +424,31 @@ export function createHud(game) {
     return t('hud.idle');
   }
 
+  /** Small X at the card's top right (≥ 44 px hit area): clears the selection only. */
+  function closeX() {
+    const b = el('button.selx', { type: 'button', title: t('hud.close_card'), 'aria-label': t('hud.close_card') }, el('b', { html: icon('deselect', 'sm') }));
+    b.addEventListener('pointerdown', (e) => e.stopPropagation());
+    b.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      game.selection.clear();
+      if (game.audio) game.audio.ui('select');
+      dirty = true;
+    });
+    return b;
+  }
+
+  /** Elite card lines: role, passive name + radius, short description (Phase 4.1). */
+  function eliteRows(def) {
+    const e = def.elite;
+    if (!e) return [];
+    const r = def.aura && def.aura.radius ? def.aura.radius : def.marksman && WEAPONS[def.weapon] ? WEAPONS[def.weapon].range : 0;
+    const head = el('div.elite', { html: `<b>${t('elite.tag')}</b><span>${t('elite.role.' + e.role)}</span><span class="pn">${t('elite.passive')}: ${t('elite.passive.' + e.passive)}${r ? ' · ' + t('elite.radius', { r }) : ''}</span>` });
+    return [head, el('div.edesc', { text: t('elite.passive.' + e.passive + '.desc') })];
+  }
+
   function renderInfo() {
     clear(info);
+    info.appendChild(closeX());
     const own = game.selection.ownSquads(sim, viewer);
     const st = game.selection.struct ? game.knownStructure(game.selection.struct) : null;
     if (own.length === 1 || (!own.length && game.selection.squads.size === 1 && !st)) {
@@ -371,6 +463,7 @@ export function createHud(game) {
       if (!enemy && sq.ammoMax > 0) rows.push(el('div.row', { html: icon('ammo', 'sm') }, el('div.bar.ammo', null, el('i'))));
       if (sq.faction !== 'black_grail') rows.push(el('div.row.infrow', { html: icon('infection', 'sm') }, el('div.bar.inf', null, el('i')), el('span.inft')));
       if (!enemy) rows.push(el('div.cov'));
+      rows.push(...eliteRows(def));
       info.append(...rows);
       info.dataset.kind = 'squad';
       info.dataset.id = sq.id;
@@ -396,12 +489,14 @@ export function createHud(game) {
       info.append(head, el('div.row', null, el('div.bar.hp', null, el('i'))));
       if (st.faction === viewer && def.buildable) info.append(el('div.sdesc', { text: t('struct.' + st.type + '.desc') }));
       if (p3) p3.structInfo(st, info);
+      if (p4) p4.structInfo(st, info);
       if (def.trains && st.faction === viewer) info.append(el('div.queue')); // never an enemy's production
       info.dataset.kind = 'struct';
       info.dataset.id = st.id;
       toggleClass(info, 'open', true);
       return;
     }
+    clear(info);
     info.dataset.kind = '';
     toggleClass(info, 'open', false);
   }
@@ -430,6 +525,9 @@ export function createHud(game) {
       if (cov) {
         let txt = t('hud.cover') + ': ' + t(COVER_TYPES[COVER_IDS[idx]].key);
         if (sq.faction === viewer && sq.reinf) txt += ' · ' + t(sq.reinf.cut ? 'hud.reinf_cut' : sq.reinf.wait ? 'hud.reinf_wait' : 'hud.reinf_on');
+        // Phase 4.1: wet ground / mud under the squad (movement penalty)
+        const lvl = mudLevelAt(sim.state, sq.cx, sq.cz);
+        if (lvl > 0) txt += ' · ' + t('mud.tip', { lvl: t('mud.' + MUD_LEVELS[lvl]), p: Math.round(mudSpeedAt(sim.state, sq.cx, sq.cz) * 100) });
         setText(cov, txt);
         cov.dataset.level = String(lvl);
       }
@@ -484,6 +582,7 @@ export function createHud(game) {
       setText(info.querySelector('.st'), status);
       setWidth(info.querySelector('.hp i'), live ? st.hp / st.maxHp : 1);
       if (p3 && live) p3.updateStructInfo(st, info);
+      if (p4 && live) p4.updateStructInfo(st, info);
       const q = info.querySelector('.queue');
       if (q) {
         const key = (st.queue || []).map((it) => it.unit).join(',');
@@ -516,7 +615,9 @@ export function createHud(game) {
     toggleClass(objBar, 'low', !!obj && obj.hp / obj.maxHp < 0.35);
     toggleClass(objBox, 'stale', !obj || !!obj.memory);
     setText(phaseName, t('phase.' + ph));
-    setText(phaseTime, ph === 'ENDED' ? '' : formatClock(session.phaseTimeLeft()));
+    const left = session.phaseTimeLeft();
+    // endless war: elapsed war time with an infinity mark instead of a countdown
+    setText(phaseTime, ph === 'ENDED' ? '' : left < 0 ? '∞ ' + formatClock(Math.max(0, (sim.state.tick - sim.state.match.prepEndTick) / 20)) : formatClock(left));
     toggleClass(phaseBox, 'prep', ph === 'PREPARATION');
     toggleClass(phaseBox, 'war', ph === 'WAR');
     toggleClass(phaseBox, 'lull', ph === 'LULL');
@@ -569,16 +670,19 @@ export function createHud(game) {
 
   // ------------------------------------------------------------------ notices
   const lastNotice = new Map();
-  function notify(key, level = 'info', params, throttle = 1.2) {
+  function notify(key, level = 'info', params, throttle = 1.2, fix = '') {
     const now = performance.now() / 1000;
     const k = key + (params ? JSON.stringify(params) : '');
     if (lastNotice.has(k) && now - lastNotice.get(k) < throttle) return;
     lastNotice.set(k, now);
     const n = el('div.notice.' + level, { text: t(key, params) });
+    // Phase 4.1 "why can't I?": the fix travels with the refusal (ui/reasons.js)
+    if (fix) { n.appendChild(el('small.fix', { text: t('why.fix', { s: fix }) })); n.classList.add('why'); }
     notices.prepend(n);
     while (notices.childNodes.length > 4) notices.lastChild.remove();
-    setTimeout(() => n.classList.add('fade'), level === 'warn' ? 1600 : 2600);
-    setTimeout(() => n.remove(), level === 'warn' ? 2200 : 3300);
+    const life = fix ? 1.8 : 1;
+    setTimeout(() => n.classList.add('fade'), (level === 'warn' ? 1600 : 2600) * life);
+    setTimeout(() => n.remove(), (level === 'warn' ? 2200 : 3300) * life);
   }
 
   function showBanner(text, cls = '') {
@@ -595,7 +699,7 @@ export function createHud(game) {
         dirty = true;
         break;
       case EV.COMMAND_REJECTED:
-        if (ev.faction === viewer) notify(ev.reason, 'warn', null, 1.5);
+        if (ev.faction === viewer) notify(ev.reason, 'warn', null, 1.5, fixFor(sim, viewer, ev));
         break;
       case EV.TRAIN_COMPLETED:
         if (ev.faction === viewer) notify(viewer === 'black_grail' ? 'notice.unit_raised' : 'notice.unit_ready', 'good', { unit: t(unitDef(ev.unit).nameKey) });
@@ -625,7 +729,8 @@ export function createHud(game) {
       case EV.NOTICE:
         if (ev.faction === viewer) {
           const good = ev.key === 'reinf.complete' || ev.key === 'reinf.dispatched' || ev.key === 'evac.arrived' || ev.key === 'sanitize.done' || ev.key === 'pen.slaughtered';
-          notify(ev.key, good ? 'good' : ev.key === 'settle.lost' ? 'bad' : 'warn', null, 3);
+          const params = ev.n !== undefined || ev.res || ev.s !== undefined ? { n: ev.n, s: ev.s, res: ev.res ? t('res.' + ev.res) : '' } : null;
+          notify(ev.key, good ? 'good' : ev.key === 'settle.lost' ? 'bad' : 'warn', params, 3, fixFor(sim, viewer, ev));
         }
         break;
       default: break;
@@ -653,7 +758,10 @@ export function createHud(game) {
   let acc = 0;
   let lastSelVersion = -1;
   let prepHintShown = false;
+  let lastMulti = false;
   function update(dt) {
+    // multi-select is one-shot: the input layer switches it off after one tap / box
+    if (!!game.ui.multi !== lastMulti) { lastMulti = !!game.ui.multi; refreshToggles(); }
     const key = selectionKey();
     if (key !== lastKey || dirty || game.selection.version !== lastSelVersion) {
       lastKey = key;
@@ -675,6 +783,7 @@ export function createHud(game) {
     }
     if (p3) p3.update(dt);
     if (p4) p4.update(dt);
+    updateLens(dt);
     if (!prepHintShown && session.phase() === 'PREPARATION') {
       prepHintShown = true;
       setText(hint, t(viewer === 'black_grail' ? 'hud.prep_hint_bg' : 'hud.prep_hint'));
@@ -691,8 +800,14 @@ export function createHud(game) {
   let lastPlaceKey = '';
   function renderModebarLive() {
     const m = game.mode;
-    const k = [m.p1, m.p2, m.valid, m.reason, (m.len || 0).toFixed(1), m.pinned].join('|');
+    const k = [m.p1, m.p2, m.valid, m.reason, (m.len || 0).toFixed(1), m.pinned, m.hidden].join('|');
     if (k !== lastPlaceKey) { lastPlaceKey = k; renderModebar(); }
+    // corpse mound preview: "in range: N usable bodies" (counted by the range overlay)
+    const mp = modebar.querySelector('.mprev');
+    if (mp) {
+      const ri = game.renderer && game.renderer.overlays && game.renderer.overlays.rangeInfo ? game.renderer.overlays.rangeInfo() : null;
+      setText(mp, ri && ri.preview ? t('range.in_area', { n: ri.preview.usable }) : '');
+    }
   }
 
   function destroy() {
@@ -701,11 +816,11 @@ export function createHud(game) {
 
   // Phase 3 panels (engineer strip, specialities, Pestilence, population, settlements, trenches)
   p3 = createP3Hud(game, {
-    root, resBox, quick, bottom, notify, cmd, showBanner,
+    root, resBox, quick, bottom, notify, cmd, showBanner, toggleLens,
     markDirty() { dirty = true; },
   });
   p4 = createP4Hud(game, {
-    root, resBox, quick, bottom, notify, cmd, showBanner,
+    root, resBox, quick, bottom, notify, cmd, showBanner, toggleLens,
     markDirty() { dirty = true; },
   });
 

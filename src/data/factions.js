@@ -22,7 +22,9 @@ export const FACTIONS = {
     population: true,
     usesAmmo: true,
     // replacements walk from a reinforcement source to the depleted squad (see factions/new_antioch.js)
-    reinforcements: { manpower: 1, supply: 6, intervalTicks: 30 },
+    // autoReserve (Phase 4.1): positional AUTO reinforcement never spends the last supply —
+    // ammunition and fire support come first (manual REINFORCE may dig into it)
+    reinforcements: { manpower: 1, supply: 6, intervalTicks: 30, autoReserve: { supply: 45 } },
     // HOME: the living HQ (then the anchor), z offset toward the front so the view shows the line
     home: { hq: ['bastion'], anchor: 'home', front: -38 },
     terrainSpeed: {},
@@ -45,7 +47,7 @@ export const FACTIONS = {
     buildOnInfection: 100,
     terrainSpeed: { infected: 1.15 },
     // canon: infected corpses "lurch to their feet"; numbers are gameplay tuning
-    reanimation: { searchRadius: 26, clusterRadius: 16, minBodies: 4, maxBodies: 8, delaySeconds: 7, loneRiseTicks: 800, chance: 0.6, unit: 'grail_thrall' },
+    reanimation: { searchRadius: 26, clusterRadius: 16, minBodies: 4, maxBodies: 8, delaySeconds: 7, loneRiseTicks: 800, chance: 0.6, unit: 'grail_thrall', blessSec: 6 },
     harvest: { radius: 5.5, ratePerSecond: 1.2, perCorpse: 6 },
   },
 };

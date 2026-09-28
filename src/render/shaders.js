@@ -151,6 +151,8 @@ void main() {
 
 export const TERRAIN_FS = HEADER + GLOBALS + SHADOW + COMMON_FRAG + `
 uniform sampler2D uInfTex;
+uniform sampler2D uMudTex;  // Phase 4.1: traffic mud the viewer has seen (0..1)
+uniform vec4 uWeather;      // x rain intensity, y ground wetness (public weather)
 in vec3 vWorld; in vec3 vNormal; in vec4 vColor; in vec4 vExtra; in float vGrass;
 out vec4 fragColor;
 void main() {
@@ -193,6 +195,18 @@ void main() {
   float wet = clamp(wetBase * smoothstep(0.42, 0.52, wetN) * 0.85 + crater * 0.3, 0.0, 1.0);
   alb *= mix(1.0, 0.6, wet);
   float puddle = smoothstep(0.86, 0.96, wetBase + crater * 0.12) * smoothstep(0.62, 0.7, nA.r * 0.55 + nB.r * 0.3 + nC.a * 0.15);
+  // Phase 4.1 rain + traffic mud: rain darkens and glosses the whole field; churned tracks turn to
+  // dark rutted mud (MUD / HEAVY MUD); puddles grow in hollows while it is wet
+  float mudV = texture(uMudTex, p * uMapParams.xy).r;
+  float mudK = smoothstep(0.33, 0.72, mudV);
+  float rainWet = uWeather.y;
+  vec3 mudCol = mix(vec3(0.04, 0.031, 0.022), vec3(0.07, 0.052, 0.036), nC.g);
+  float ruts = smoothstep(0.3, 0.7, texture(uNoiseTex, vec2(p.x * 0.9, p.y * 0.35) + 0.19).b);
+  alb = mix(alb, mudCol * (0.8 + 0.35 * ruts), mudK * 0.8);
+  float wetMore = max(rainWet * 0.6, mudK * 0.85);
+  alb *= mix(1.0, 0.72, max(0.0, wetMore - wet));
+  wet = max(wet, wetMore);
+  puddle = max(puddle, smoothstep(0.62, 0.95, rainWet * 0.5 + mudK * 0.45 + crater * 0.35) * smoothstep(0.58, 0.68, nA.r * 0.55 + nB.r * 0.3 + nC.a * 0.15));
   // infection: blackened rot, veins, pustules (only where the viewer has explored)
   float inf = texture(uInfTex, p * uMapParams.xy).r;
   float vein = 1.0 - smoothstep(0.0, 0.03, abs(nB.r - 0.5));
@@ -218,14 +232,18 @@ void main() {
   float gloss = mix(18.0, 60.0, wet);
   col += uSunColor * pow(max(dot(N, H), 0.0), gloss) * (wet * 0.08 + infK * 0.04) * sh;
   // puddle surface
-  vec3 Np = normalize(N0 + vec3(nD.r - 0.5, 0.0, nD.g - 0.5) * 0.06);
+  vec2 rip = (texture(uNoiseTex, p * 1.7 + vec2(uMapParams.w * 0.6, uMapParams.w * 0.23)).rg - 0.5) * 0.14 * uWeather.x;
+  vec3 Np = normalize(N0 + vec3(nD.r - 0.5 + rip.x, 0.0, nD.g - 0.5 + rip.y) * 0.06 + vec3(rip.x, 0.0, rip.y));
   float fres = 0.04 + 0.96 * pow(clamp(1.0 - dot(Np, V), 0.0, 1.0), 5.0);
   vec3 water = vec3(0.01, 0.009, 0.007) + mix(uSkyColor * 0.18, uFogColor * 0.4, 0.5) * fres;
   water += uSunColor * pow(max(dot(Np, H), 0.0), 220.0) * 0.8 * sh;
   col = mix(col, water, puddle * 0.9);
   col = fogOfWar(col, wp);
   col = atmosphere(col, wp);
-  fragColor = vec4(tonemap(col), 1.0);
+  // Phase 4.1: +-0.5 LSB screen-space dither (interleaved gradient noise) breaks 8-bit banding in
+  // the wide dark haze / fog gradients of the ground
+  float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  fragColor = vec4(tonemap(col) + (ign - 0.5) / 255.0, 1.0);
 }`;
 
 // ------------------------------------------------------------------------------- skinned units
@@ -598,9 +616,52 @@ void main() {
   else if (vShape == 10) { a = (1.0 - smoothstep(0.0, 0.16, abs(r - 0.84))) * (0.75 + 0.25 * n.r) + (1.0 - smoothstep(0.0, 0.84, r)) * 0.12; } // blast shock ring
   else if (vShape == 11) { float ang = atan(vUV.x, -vUV.y) / 6.2831853 + 0.5; a = (1.0 - smoothstep(0.0, 0.035, abs(r - 0.97))) * (step(ang, vP.x) * 0.85 + 0.15) + (1.0 - smoothstep(0.35, 1.0, r)) * 0.07 * (0.6 + 0.8 * n.g); } // effect area + remaining time
   else if (vShape == 12) { float q = r + (n.r - 0.5) * 0.9 - (n.b - 0.5) * 0.4; a = (1.0 - smoothstep(0.35, 0.75, q)) * (0.75 + 0.25 * n.g); } // blood spray / splatter
+  // ---- Phase 4.1 range visualization (render/range_viz.js) ----
+  else if (vShape == 13) { a = (1.0 - smoothstep(0.0, 0.022, abs(r - 0.975))) + step(r, 1.0) * 0.035; } // support aura: thin ring
+  else if (vShape == 14) { a = (1.0 - smoothstep(0.0, 0.03, abs(r - 0.97))) * 0.9 + step(r, 1.0) * 0.1 * (0.7 + 0.6 * n.g); } // processing: ring + light fill
+  else if (vShape == 15) { // firing arc: sector of half-angle vP.x (rad) from inner radius vP.y
+    float ang = abs(atan(vUV.x, vUV.y));
+    float inside = step(ang, vP.x) * step(vP.y, r) * step(r, 1.0);
+    float edge = (1.0 - smoothstep(0.0, 0.014, abs(ang - vP.x) * r)) * step(vP.y, r) * step(r, 1.0);
+    float rim = (1.0 - smoothstep(0.0, 0.02, abs(r - 0.985))) * step(ang, vP.x);
+    float inner = (1.0 - smoothstep(0.0, 0.015, abs(r - vP.y))) * step(ang, vP.x) * step(0.01, vP.y);
+    a = inside * 0.13 + max(max(edge, rim), inner) * 0.85;
+  }
+  else if (vShape == 16) { float ang = atan(vUV.y, vUV.x); a = (1.0 - smoothstep(0.0, 0.018, abs(r - 0.975))) * step(0.0, sin(ang * 48.0)) * 0.6; } // detection: faint dashes
+  else if (vShape == 17) { // corpse state badge: vP.x kind, vP.y progress
+    int k = int(vP.x + 0.5);
+    float back = (1.0 - smoothstep(0.86, 1.0, r)) * 0.5;
+    float sym = 0.0;
+    vec2 q = vUV;
+    if (k == 1) sym = 1.0 - smoothstep(0.26, 0.32, r); // infected, waiting
+    else if (k == 2 || k == 3) { // countdown: radial progress + centre mark (diamond for a turning body)
+      float ang = atan(q.x, q.y) / 6.2831853 + 0.5;
+      float ring = (1.0 - smoothstep(0.0, 0.09, abs(r - 0.72))) * (step(ang, vP.y) * 0.9 + 0.2);
+      float mid = k == 3 ? 1.0 - smoothstep(0.24, 0.3, abs(q.x) + abs(q.y)) : 1.0 - smoothstep(0.16, 0.22, r);
+      sym = max(ring, mid);
+    }
+    else if (k == 4) sym = max(1.0 - smoothstep(0.06, 0.1, abs(q.x)) , 1.0 - smoothstep(0.06, 0.1, abs(q.y - 0.12))) * step(abs(q.y), 0.62) * step(abs(q.x), 0.42); // purified: cross
+    else if (k == 5 || k == 6) { // risk / imminent: exclamation mark (+ ring when imminent)
+      float bar = (1.0 - smoothstep(0.07, 0.11, abs(q.x))) * step(-0.05, q.y) * step(q.y, 0.55);
+      float pt = 1.0 - smoothstep(0.08, 0.12, length(q - vec2(0.0, -0.3)));
+      sym = max(bar, pt);
+      if (k == 6) sym = max(sym, 1.0 - smoothstep(0.0, 0.08, abs(r - 0.82)));
+    }
+    else if (k == 7) { // usable (check mark)
+      float d1 = abs(dot(q - vec2(-0.12, -0.25), normalize(vec2(1.0, -1.0)))) * step(-0.45, q.x) * step(q.x, -0.12);
+      float d2 = abs(dot(q - vec2(-0.12, -0.25), normalize(vec2(1.0, 0.62)))) * step(-0.12, q.x) * step(q.x, 0.48);
+      sym = max((1.0 - smoothstep(0.07, 0.11, d1)) * step(-0.45, q.x) * step(q.x, -0.1), (1.0 - smoothstep(0.07, 0.11, d2)) * step(-0.14, q.x) * step(q.x, 0.48));
+    }
+    else if (k == 8) { // not usable (x)
+      float d1 = abs(q.x - q.y) * 0.7071, d2 = abs(q.x + q.y) * 0.7071;
+      sym = (1.0 - smoothstep(0.06, 0.1, min(d1, d2))) * step(r, 0.62);
+    }
+    a = max(back, sym);
+    c = mix(vec3(0.03, 0.028, 0.025), vColor.rgb, sym);
+  }
   a *= vColor.a;
   if (a < 0.003) discard;
-  if (uAdditive < 0.5 && vShape != 1 && vShape != 5 && vShape != 7 && vShape != 8 && vShape != 9 && vShape != 11) c = fogOfWar(c, vWorld);
+  if (uAdditive < 0.5 && vShape != 1 && vShape != 5 && vShape != 7 && vShape != 8 && vShape != 9 && vShape != 11 && vShape < 13) c = fogOfWar(c, vWorld);
   fragColor = vec4(pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)) * a, uAdditive > 0.5 ? 0.0 : a);
 }`;
 

@@ -24,6 +24,7 @@ import { pointGridQuery } from '../sim/runtime.js';
 import { removeCorpse, damageSoldier, killSoldier } from '../combat/combat.js';
 import { corpseKind, setOrder } from '../units/orders.js';
 import { forageAnimal } from '../sim/wildlife.js';
+import { auraValue } from '../sim/auras.js';
 import { specValue } from '../sim/specialities.js';
 import {
   addInfection, pestGain, pestTier, spreadMult, reanimDelayMult, turnDelayTicks, updatePestilence,
@@ -91,17 +92,18 @@ function income(sim, fid) {
   for (let i = state.corpses.length - 1; i >= 0; i--) {
     const c = state.corpses[i];
     if (c.riseAt) continue;
-    let rate = 0;
+    let rate = 0, viaMound = false;
     if (!c.infected && anyGrailSoldierNear(sim, c.x, c.z, H.radius)) rate = H.ratePerSecond;
     else {
       const mound = c.infected ? null : moundNear(sim, fid, c.x, c.z);
-      if (mound) rate = mound.harvestRate * specValue(state, fid, 'moundHarvest', 1); // bodies near a corpse mound render down
+      if (mound) { rate = mound.harvestRate * specValue(state, fid, 'moundHarvest', 1); viaMound = true; } // bodies near a corpse mound render down
       else if (!c.infected && infectionAt(state, c.x, c.z) > 110) rate = 0.12 * rot; // rot seeps into infected ground
     }
     if (rate <= 0) continue;
     const take = Math.min(c.biomass, rate);
     c.biomass -= take;
     gain(f, corpseKind(c), take, state.tick);
+    if (viaMound) f.stats.moundBio = (f.stats.moundBio || 0) + take; // balance metric: corpse mound contribution
     if (c.biomass <= 0.0001) {
       f.stats.corpsesHarvested++;
       removeCorpse(sim, c, 'consumed');
@@ -115,13 +117,26 @@ function reanimate(sim, fid) {
   const delay = Math.round(R.delaySeconds * TICK_RATE * reanimDelayMult(state));
   const turnDelay = turnDelayTicks(state);
   // schedule: turning bodies rise where they lie; other infected bodies need Grail presence or
-  // festering ground. Consecrated bodies never rise (and a scheduled one is stopped).
+  // festering ground. A body on consecrated ground cannot rise while it lies there (a scheduled
+  // one is stopped); after R.blessSec seconds (cumulative) of consecration it is PURIFIED for good
+  // (Phase 4.1: before, a body left consecrated ground and could still rise — the old comment
+  // "consecrated bodies never rise" only held inside the area). A purified body is no longer
+  // infected (the Grail can still strip it for biomass).
   for (const c of state.corpses) {
     if (!c.infected) continue;
-    if (consecrated(sim, c.x, c.z)) { c.riseAt = 0; continue; }
+    if (consecrated(sim, c.x, c.z)) {
+      c.riseAt = 0; c.sched = 0;
+      c.cons = (c.cons || 0) + 1;
+      if (c.cons >= R.blessSec) {
+        c.infected = false; c.turn = 0; c.blessed = 1;
+        sim.events.push({ type: EV.CORPSE_PURIFIED, id: c.id, x: c.x, z: c.z, faction: c.faction });
+      }
+      continue;
+    }
     if (c.riseAt) continue;
     if (c.turn) c.riseAt = Math.max(state.tick + 20, c.tick + turnDelay);
     else if (anyGrailSoldierNear(sim, c.x, c.z, R.searchRadius) || infectionAt(state, c.x, c.z) > 150) c.riseAt = state.tick + delay;
+    if (c.riseAt) c.sched = state.tick; // countdown start (world-space corpse UI)
   }
   // rise in clusters (turning bodies may rise alone: the plague does not wait for company)
   const ready = [];
@@ -264,33 +279,54 @@ function finishWounded(sim, fid) {
   }
 }
 
-/** Heralds (fly-cloud aura: infection + shaken aim) and the Lord of Tumours (regeneration, infection). */
+/**
+ * Heralds (fly-cloud aura: infection + shaken aim) and the Lord of Tumours (regeneration, horde
+ * support, plague pressure). NON-STACKING by aura kind (Phase 4.1): a Grail soldier inside two
+ * Lords' courts regenerates once; an enemy inside two Heralds' clouds takes one stack per pulse —
+ * several leaders only widen the covered front (union of their areas).
+ */
 function leaders(sim, fid) {
   const { state } = sim;
   const tick = state.tick;
-  for (const sq of state.squads) {
-    if (sq.faction !== fid) continue;
-    const a = unitDef(sq.type).aura;
-    if (!a || !sq.members.some((m) => m.state === 'alive')) continue;
-    if (a.regen) {
-      for (const o of state.squads) {
-        if (o.faction !== fid || dist(o.cx, o.cz, sq.cx, sq.cz) > a.radius) continue;
-        const hp = unitDef(o.type).hp;
-        for (const m of o.members) if (m.state === 'alive' && m.hp < hp) m.hp = Math.min(hp, m.hp + a.regen * 0.5);
-      }
+  const list = sim.rt.auras && sim.rt.auras[fid];
+  if (!list || !list.length) return;
+  let regen = false;
+  const pulses = [];
+  for (const a of list) {
+    if (a.regen) regen = true;
+    if (a.infectEverySec) {
+      let p = pulses.find((x) => x.kind === a.kind);
+      if (!p) { p = { kind: a.kind, every: Math.max(1, Math.round(a.infectEverySec * TICK_RATE)), areas: [], debuff: 0 }; pulses.push(p); }
+      p.areas.push(a);
+      if (a.debuff) p.debuff = 1;
     }
-    const every = a.infectEverySec ? Math.round(a.infectEverySec * TICK_RATE) : 0;
-    if (!every || (tick + sq.id) % every >= 10) continue;
-    const r = a.infectRadius || a.radius;
+  }
+  if (regen) {
     for (const o of state.squads) {
-      if (o.faction === fid || !FACTIONS[o.faction] || dist(o.cx, o.cz, sq.cx, sq.cz) > r + 10) continue;
+      if (o.faction !== fid) continue;
+      const r = auraValue(sim, fid, o.cx, o.cz, 'regen');
+      if (!r) continue;
+      const hp = unitDef(o.type).hp;
+      for (const m of o.members) if (m.state === 'alive' && m.hp < hp) m.hp = Math.min(hp, m.hp + r * 0.5);
+    }
+  }
+  for (const p of pulses) {
+    if (tick % p.every >= 10) continue; // once per period (leaders() runs every 10 ticks)
+    for (const o of state.squads) {
+      if (o.faction === fid || !FACTIONS[o.faction]) continue;
+      let near = false;
+      for (const a of p.areas) if (dist(o.cx, o.cz, a.x, a.z) <= (a.infectRadius || a.r) + 10) { near = true; break; }
+      if (!near) continue;
       let touched = false;
       for (const m of o.members) {
-        if (m.state !== 'alive' || dist(m.x, m.z, sq.cx, sq.cz) > r) continue;
+        if (m.state !== 'alive') continue;
+        let inside = false;
+        for (const a of p.areas) if (dist(m.x, m.z, a.x, a.z) <= (a.infectRadius || a.r)) { inside = true; break; }
+        if (!inside) continue;
         addInfection(sim, o, m, 1);
         touched = true;
       }
-      if (touched && a.debuff) o.debuffUntil = tick + 30;
+      if (touched && p.debuff) o.debuffUntil = tick + 30;
     }
   }
 }
@@ -304,13 +340,39 @@ const AUTO_IDLE = 6 * TICK_RATE;
 const AUTO_RETRY = 8 * TICK_RATE;
 export const AUTO_FORAGE_R = 28;
 
-function forageWorth(sim, sq, r) {
-  const bit = 1 << FACTIONS[sq.faction].index;
+/**
+ * AUTO SAFE HUNT (Phase 4.1): threat around a point as the faction KNOWS it — a visible enemy
+ * squad within r, or a known enemy weapon position (MG post, pillbox, field gun…) covering it.
+ * An idle gang with auto hunt on only forages where this is clear, and breaks off (back to a
+ * drop-off) when an enemy shows up close; the player's own FORAGE order goes anywhere.
+ */
+export function threatAt(sim, fid, x, z, r) {
+  const bit = 1 << FACTIONS[fid].index;
+  for (const e of sim.state.squads) {
+    if (e.faction === fid || !FACTIONS[e.faction] || !(e.visibleTo & bit) || !unitDef(e.type).combatUnit) continue;
+    if (dist(e.cx, e.cz, x, z) <= r) return true;
+  }
+  for (const st of sim.state.structures) {
+    if (st.faction === fid || st.faction === 'neutral' || !((st.visibleTo | st.seenBy) & bit)) continue;
+    const d = STRUCTURES[st.type];
+    const w = d.weapon ? 55 : d.emplacement ? 70 : 0;
+    if (w && dist(st.x, st.z, x, z) <= w + 5) return true;
+  }
+  return false;
+}
+
+const SAFE_R = 40;
+
+function safeForage(sim, sq, r) {
+  const fid = sq.faction;
+  if (threatAt(sim, fid, sq.cx, sq.cz, SAFE_R)) return false;
+  const bit = 1 << FACTIONS[fid].index;
   for (const c of sim.state.corpses) {
     if (c.infected || c.riseAt || c.biomass <= 0.01 || !(c.seenBy & bit)) continue;
-    if (dist(c.x, c.z, sq.cx, sq.cz) <= r) return true;
+    if (dist(c.x, c.z, sq.cx, sq.cz) <= r && !threatAt(sim, fid, c.x, c.z, SAFE_R)) return true;
   }
-  return !!forageAnimal(sim, sq.faction, sq.cx, sq.cz, r);
+  const a = forageAnimal(sim, fid, sq.cx, sq.cz, r);
+  return !!a && !threatAt(sim, fid, a.x, a.z, SAFE_R);
 }
 
 function autoForage(sim, fid) {
@@ -319,14 +381,34 @@ function autoForage(sim, fid) {
   const r = AUTO_FORAGE_R * specValue(state, fid, 'forageRadius', 1);
   for (const sq of state.squads) {
     if (sq.faction !== fid || unitDef(sq.type).gathers !== 'corpse') continue;
-    if (sq.order.t !== 'idle') { sq.autoT = 0; continue; }
+    const o = sq.order;
+    // an automatic hunt breaks off when an enemy appears close (no suicide runs at MG lines)
+    if (o.t === 'gather' && o.auto && (tick + sq.id) % 20 === 0 && threatAt(sim, fid, sq.cx, sq.cz, 30)) {
+      const home = nearestDrop(sim, fid, sq.cx, sq.cz);
+      if (home) setOrder(sim, sq, { t: 'move', x: home.x, z: home.z + 10, am: 0, trench: 0 });
+      else sq.order = { t: 'idle' };
+      sq.autoT = tick + 20 * TICK_RATE;
+      sim.events.push({ type: EV.NOTICE, faction: fid, key: 'gang.fled', squadId: sq.id, x: sq.cx, z: sq.cz });
+      continue;
+    }
+    if (o.t !== 'idle' || sq.autoHunt === 0) { if (o.t !== 'idle') sq.autoT = 0; continue; }
     if (sq.autoT === 0) { sq.autoT = tick + AUTO_IDLE; continue; }
     if (tick < sq.autoT) continue;
     sq.autoT = tick + AUTO_RETRY;
-    if (!sq.members.some((m) => m.state === 'alive') || !forageWorth(sim, sq, r)) continue;
+    if (!sq.members.some((m) => m.state === 'alive') || !safeForage(sim, sq, r)) continue;
     setOrder(sim, sq, { t: 'gather', mode: 'forage', fx: sq.cx, fz: sq.cz, fr: r, phase: 'seek', cid: 0, aid: 0, auto: 1 });
     sq.autoT = 0;
   }
+}
+
+function nearestDrop(sim, fid, x, z) {
+  let best = null, bd = Infinity;
+  for (const st of sim.state.structures) {
+    if (st.faction !== fid || !st.built || !STRUCTURES[st.type].dropOff) continue;
+    const d = dist(st.x, st.z, x, z);
+    if (d < bd || (d === bd && best && st.id < best.id)) { bd = d; best = st; }
+  }
+  return best;
 }
 
 /**

@@ -1,7 +1,6 @@
 // Area-effect faction abilities (data in data/abilities.js). Effects are plain data in
 // state.effects and are resolved deterministically by the simulation.
 import { ABILITIES } from '../data/abilities.js';
-import { commanderCooldownMult } from './commander.js';
 import { STRUCTURES } from '../data/structures.js';
 import { FACTIONS, areHostile } from '../data/factions.js';
 import { EV } from '../core/events.js';
@@ -68,7 +67,6 @@ export function abilityCooldown(sim, faction, abilityId) {
   let cd = def.cooldown * supportMult(sim, faction, def.supportKey);
   if (abilityId === 'artillery_barrage') cd *= specValue(sim.state, faction, 'artilleryCooldown', 1);
   if (abilityId === 'fly_swarm') cd *= swarmCooldownMult(sim.state);
-  cd *= commanderCooldownMult(sim.state, faction); // a fallen commander: the staff is in disarray
   return cd;
 }
 

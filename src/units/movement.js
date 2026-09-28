@@ -3,6 +3,9 @@
 // only a soldier that stops making progress (cut off behind water, a building or a crowd) gets a
 // budgeted rescue detour, and as a last resort rejoins beside its squad anchor.
 import { garrisonSteer, GARRISON_STEER } from './garrison.js';
+import { auraValue } from '../sim/auras.js';
+import { moveSpeed } from './speed.js';
+import { mudSpeedAt } from '../sim/weather.js';
 import { unitDef } from '../data/units.js';
 import { FACTIONS } from '../data/factions.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -49,6 +52,7 @@ function advanceAnchor(sim, sq, def) {
   let mult = moveSpeedMult(sim.rt.nav, sq.x, sq.z, sq.faction, fIdx, def.heavy);
   if (mult < 0.2) mult = 0.2;
   if (sq.suppressUntil > sim.state.tick) mult *= SUPPRESS_SPEED; // pinned by mortar fire
+  mult *= mudSpeedAt(sim.state, sq.x, sq.z); // Phase 4.1: wet ground / traffic mud (1 when dry)
   if (sq.tideUntil > sim.state.tick) mult *= 1.3; // Black Tide surge
   if (sq.civ && (sq.civ.mode === 'flee' || sq.civ.mode === 'shelter')) mult *= 1.3; // panicked civilians run
   if (infSlow < 1 && sq.faction !== 'black_grail') {
@@ -60,7 +64,7 @@ function advanceAnchor(sim, sq, def) {
   let cohesion = 1;
   if (sq.lag > 5) cohesion = 0.45;
   else if (sq.lag > 2.6) cohesion = 0.78;
-  let speed = def.speed * DT * mult * cohesion;
+  let speed = moveSpeed(sq, def) * DT * mult * cohesion;
   const path = sq.path;
   while (speed > 1e-7 && sq.pathIndex * 2 < path.length) {
     const wx = path[sq.pathIndex * 2], wz = path[sq.pathIndex * 2 + 1];
@@ -213,9 +217,11 @@ function stepSoldier(sim, sq, m, def, fIdx, tx, tz, facingHint, free = 0) {
   if (d > 0.04) {
     let mult = moveSpeedMult(nav, m.x, m.z, sq.faction, fIdx, def.heavy);
     if (mult <= 0 || (free && mult < 0.7)) mult = free ? 0.7 : 0.5; // escape blocked cell / wall strip inside a ruin
-    let sp = def.speed * DT * mult;
+    let sp = moveSpeed(sq, def) * DT * mult * mudSpeedAt(sim.state, m.x, m.z);
     if (sq.suppressUntil > sim.state.tick) sp *= SUPPRESS_SPEED;
-    if (d > 2.5) sp *= 1.3;
+    // stragglers hurry back; a Lieutenant's COMMAND COHESION (non-stacking aura) keeps the
+    // formation tighter still
+    if (d > 2.5) sp *= sim.rt.auras && auraValue(sim, sq.faction, m.x, m.z, 'cohesion') ? 1.45 : 1.3;
     if (sq.melee) sp *= 1.12;
     const step = d < sp ? d : sp;
     const nx = m.x + (dx / d) * step, nz = m.z + (dz / d) * step;

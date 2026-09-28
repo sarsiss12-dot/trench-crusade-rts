@@ -4,9 +4,9 @@ import { STATE_VERSION, TICK_RATE } from './constants.js';
 import { createRngState } from '../core/rng.js';
 import { rotateOffset } from '../core/dmath.js';
 import { FACTIONS, FACTION_ORDER } from '../data/factions.js';
-import { prepSecondsFor } from '../data/scenarios.js';
+import { prepSecondsFor, ENDLESS_PACE_MINUTES } from '../data/scenarios.js';
 import { createLullState } from './lull.js';
-import { createCommanderState } from './commander.js';
+import { createWeatherState } from './weather.js';
 import { unitDef } from '../data/units.js';
 import { structDef } from '../data/structures.js';
 import { createFogState } from '../world/fog.js';
@@ -22,7 +22,10 @@ export function zeroResources(fdef) {
 }
 
 export function createInitialState({ scenario, settings, seed, world }) {
-  const warMinutes = settings.warMinutes !== undefined ? settings.warMinutes : scenario.warMinutes;
+  // Phase 4.1: an ENDLESS war ('endless' / settings.endless) has no time limit; its pacing formulas
+  // (speciality tiers, Pestilence) use a nominal ENDLESS_PACE_MINUTES war
+  const endless = settings.endless === true || settings.warMinutes === 'endless';
+  const warMinutes = endless ? ENDLESS_PACE_MINUTES : settings.warMinutes !== undefined ? settings.warMinutes : scenario.warMinutes;
   // Phase 3: preparation length follows the match length (data: scenarios PREP_BY_LENGTH)
   const prepDefault = scenario.prepByLength ? prepSecondsFor(warMinutes, scenario.prepSeconds) : scenario.prepSeconds;
   const prepSeconds = settings.prepSeconds !== undefined ? settings.prepSeconds : prepDefault;
@@ -43,15 +46,18 @@ export function createInitialState({ scenario, settings, seed, world }) {
       sandbox: !!scenario.sandbox,
       stressSoldiers: settings.stressSoldiers || 0,
       lulls: settings.lulls !== undefined ? settings.lulls : 'auto',
+      endless,
+      rain: settings.rain !== undefined ? settings.rain : 'auto',
     },
     tick: 0,
     match: {
       phase: prepSeconds > 0 ? 'PREPARATION' : 'WAR',
       prepEndTick: Math.round(prepSeconds * TICK_RATE),
-      warEndTick: Math.round((prepSeconds + warMinutes * 60) * TICK_RATE),
+      warEndTick: endless ? 0 : Math.round((prepSeconds + warMinutes * 60) * TICK_RATE), // 0 = no time limit
+      endless: endless ? 1 : 0, warMinutes,
       winner: null, reason: null, endTick: 0,
-      // Phase 4: operational lulls (seeded plan, hidden from the players)
-      lull: createLullState(seed, warMinutes, scenario.mode === 'siege' ? (settings.lulls !== undefined ? settings.lulls : 'auto') : 0),
+      // operational reorganisation windows (seeded, hidden; never a ceasefire — sim/lull.js)
+      lull: createLullState(seed, warMinutes, scenario.mode === 'siege' ? (settings.lulls !== undefined ? settings.lulls : 'auto') : 0, endless),
     },
     factions: {},
     nextId: 1,
@@ -68,7 +74,8 @@ export function createInitialState({ scenario, settings, seed, world }) {
       rows: Math.ceil(world.height / INFECTION_CELL),
       v: new Uint8Array(Math.ceil(world.width / INFECTION_CELL) * Math.ceil(world.height / INFECTION_CELL)),
     },
-    weather: { ...scenario.weather },
+    // Phase 4.1: procedural rain + traffic mud (sim/weather.js)
+    ...createWeatherState(scenario.weather, settings.rain, world.width, world.height),
     objectives: [],
     ai: {},
     rng: { main: createRngState(seed), ai: createRngState((seed ^ 0x51ed27) >>> 0), eco: createRngState((seed ^ 0xec0ca5) >>> 0) },
@@ -95,9 +102,7 @@ export function createInitialState({ scenario, settings, seed, world }) {
       spec: [null, null, null],
       econ: { mpAcc: 0, mpPopAcc: 0, growAcc: 0, starveAcc: 0, lastManpowerRate: 0, lastFoodRate: 0, safePop: 0, pop: 0, infCells: 0 },
       timers: { econ: 0, food: 0, reinforce: 0, infection: 0 },
-      // Phase 4: auto reinforcement default ('off' | 'important' | 'all')
-      autoReinf: 'off',
-      cmdr: createCommanderState(fid), // Phase 4 commander (sim/commander.js)
+      reinfWait: 0, // Phase 4.1: an auto-reinforcement 'waiting for resources' notice was given
     };
     state.ai[fid] = null;
   }
@@ -159,9 +164,8 @@ export function createSquad(state, factionId, unitType, x, z, rot, opts = {}) {
     // civilian crew state (settlement id + behaviour), tide / fear timers
     cap: opts.cap || n, bq: null, civ: null, tideUntil: 0, fearUntil: 0,
     // biomass source attribution of what a gang carries; next idle auto-forage check (Grail gangs)
-    carryBy: null, autoT: 0,
-    // Phase 4: auto reinforcement override (-1 follow the faction default, 0 never, 1 always)
-    autoReinf: -1, autoReinfT: 0, garrison: 0,
+    carryBy: null, autoT: 0, autoHunt: 1, // Phase 4.1: work gangs' AUTO SAFE HUNT toggle
+    posId: 0, posAuto: 0, garrison: 0, // Phase 4.1 positional auto reinforcement (factions/reinforcement.js)
   };
   const offs = formationOffsets(sq.formation, n, def.spacing);
   const tmp = [0, 0];

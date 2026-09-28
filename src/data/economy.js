@@ -49,6 +49,9 @@ export const RICHNESS = [0.7, 1.0, 1.35];
 
 export const POPULATION = {
   baseStart: 40, baseCap: 50, // the fortress-city quarter behind the bastion
+  // Phase 4.1: a sheltering building falls — share killed under the rubble (deterministic per
+  // person), survivors scatter this far from the wreck; rotten ground this bad infects them (1 stack)
+  collapse: { killShare: 0.45, spread: 4, infectGround: 120 },
   foodPerPopSec: 0.012, // upkeep
   manpowerPassivePerMin: 1.5, // the city never locks to zero
   manpowerPerPopMin: 0.1, // per SAFE civilian, x food factor
@@ -88,4 +91,6 @@ export const ENGINEERING = {
   highlightSec: 3,
   hubSearch: 400,
   salvageAreaR: 40, // SALVAGE AREA order radius (m), Phase 4
+  // Phase 4.1 self-preservation: hit within this many ticks + an enemy fighting squad this close
+  fleeHitTicks: 20, fleeThreatR: 26,
 };

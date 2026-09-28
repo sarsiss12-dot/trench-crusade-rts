@@ -90,7 +90,7 @@ export function createAudio(settings = {}, env = {}) {
   /** Drop a dead (closed) context and everything built on it; the next build starts clean. */
   function teardown() {
     if (music) { try { music.stop(); } catch { /* ignore */ } }
-    for (const k of ['wind', 'flies', 'dig', 'rumble']) ambient[k] = null;
+    for (const k of ['wind', 'flies', 'dig', 'rumble', 'rain', 'rainLow']) ambient[k] = null;
     if (ctx) { try { ctx.onstatechange = null; } catch { /* ignore */ } try { if (ctx.state !== 'closed') ctx.close(); } catch { /* ignore */ } }
     ctx = null; master = sfx = amb = ui = verb = musicBus = null; music = null;
     voiceEnds.length = 0; voices = 0;
@@ -690,6 +690,12 @@ export function createAudio(settings = {}, env = {}) {
       ambient.dig = loop(noise, 'bandpass', 1300, 1.2, 0.0001);
       ambient.rumble = loop(noiseLong, 'lowpass', 140, 0.5, 0.0001);
     }
+    // Phase 4.1 rain: two persistent filtered-noise loops (hiss + patter) created once and only
+    // faded with the shower — no per-drop nodes (low node churn on mobile)
+    if (!ambient.rain) {
+      ambient.rain = loop(noiseLong, 'highpass', 2600, 0.5, 0.0001);
+      ambient.rainLow = loop(noise, 'bandpass', 900, 0.8, 0.0001);
+    }
     const t = ctx.currentTime;
     ambient.wind.g.gain.setTargetAtTime(0.16 + 0.1 * Math.sin(t * 0.13) + 0.06 * Math.sin(t * 0.41), t, 0.8);
     ambient.wind.f.frequency.setTargetAtTime(320 + 140 * Math.sin(t * 0.21), t, 1);
@@ -704,6 +710,10 @@ export function createAudio(settings = {}, env = {}) {
       if (sq.faction === game.viewer && sq.working) dig += k;
     }
     const zoom = Math.max(0.3, Math.min(1, 60 / cam.dist));
+    const wx = game.sim.state.weather;
+    const rain = wx && wx.rain > 0 ? wx.rain : 0;
+    ambient.rain.g.gain.setTargetAtTime(rain > 0 ? 0.05 + rain * 0.13 : 0.0001, t, 1.2);
+    ambient.rainLow.g.gain.setTargetAtTime(rain > 0 ? (0.03 + rain * 0.08) * (0.8 + 0.2 * Math.sin(t * 0.7)) : 0.0001, t, 1.2);
     ambient.flies.g.gain.setTargetAtTime(Math.min(0.12, flies * 0.03) * zoom, t, 0.4);
     ambient.flies.f.frequency.setTargetAtTime(190 + 40 * Math.sin(t * 7.3), t, 0.05);
     ambient.dig.g.gain.setTargetAtTime(dig > 0 ? Math.min(0.08, dig * 0.05) * zoom * (0.5 + 0.5 * Math.abs(Math.sin(t * 5.1))) : 0.0001, t, 0.05);

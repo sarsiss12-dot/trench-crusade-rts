@@ -223,14 +223,55 @@ function updateSanitize(sim, sq, o) {
 
 // ------------------------------------------------------------------ per tick
 
+/**
+ * SELF-PRESERVATION (Phase 4.1, minimal): an engineer crew (not a Grail gang — gangs have their own
+ * threat check) that is being shot while an enemy fighting squad is close falls back to the
+ * nearest hub; the interrupted build / repair goes back to the FRONT of its queue and is resumed
+ * once the crew is out of danger. A plain player MOVE is never overridden.
+ */
+function threatNear(sim, sq, r) {
+  for (const e of sim.state.squads) {
+    if (e.faction === sq.faction || e.faction === 'neutral' || e.civ || !unitDef(e.type).combatUnit) continue;
+    if (Math.abs(e.cx - sq.cx) > r || Math.abs(e.cz - sq.cz) > r) continue;
+    if (dist(e.cx, e.cz, sq.cx, sq.cz) <= r && e.members.some((m) => m.state === 'alive')) return true;
+  }
+  return false;
+}
+
+function maybeFlee(sim, sq) {
+  const o = sq.order;
+  if (unitDef(sq.type).gathers === 'corpse' || unitDef(sq.type).combatUnit) return false;
+  if (o.flee || (o.t === 'move' && !o.ret)) return false;
+  if (sim.state.tick - sq.lastHitTick > ENGINEERING.fleeHitTicks) return false;
+  if (!threatNear(sim, sq, ENGINEERING.fleeThreatR)) return false;
+  const hub = nearestHub(sim, sq);
+  if (!hub) return false;
+  approachPoint(hub, sq.cx, sq.cz, P, 3);
+  if (dist(sq.cx, sq.cz, P[0], P[1]) < 12) return false; // already home: nowhere safer to run
+  if ((o.t === 'build' || o.t === 'repair') && o.sid) {
+    if (!sq.bq) sq.bq = [];
+    if (sq.bq.indexOf(o.sid) < 0) sq.bq.unshift(o.sid);
+  }
+  setOrder(sim, sq, { t: 'move', x: P[0], z: P[1], am: 0, trench: 0, ret: 1, flee: 1 });
+  sim.events.push({ type: EV.NOTICE, faction: sq.faction, key: 'eng.fled', x: sq.cx, z: sq.cz });
+  return true;
+}
+
 export function updateEngineers(sim) {
   const { state } = sim;
   const tick = state.tick;
   for (const sq of state.squads) {
     const o = sq.order;
-    if (o.t === 'sanitize') { updateSanitize(sim, sq, o); continue; }
+    if (o.t === 'sanitize') { if ((tick + sq.id) % 10 === 0 && isBuilderSquad(sq) && maybeFlee(sim, sq)) continue; updateSanitize(sim, sq, o); continue; }
     if (!isBuilderSquad(sq) || (tick + sq.id) % 10 !== 0) continue;
     if (!aliveCount(sq)) continue;
+    if (maybeFlee(sim, sq)) continue;
+    // fled to safety: once out of danger, resume the queue (the interrupted job first)
+    if (o.t === 'move' && o.flee && sq.pathState !== 'pending' && sq.pathState !== 'ready') {
+      if (inDanger(sim, sq)) continue;
+      if (!nextJob(sim, sq)) sq.order = { t: 'idle', ready: 1 };
+      continue;
+    }
     // arrived back at a hub: ready
     if (o.t === 'move' && o.ret && sq.pathState === 'none') continue;
     // a finished job (build / repair / sanitize): queue -> nearby site -> back to a hub.
@@ -245,11 +286,19 @@ export function updateEngineers(sim) {
 /** HUD status of a builder squad (for the engineer strip). */
 export function builderStatus(sim, sq) {
   const o = sq.order;
+  if (o.t === 'move' && o.flee) return 'fleeing';
   if (inDanger(sim, sq)) return 'danger';
   if (o.t === 'build') return o.arrived && sq.working ? 'building' : 'moving';
   if (o.t === 'repair') return o.arrived && sq.working ? 'repairing' : 'moving';
   if (o.t === 'sanitize') return 'sanitizing';
-  if (o.t === 'gather') return unitDef(sq.type).gathers === 'corpse' ? 'hauling' : 'salvaging';
+  if (o.t === 'gather') {
+    if (unitDef(sq.type).gathers !== 'corpse') return 'salvaging';
+    // work gang (Phase 4.1): what it is doing right now
+    if (o.phase === 'seek') return 'searching';
+    if (o.phase === 'hunt') return 'hunting';
+    if (o.phase === 'to_drop') return sq.pathState === 'none' || sq.pathState === 'done' ? 'delivering' : 'carrying';
+    return 'collecting';
+  }
   if (o.t === 'move') return 'moving';
   return 'idle';
 }

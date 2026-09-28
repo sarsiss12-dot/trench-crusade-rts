@@ -301,6 +301,7 @@ export function eventVisibility(sim, ev, viewer) {
       return c && isCorpseKnownTo(c, viewer) ? SHOW.ALL : SHOW.NONE;
     }
     case EV.CORPSE_REMOVED:
+    case EV.CORPSE_PURIFIED:
       return isPointVisibleTo(sim, viewer, ev.x, ev.z) ? SHOW.ALL : SHOW.NONE;
     case EV.STRUCTURE_PLACED:
     case EV.STRUCTURE_PROGRESS:
@@ -310,9 +311,6 @@ export function eventVisibility(sim, ev, viewer) {
       const st = rt.structById.get(ev.id);
       return st && isStructureVisibleTo(st, viewer) ? SHOW.ALL : SHOW.NONE;
     }
-    case EV.COMMANDER_FALLEN:
-      if (ev.faction === viewer) return SHOW.ALL;
-      return isPointVisibleTo(sim, viewer, ev.x, ev.z) ? SHOW.ALL : SHOW.NONE;
     case EV.RUIN_COLLAPSED:
       if (ev.holder === viewer) return SHOW.ALL;
       return isPointVisibleTo(sim, viewer, ev.x, ev.z) ? SHOW.ALL : SHOW.NONE;

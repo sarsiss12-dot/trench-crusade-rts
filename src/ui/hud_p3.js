@@ -1,4 +1,4 @@
-// Phase 3 HUD parts, plugged into ui/hud.js: ENGINEER STATUS strip (tap = select + camera),
+// Phase 3 HUD parts, plugged into ui/hud.js: ENGINEER STATUS strip (tap = select + pulse, double tap = camera),
 // SPECIALITY cards (3 big cards, irreversible, through a plain command), PESTILENCE meter (Grail),
 // POPULATION / manpower rate (New Antioch), settlement and livestock-pen panels (Evacuate,
 // Slaughter, Herd area), trench OCCUPANCY badge + squad cards (the main way to pick squads out of
@@ -17,8 +17,12 @@ import { builderStatus } from '../units/engineers.js';
 import { popCap, settlementRates, settlementSafe, isRemote } from '../economy/settlements.js';
 import { sectorOfSettlement } from '../economy/sectors.js';
 import { trenchPanelData } from './trench_panel.js';
+import { autoReinforceOn, positionOf } from '../factions/reinforcement.js';
 
-const STATUS_CLASS = { idle: 'ok', moving: 'mv', building: 'wk', repairing: 'wk', danger: 'dg', sanitizing: 'wk', hauling: 'wk' };
+const STATUS_CLASS = {
+  idle: 'ok', moving: 'mv', building: 'wk', repairing: 'wk', danger: 'dg', sanitizing: 'wk', hauling: 'wk', salvaging: 'wk',
+  searching: 'mv', hunting: 'wk', collecting: 'wk', carrying: 'mv', delivering: 'wk', fleeing: 'dg',
+};
 
 function nowSec() {
   return performance.now() / 1000;
@@ -35,7 +39,8 @@ export function createP3Hud(game, H) {
   if (fdef.population) {
     popNode = el('b');
     const chip = el('span.r.pop', { title: t('res.population') + ' — ' + t('res.population.tip'), html: icon('population') }, popNode);
-    chip.addEventListener('click', () => H.notify('res.population.tip', 'info', null, 0.5));
+    chip.dataset.res = 'population';
+    chip.addEventListener('click', () => H.toggleLens('population'));
     H.resBox.appendChild(chip);
   }
   if (fdef.pestilence) {
@@ -44,7 +49,8 @@ export function createP3Hud(game, H) {
     pestBar = el('div.pestbar', null, el('i'));
     for (const tier of PESTILENCE.tiers) if (tier.at > 0 && tier.at < 100) pestBar.appendChild(el('span.tick', { style: { left: tier.at + '%' } }));
     const chip = el('span.r.pest', { title: t('res.pestilence') + ' — ' + t('res.pestilence.tip'), html: icon('pestilence') }, pestNode, pestTier, pestBar);
-    chip.addEventListener('click', () => H.notify('res.pestilence.tip', 'info', null, 0.5));
+    chip.dataset.res = 'pestilence';
+    chip.addEventListener('click', () => H.toggleLens('pestilence'));
     H.resBox.appendChild(chip);
   }
   // speciality button (quick stack, top of it)
@@ -76,11 +82,18 @@ export function createP3Hud(game, H) {
       chips.clear();
       for (const sq of list) {
         const lbl = el('i');
+        // Phase 4.1: a tap SELECTS without moving the camera (a world pulse / screen-edge pointer
+        // shows where it is); a double tap brings the camera there
+        let lastTap = 0;
         const b = button('eng', icon(bg ? 'gang' : 'engineer'), () => {
+          const now = nowSec();
+          const dbl = now - lastTap < 0.35;
+          lastTap = now;
           game.selection.set([sq.id]);
-          game.lookAt(sq.cx, sq.cz);
+          if (dbl) game.lookAt(sq.cx, sq.cz);
+          else if (game.renderer && game.renderer.overlays && game.renderer.overlays.ping) game.renderer.overlays.ping(sq.id);
           if (game.audio) game.audio.ui('select');
-        }, t(unitDef(sq.type).nameKey));
+        }, t(unitDef(sq.type).nameKey) + ' — ' + t('eng.pulse_tip'));
         b.appendChild(lbl);
         strip.appendChild(b);
         chips.set(sq.id, { b, lbl });
@@ -183,7 +196,10 @@ export function createP3Hud(game, H) {
     if (!tpSeg) return;
     const d = trenchPanelData(sim, viewer, tpSeg);
     if (!d) { closeTrenchPanel(); return; }
-    const key = d.cards.map((c) => c.id).join(',');
+    // Phase 4.1: positional auto reinforcement of everyone in this position ("AUTO REINFORCE ALL")
+    const reinfIds = FACTIONS[viewer].reinforcements ? d.cards.map((c) => sim.rt.squadById.get(c.id)).filter((q) => q && unitDef(q.type).combatUnit && positionOf(q)) : [];
+    const allOn = reinfIds.length > 0 && reinfIds.every((q) => autoReinforceOn(q) || !q.posId);
+    const key = d.cards.map((c) => c.id).join(',') + '|' + reinfIds.length + (allOn ? 'A' : 'a');
     if (force || key !== tpKey) {
       tpKey = key;
       clear(tpanel);
@@ -192,11 +208,15 @@ export function createP3Hud(game, H) {
         el('span.tpcap', { text: d.used < 0 ? (d.enemySeen ? t('hud.garrison_enemy') : '?') + `/${d.total}` : `${d.used}/${d.total}` }),
         d.kind === 'garrison' && d.used > 0 ? button('cmd', icon('cancel') + `<i>${t('hud.ungarrison')}</i>`, () => { game.selection.set(d.cards.map((c) => c.id)); game.actions.ungarrison(); }, t('hud.ungarrison_tip')) : null,
         d.cards.length > 1 ? button('cmd', icon('all') + `<i>${t('hud.all')}</i>`, () => game.selection.set(d.cards.map((c) => c.id)), t('hud.all')) : null,
+        reinfIds.length ? button('cmd' + (allOn ? ' on' : ''), icon('autoreinf') + `<i>${t(allOn ? 'hud.autoreinf_all_on' : 'hud.autoreinf_all_off')}</i>`, () => {
+          game.actions.autoReinforce(allOn ? 0 : 1, reinfIds.map((q) => q.id));
+          setTimeout(() => renderTrenchPanel(true), 150);
+        }, t('hud.autoreinf_all_tip')) : null,
         button('cmd', icon('cancel'), closeTrenchPanel, t('hud.cancel'))));
       const list = el('div.tplist');
       for (const c of d.cards) {
         const card = button('tpcard', `${icon(c.icon)}<span class="n">${t(c.nameKey)}</span><span class="cnt"></span><div class="bar hp"><i></i></div><div class="bar ammo"><i></i></div><div class="bar inf"><i></i></div>`, () => {
-          if (game.ui.multi) game.selection.toggle(c.id);
+          if (game.ui.multi) { game.selection.toggle(c.id); game.ui.multi = false; } // one-shot
           else game.selection.set([c.id]);
           if (game.audio) game.audio.ui('select');
         }, t(c.nameKey));

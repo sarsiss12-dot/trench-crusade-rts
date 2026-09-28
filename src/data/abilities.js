@@ -51,22 +51,6 @@ export const ABILITIES = {
     cost: {}, cooldown: 0, radius: 6.5, duration: 7, dps: 3, infectInterval: 3, maxStacks: 2, groundInfect: 20,
     effect: 'plague_cloud', supportKey: '', emplacementOnly: true,
   },
-  // Phase 4 COMMANDER abilities (cast by the living commander from the HUD slot; no target — the
-  // area follows him). Not in the factions' ability bars.
-  hold_the_line: {
-    id: 'hold_the_line', faction: 'new_antioch', nameKey: 'ability.hold_the_line', descKey: 'ability.hold_the_line.desc',
-    lore: { status: 'abstraction', ref: 'Lieutenant — official New Antioch leader; the rallying order is a gameplay abstraction' },
-    cost: { supply: 20 }, cooldown: 90, radius: 20, duration: 25, commander: true,
-    aura: { suppressResist: 1, fearImmune: 1, holdLine: 0.25, accBonus: 0.1 },
-    effect: 'command', supportKey: '',
-  },
-  plague_blessing: {
-    id: 'plague_blessing', faction: 'black_grail', nameKey: 'ability.plague_blessing', descKey: 'ability.plague_blessing.desc',
-    lore: { status: 'abstraction', ref: 'Lord of Tumours — official Black Grail leader; the blessing is a gameplay abstraction' },
-    cost: { biomass: 30 }, cooldown: 90, radius: 18, duration: 20, commander: true,
-    aura: { regen: 5, meleeBonus: 0.3, fearImmune: 1 },
-    effect: 'command', supportKey: '',
-  },
   // Purification speciality: incense, fire and prayer over a patch of ground.
   purge: {
     id: 'purge', faction: 'new_antioch', nameKey: 'ability.purge', descKey: 'ability.purge.desc',

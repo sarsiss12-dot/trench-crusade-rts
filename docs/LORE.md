@@ -31,7 +31,8 @@ Oyun içinde **Ana menü → Evren Notları** ekranı bu tabloyu doğrudan veril
 | Köle Çalışma Takımı | canon-inspired | Grail Thrall resmî birimdir | Ceset taşıyan / organik yapı diken / yiyecek arayan işçi takımı biçimi bu projenin uyarlaması |
 | Muharebe Sıhhiyecisi (Combat Medic) | canon | Yeni Antakya resmî listesinde | İyileştirme, erken enfeksiyon tedavisi, yaralı kaldırma bu projenin mekaniği |
 | Siper Rahibi (Trench Cleric) | canon | Yeni Antakya resmî listesinde | Direnç / moral aurası, ölüleri kutsama ve yakma soyutlamadır |
-| Teğmen (Lieutenant) | canon | Yeni Antakya savaş grubu lideri | Komuta aurası soyutlamadır |
+| Teğmen (Lieutenant) | canon | Yeni Antakya savaş grubu lideri (masa oyununda savaş grubu başına 1) | Faz 4.1: pasif KOMUTA BÜTÜNLÜĞÜ aurası (~16 m) soyutlamadır; RTS'te sayı sınırı bilinçli olarak kaldırıldı |
+| Keskin Nişancı Rahip (Sniper Priest) | canon | Yeni Antakya seçkini: "Devotees of the Church ritually blind themselves" (Trench Companion) | Faz 4.1: menzil / hasar / dolum sayıları ve hedef tercihi (subay, seçkin, mürettebat, destek) soyutlamadır |
 | Hücum Alevcisi | canon-inspired | Alev makinesi Yeni Antakya cephaneliğinde (resmî kurallar; Shocktrooper'lar taşıyabilir) | İki kişilik alev takımı biçimi soyutlamadır |
 | Beelzebub'un Habercisi (Herald of Beelzebub) | canon | Kara Kâse seçkini | Sinek bulutu aurası soyutlamadır |
 | Amalgam | canon | Kara Kâse birlik türü | Ceset yığınında yükseltilmesi soyutlamadır |
@@ -97,16 +98,18 @@ olarak işaretlidir; kuralın kendisi (bonuslar, açtıkları) yine oyun soyutla
 | Sahra Topu Mevzii | canon-inspired | Resmî lore: "titanik topçu parçaları Yeni Antakya'nın dökümhanelerinde yapılır"; belirli bir sahra topu adı bulunamadı | Kanon adı yok; menzil, ikmal, en az menzil, mürettebat soyutlama |
 | İç Organ Topu Yuvası | canon-inspired | Viscera Cannon — resmî Kara Kâse ağır silahı | Yere kök salmış organik yuva ve hastalık saçan atış soyutlama |
 | Yozlaşma Püskürtücü Yuvası | canon-inspired | Corruption Belcher — resmî silah sözlüğünde geçer (taraf ataması doğrulanmadı) | Gaz bulutlu kısa menzil yuva soyutlama |
-| Komutan: Teğmen / HATTI TUT | canon (birim) / abstraction (yetenek) | Lieutenant resmî Yeni Antakya lideri | Aura + zamanlı alan, ölüm cezası soyutlama |
-| Komutan: Tümörler Efendisi / VEBA KUTSAMASI | canon (birim) / abstraction (yetenek) | Lord of Tumours resmî Kara Kâse lideri | Aynı |
+| ~~Komutan: HATTI TUT / VEBA KUTSAMASI~~ | kaldırıldı (Faz 4.1) | — | Aktif komutan yetenekleri, benzersiz sınır ve ölüm cezası kaldırıldı; birimler pasif SEÇKİN oldu |
+| Seçkin pasif adları (Komuta Bütünlüğü, Kutsanmış Varlık, İşaretli Av, Veba Siperi, Tümör Sarayı, Sinek Bulutu) | abstraction | — | Birimler kanon; pasif adları ve sayıları bu projenin soyutlaması, kanon diye sunulmaz |
 | Harabe garnizonları | abstraction | — | Savaşın yıktığı evler; kapasite ve siper kuralları soyutlama |
-| Operasyonel duraklama | abstraction | — | Cephe ritmi için oynanış mekaniği |
+| Operasyonel duraklama | abstraction | — | Faz 4.1: ASLA ateşkes değil; yalnızca çatışma dışı birimlere inşa / onarım / takviye / ikmal / bastırma toparlanması bonusu |
+| Yağmur ve trafik çamuru | abstraction | Yağmurlu, çamurlu siper cephesi evrenin görsel dilinde sürekli işlenir | Tohumlu sağanak takvimi, çamur ızgarası ve hız cezası soyutlama |
+| Ceset Yığını başlangıç yapısı | abstraction | Kara Kâse'nin ölüleri kullanması kanon | Başlangıçta bir yığın + 22 m işleme alanı soyutlama |
 
 ## Bilinçli olarak eklenmeyenler
 
 Tanklar, alev makineli tanklar, Communicant'lar, Hounds / Fly Thrall gibi birimler resmî kaynaklarda var ancak henüz
 uygulanmadı (bkz. `ROADMAP.md`). Amalgam, Herald of Beelzebub, Lord of Tumours, Combat Medic, Trench Cleric ve
-Lieutenant Faz 3'te eklendi. `scenario.techEra` alanı ileride yıl/teknoloji ön ayarları için
+Lieutenant Faz 3'te, Sniper Priest Faz 4.1'de eklendi. Iron Sultanate ve Heretic Legion Faz 05'e bırakıldı. `scenario.techEra` alanı ileride yıl/teknoloji ön ayarları için
 ayrıldı; kaynakla doğrulanmadan içerik eklenmeyecek.
 
 ## Kaynaklar

@@ -24,7 +24,7 @@ Gereksinim yok (sıfır bağımlılık). Node.js ≥ 18 yalnızca geliştirme su
 
 ```bash
 node tools/serve.js            # http://localhost:8080  (aynı ağdaki telefon için LAN adresi de yazdırılır)
-npm test                       # = node tests/run.js      — 235 Node testi
+npm test                       # = node tests/run.js      — 256 Node testi
 npm run build                  # = node tools/build.js    — dist/index.html (tek dosya, çevrimdışı çalışır)
 npm run balance                # = node tools/balance.js  — AI'ya karşı AI deterministik maçlar + Faz 3 denge ölçümleri
                                #   (--seeds 1,2,…  --minutes 15  --verbose  --json çıktı.json)
@@ -208,6 +208,56 @@ yazılmadan eklendi:
 - **Kayıt sürümü 4** + v3→v4 göçü (harabeler yüklemede haritadan kurulur, eski liderler komutan olur, göç edilen maçta
   duraklama yok).
 
+## 2e. Faz 04.1 — Karar uyumu, mobil UX, Kâse ekonomisi, seçkinler, süresiz savaş, yağmur / çamur
+
+Faz 04'teki bazı kararlar bu fazda düzeltildi (Faz 04 bölümündeki "saldırı emirleri reddedilir", "komutan" ve
+"otomatik takviye varsayılanı" maddelerinin yerini aşağıdakiler aldı):
+
+- **Duraklama ateşkes DEĞİL:** yeniden örgütlenme penceresinde hiçbir emir reddedilmez (saldırı, saldırarak ilerle,
+  topçu, havan serbest; AI de saldırabilir); savaş saati durmaz. Yalnızca çatışma dışındaki (5 sn vurulmamış) birim ve
+  yapılara bonus: inşa ×1.3, onarım ×1.3, takviye aralığı ×0.7, ikmal ×1.5, bastırma toparlanması ×2. 30 dk'lık
+  savaşta ilk pencere 9:30–10:30 (tohumlu), sonra ~15 dk arayla; 20 dk altı savaşta yok.
+- **Seçkinler (komutan sistemi kaldırıldı):** aktif yetenek, benzersiz sınır, ölüm cezası yok. Aynı tür aura üst
+  üste binmez (MAX), farklı türler toplanır, ayrı duranlar birleşik alan kapsar. Teğmen: pasif KOMUTA BÜTÜNLÜĞÜ
+  (~16 m). Siper Rahibi: KUTSANMIŞ VARLIK (enfeksiyon/korku direnci, ≤2 yığın yavaş tedavi, kutsama). Yeni kanon
+  seçkin **Keskin Nişancı Rahip** (72 m, yüksek hasar, uzun dolum; subay / seçkin / mürettebat / destek önceliği).
+  Tümörler Lordu pasif (yavaş iyileştirme, yakın dövüş desteği, veba baskısı), Veba Şövalyesi şok çapası, Haberci
+  pasif. Amalgam MONSTER / kuşatma. Seçkin kartı: rol, pasif, yarıçap, açıklama; seçiliyken aura görünür.
+- **Konumsal otomatik takviye:** açık arazide KAPALI; siper / garnizona girince AÇIK; oyuncu kapatırsa mevzide
+  kaldıkça kapalı; çıkınca sıfırlanır, yolda olanlar iptal edilmez. Kaynak yoksa tek bildirim ("Otomatik takviye
+  bekliyor: İkmal yetersiz · 11 asker"), kaynak gelince kendiliğinden devam; otomatik takviye 45 ikmallik cephane
+  payına dokunmaz. Siper / garnizon panelinde "Hepsi oto takviye". Kâse'de takviye yok.
+- **Kâse ekonomisi:** sunak 0.14/sn (azalan getiri yok); Köle 2.78; çalışma takımı 3.6, yalnızca av bağlamında
+  kovalarken 6.2, taşırken 4.2 (düşman kovalamada / dövüşte asla); AVLA / CESET TOPLA alan emri + boştaki takımlar
+  için OTO GÜVENLİ AV (bilinen, düşmanın görmediği alan; tehditte kaçar); durumlar: Hayvan arıyor / Avlanıyor / Ceset
+  topluyor / Taşıyor / Teslim ediyor. Başlangıçta bir Ceset Yığını (22 m işleme alanı).
+- **Etki alanı görselleştirmesi** (yalnız seçim / yerleştirme / inceleme): destek aurası ince halka, işleme alanı halka +
+  hafif dolgu, ateş yayı koni, algı soluk kesikli halka; Ceset Yığını yerleştirirken "Etki alanında: N uygun ceset".
+- **Dünya uzayında ceset durumları** (mini harita değil; toplu decal, en fazla 64): Kâse için enfekte / geri sayım
+  (radyal ilerleme, dokununca saniye) / dönüşecek / arınmış; Yeni Antakya için yalnızca "yeniden canlanma riski" ve
+  "canlanma yakın"; son saniyelerde hafif seğirme. Kutsanmış zeminde 6 sn kalan ceset kalıcı olarak ARINIR (önceden
+  yorum "kalkamaz" diyordu ama ceset alandan çıkınca yeniden sıraya girebiliyordu — düzeltildi).
+- **Yerleştirme:** 45° döndür düğmesi kaldırıldı; dokun = sabitle, hayaletin çevresinde sürükle = serbest döndür (canlı
+  ateş yayı; uzakta sürükleme kamerayı kaydırır), ✓ onayla, ✕ bu noktayı iptal (inşa modunda kalır). Sahra topu ateş
+  yayı 120°; yay dışındaki hedefe ateş etmez ve nedenini söyler; YENİDEN YÖNLENDİR 20 malzeme + 18 sn susma.
+- **Mobil UX:** Çoklu Seçim tek seferlik; büyük "Seçimi kaldır" düğmesi kaldırıldı, bilgi kartının sağ üstünde küçük
+  X (≥ 44 px dokunma alanı); üst çubuktaki kaynağa dokununca KAYNAK MERCEĞİ (kamera kıpırdamaz, sise saygılı, gelir
+  ölçümü); "NEDEN YAPAMIYORUM?" — her ret nedeni bir çözümle gelir (ör. "Gerekli: Tier II — Kaynaşma", taş ocağı
+  sektör türü, topun en az menzili, ikmal bekleyen takviye); istihkâmcı şeridinde dokun = seç (kamera kaymaz, dünya
+  nabzı / ekran kenarı işaretçisi), çift dokun = kamera; istihkâmcılar ateş altında merkeze çekilir, iş sırada kalır.
+- **Maç süresi:** 30 / 60 / 120 / 180 / SÜRESİZ (5 ve 15 yalnız geliştirme: `?dev=1` veya yerel sunucu). Süresiz
+  savaş yalnız hedef yıkılınca ya da saldıranın üssü yakılıp ordusu dağılınca biter. Saldıran / savunan yalnızca
+  başlangıç rolleri; Yeni Antakya AI'sı sessiz anlarda sınırlı karşı taarruz yapar (bilinen hedefe, yoksa kısa keşif).
+- **Yağmur / trafik çamuru:** tohumlu sağanaklar; yağmur tüm alanı ISLAK yapar, yalnız trafik ÇAMUR / AĞIR ÇAMUR
+  üretir (8 m hücreli sınırlı ızgara), piyade ~%11 / %15 yavaşlar, yağmur bitince kurur. Çamur yalnız görülen yerde
+  güncellenir (iz hareketi ele vermez). Yağmur çizgileri tek tampon, kaliteye göre 140 / 280 / 460; yağmur sesi iki
+  kalıcı döngü (düğüm üretimi yok).
+- **Çöken sığınak:** içerideki sivillerin deterministik bir kısmı ölür, kalanlar en yakın güvenli yerleşime / buruca
+  kaçar; çürümüş zeminde en fazla 1 enfeksiyon yığını taşırlar (dönüşmeye yetmez).
+- **Kayıt sürümü 5** + v4→v5 göçü (komutan alanları güvenle silinir, mevzideki mangalar otomatik takviye AÇIK başlar,
+  açık arazi otomatik istekleri düşer, eski ateşkes penceresi kapanır ve savaş saatinin uzatması geri verilir,
+  yağmur / çamur durumu, süresiz bayrağı).
+
 ## 3. Mimari
 
 Tek kaynak ağacı, alan (domain) bazlı modüller, **döngüsel bağımlılık yok** (test ile zorunlu), dev `game.js` yok.
@@ -302,7 +352,8 @@ src/
 
 ## 5. Testler
 
-`npm test` — 235 test (Node, sıfır bağımlılık; Faz 4: `tests/phase4.test.js` 31 + `tests/audio.test.js` 9): mimari (döngü yok, katman kuralları, yasak API'ler, import konumu,
+`npm test` — 256 test (Node, sıfır bağımlılık; Faz 4.1: `tests/phase41.test.js` 24 — tüm kaynak modüllerinin
+yüklenmesi dahil; Faz 4 testleri yeni tasarıma uyarlandı: `tests/phase4.test.js` 28 + `tests/audio.test.js` 9): mimari (döngü yok, katman kuralları, yasak API'ler, import konumu,
 DOM'suz modüller), simülasyon, savaş, hareket (sıkışma kurtarma, cepler, katılma), inşa/siper, ekonomi, AI,
 kayıt/yükleme + göç, determinizm (kayıt → yükle → devam = kesintisiz), sis (asker bazlı görünürlük, kör atış yok,
 olay temizleme, düşen askerin mangasını açığa çıkarmaması), yol bulma (A* iş bütçesi, önbellekten bağımsızlık), mobil
@@ -365,6 +416,14 @@ saf 480 asker savaşı ≈ 0.57 ms/tick; sunum CPU: 64 dört ayaklı + 40 sivil 
 katmanının yeniden kurulması — Faz 1'den bilinen). Faz 3 için de gerçek cihaz FPS'i ölçülmedi.
 
 ## 7. Bilinen sınırlamalar
+
+- Faz 4.1 dengesi yalnızca AI'ya karşı AI ile ölçüldü (16 tohum): 15 dk Yeni Antakya 9 / Kara Kâse 7; 30 dk 4 / 12
+  (Kâse zaferleri medyan 16:52). Aynı makinede Faz 04 kodu 8 tohumda 30 dk için de Kâse ağırlıklıydı (7/8), ama
+  Kâse zaferleri Faz 4.1'de daha erken geliyor (ateşkesin kalkması, Köle hızı 2.3 → 2.78). İnsan oyuncuyla test yok.
+- Otomatik takviye Yeni Antakya'yı ikmal açısından zorluyor (savaş süresinin medyan %74–76'sında kaynak bekliyor).
+  Kâse organik yuvaları AI'ya karşı AI'da hâlâ hiç ateş etmedi; Yeni Antakya karşı taarruzu nadir (16 maçta 5).
+- Yağmur çizgileri, çamur dokusu ve ceset rozetleri yalnızca SwiftShader ekran görüntüsüyle kontrol edildi; gerçek
+  Android FPS'i ve yağmur sesi gerçek cihazda ölçülmedi / dinlenmedi.
 
 - Bu geliştirme ortamında GPU yoktu; tarayıcı testleri yazılım rasterleyici (SwiftShader) ile yapıldı. Gerçek mobil
   cihaz FPS değerleri **ölçülmedi** — kalite ön ayarları, piksel bütçesi ve dinamik çözünürlük bu yüzden var.

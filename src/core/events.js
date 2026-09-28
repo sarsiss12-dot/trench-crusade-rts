@@ -14,6 +14,7 @@ export const EV = Object.freeze({
   DEATH: 'DEATH', // soldier killed (starts dying animation)
   CORPSE_CREATED: 'CORPSE_CREATED',
   CORPSE_REMOVED: 'CORPSE_REMOVED', // decayed / consumed / raised
+  CORPSE_PURIFIED: 'CORPSE_PURIFIED', // Phase 4.1: consecrated long enough — never rises
   SOLDIER_RISING: 'SOLDIER_RISING', // corpse reanimated (Black Grail)
   SQUAD_SPAWNED: 'SQUAD_SPAWNED',
   SQUAD_DESTROYED: 'SQUAD_DESTROYED',
@@ -51,7 +52,6 @@ export const EV = Object.freeze({
   CIVILIAN_ALARM: 'CIVILIAN_ALARM', // own civilians run for shelter / flee (own side only)
   GARRISON_ENTERED: 'GARRISON_ENTERED', // a squad took its slots in a ruin (own side only)
   RUIN_COLLAPSED: 'RUIN_COLLAPSED', // a garrisoned ruin came down (seen where visible)
-  COMMANDER_FALLEN: 'COMMANDER_FALLEN', // a faction's commander died (own side; others where seen)
 });
 
 /** Impact surface classes used by FIRE/MELEE events for VFX selection. */

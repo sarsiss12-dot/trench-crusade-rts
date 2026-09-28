@@ -11,6 +11,7 @@ import { isSquadVisibleTo, isStructureVisibleTo, isNodeKnownTo, isSoldierVisible
 import { FACTIONS } from '../data/factions.js';
 import { exitPoint } from '../sim/production.js';
 import { TICK_RATE } from '../sim/constants.js';
+import { createRangeViz } from './range_viz.js';
 
 const DS = { DOT: 0, RING: 1, MARKER: 5, ATTACK: 7, AREA: 8, BOX: 9 };
 const MAX_MARKS = 1600;
@@ -35,6 +36,10 @@ const CMD_COL = [0.95, 0.8, 0.4];
 const SHELTER_COL = [0.95, 0.7, 0.3];
 const HERD_COL = [0.7, 0.62, 0.42];
 const ENG_COL = [1.0, 0.82, 0.4];
+const LENS_COL = {
+  depot: [0.98, 0.82, 0.4], heap: [0.8, 0.74, 0.6], sector: [0.66, 0.65, 0.55], settlement: [0.9, 0.72, 0.46],
+  field: [0.62, 0.72, 0.3], altar: [0.62, 0.78, 0.25], mound: [0.72, 0.6, 0.4], corpse: [0.62, 0.86, 0.4], animal: [0.8, 0.62, 0.4],
+};
 
 function coverLevel(idx) {
   const c = COVER_TYPES[COVER_IDS[idx]];
@@ -94,7 +99,10 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
   let nLineVerts = 0;
 
   const markers = []; // transient order markers { kind, x, z, t0, life }
-  const stats = { marks: 0, bars: 0, lines: 0 };
+  const stats = { marks: 0, bars: 0, lines: 0, badges: 0 };
+  const rangeViz = createRangeViz();
+  const rangeApi = { mark: (...a) => mark(...a), ground: (x, z) => renderer.groundAt(x, z), zoomK: 1 };
+  let rangeInfo = null; // last frame's range summary (mound preview counts) for the HUD
   let renderer = null;
   const P = [0, 0, 0, 0];
   const EXIT = [0, 0];
@@ -217,10 +225,6 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
         }
       }
     }
-    // own commander's HOLD THE LINE / BLESSING area (follows him)
-    for (const e of state.effects) {
-      if (e.kind === 'command' && e.faction === viewer) circle(e.x, e.z, e.radius, CMD_COL, 0.7, 2.4, (t * 0.4) % 1);
-    }
     // ECONOMY VIEW: drop-off hubs and every own settlement's working reach
     if (frame.econView) {
       for (const st of state.structures) {
@@ -275,6 +279,37 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
   }
 
   /** Public: transient order marker at a ground point (called by input on command issue). */
+  // Phase 4.1: PING a squad (engineer strip tap): a pulse on it in the world, or — when it is off
+  // screen — a pulsing pointer at the screen edge in its direction. The camera never moves.
+  const pings = []; // { id, t0 }
+  function ping(squadId) {
+    for (let i = pings.length - 1; i >= 0; i--) if (pings[i].id === squadId) pings.splice(i, 1);
+    pings.push({ id: squadId, t0: renderer ? renderer.time : 0 });
+    while (pings.length > 4) pings.shift();
+  }
+  function drawPings(sim, camera, t, viewer) {
+    for (let i = pings.length - 1; i >= 0; i--) {
+      const p = pings[i];
+      const u = (t - p.t0) / 1.8;
+      const sq = sim.rt.squadById.get(p.id);
+      if (u >= 1 || u < 0 || !sq || sq.faction !== viewer) { pings.splice(i, 1); continue; }
+      const y = ground(sq.cx, sq.cz);
+      for (let k = 0; k < 2; k++) { const uu = (u * 2 + k * 0.5) % 1; mark(sq.cx, sq.cz, y, 2 + uu * 9, 0, ENG_COL[0], ENG_COL[1], ENG_COL[2], (1 - uu) * 0.9, DS.RING); }
+      projectToScreen(camera, sq.cx, y + 1, sq.cz, P);
+      const W = camera.width, H = camera.height;
+      const on = P[3] && P[0] > 0 && P[0] < W && P[1] > 0 && P[1] < H;
+      if (on) continue;
+      // off screen: clamp toward the squad's direction from the screen centre
+      let dx = P[0] - W / 2, dy = P[1] - H / 2;
+      if (!P[3]) { dx = -dx; dy = -dy; } // behind the camera: flip
+      const m = Math.max(Math.abs(dx) / (W / 2 - 28), Math.abs(dy) / (H / 2 - 28), 1e-3);
+      const ex = W / 2 + dx / m, ey = H / 2 + dy / m;
+      const dpr = renderer.dpr;
+      const sz = (14 + 6 * Math.sin(t * 10)) * dpr;
+      bar(ex - sz / 2, ey - sz / 2, sz, sz, ENG_COL[0], ENG_COL[1], ENG_COL[2], 1 - u * 0.5, 1, 0);
+    }
+  }
+
   function addMarker(kind, x, z) {
     markers.push({ kind, x, z, t0: renderer ? renderer.time : 0, life: kind === 'attack' ? 0.9 : kind === 'alarm' ? 3 : 0.75 });
     if (markers.length > 24) markers.shift();
@@ -542,6 +577,22 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
       }
     }
     economyOverlays(sim, frame, viewer, t, sst);
+    // Phase 4.1: RESOURCE LENS — where the tapped resource comes from (items are fog-safe, ui/lens.js)
+    const lens = frame.lens;
+    if (lens && lens.items) {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 3.2);
+      for (const it of lens.items) {
+        const col = LENS_COL[it.kind] || LENS_COL.depot;
+        const y = ground(it.x, it.z);
+        if (it.r > 6) mark(it.x, it.z, y, it.r, 0, col[0], col[1], col[2], 0.35, 13, 0, 0, 1, 0.1);
+        mark(it.x, it.z, y, (1.6 + pulse * 0.8) * Math.min(2.5, zoomK), 0, col[0], col[1], col[2], 0.85, DS.RING);
+        mark(it.x, it.z, y, 0.55 * Math.min(2.5, zoomK), 0, col[0], col[1], col[2], 0.9, DS.DOT);
+      }
+    }
+    // Phase 4.1: effect ranges (selection / placement / inspection) + world-space corpse states
+    rangeApi.zoomK = zoomK;
+    rangeInfo = rangeViz.draw(rangeApi, sim, frame, viewer, camera, t, sst);
+    stats.badges = rangeInfo.badges;
     if (hover && hover.k === 'struct' && hover.id !== frame.selectedStruct) {
       const st = r.memory ? r.memory.known(sim, viewer, hover.id) : rt.structById.get(hover.id);
       if (st) structureBox(st, st.faction === viewer ? HOVER_RING : ENEMY_RING, 0.45);
@@ -563,7 +614,11 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
 
     // placement ghosts (linear fortifications + buildings) and footprints
     const pl = frame.placement;
-    if (pl && pl.params) {
+    if (pl && pl.params && pl.reorient) {
+      // re-laying an existing gun: only its (live) firing arc, no ghost model
+      r.forts.setGhost(null);
+      r.statics.setGhost(null);
+    } else if (pl && pl.params) {
       const def = STRUCTURES[pl.stype];
       const col = pl.valid ? VALID : INVALID;
       if (def.kind === 'linear') {
@@ -597,6 +652,8 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
       const col = ab.valid ? [0.9, 0.7, 0.35] : INVALID;
       mark(ab.x, ab.z, ground(ab.x, ab.z), ab.radius, 0, col[0], col[1], col[2], 0.9, DS.AREA, 0, t * 1.5);
     }
+
+    drawPings(sim, camera, t, viewer);
 
     // bars (screen space)
     for (const sq of state.squads) {
@@ -684,5 +741,5 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     gl.enable(gl.CULL_FACE);
   }
 
-  return { update, drawGroundMarks, drawWorld, drawScreen, addMarker, stats };
+  return { update, drawGroundMarks, drawWorld, drawScreen, addMarker, ping, stats, rangeInfo: () => rangeInfo };
 }

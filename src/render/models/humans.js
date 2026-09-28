@@ -335,7 +335,13 @@ function greatbladeGeometry(mb) {
 function weaponAtPivot(mb, r, kind) {
   mb.bone(BONE.WEAPON);
   mb.push(r.pivots[BONE.WEAPON * 3], r.pivots[BONE.WEAPON * 3 + 1], r.pivots[BONE.WEAPON * 3 + 2]);
-  if (kind === 'rifle' || kind === 'infested') rifleGeometry(mb, kind);
+  if (kind === 'rifle' || kind === 'infested' || kind === 'sniper') rifleGeometry(mb, kind);
+  if (kind === 'sniper') {
+    // long telescopic sight on the receiver + a longer barrel shroud
+    mb.col(C.steelDark, MAT.DARKMETAL).cylBetween([0, 0.075, 0.3], [0, 0.075, 0.62], 0.018, 0.018, mb.lod ? 5 : 8);
+    if (!mb.lod) mb.col(C.brass, MAT.METAL).cylBetween([0, 0.075, 0.6], [0, 0.075, 0.64], 0.022, 0.022, 8);
+    mb.col(C.steelDark, MAT.DARKMETAL).cylBetween([0, 0.015, 1.1], [0, 0.015, 1.3], 0.012, 0.012, mb.lod ? 5 : 7);
+  }
   else if (kind === 'shotgun') shotgunGeometry(mb);
   else if (kind === 'mg') mgGeometry(mb);
   else if (kind === 'greatblade') greatbladeGeometry(mb);

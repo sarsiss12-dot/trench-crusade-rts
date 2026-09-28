@@ -105,7 +105,16 @@ canvas.minimap { height: min(30vh, calc(190px * var(--ui))); aspect-ratio: 320 /
   display: none; min-width: calc(230px * var(--ui)); max-width: 100%; padding: 6px 9px; border-radius: 8px;
   background: var(--bg); border: 1px solid var(--line);
 }
-.selinfo.open { display: block; }
+.selinfo.open { display: block; position: relative; padding-right: calc(30px * var(--ui)); }
+/* Phase 4.1: close X on the card (clears the selection) — small glyph, ≥ 44 px hit target */
+.selx { position: absolute; top: -8px; right: -8px; width: 44px; height: 44px; padding: 0; margin: 0; border: 0; background: none;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; touch-action: manipulation; z-index: 2; }
+.selx b { width: 24px; height: 24px; border-radius: 50%; background: #2a221a; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--dim); }
+.selx:active b { filter: brightness(1.4); }
+.selinfo .elite { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; margin-top: 5px; font-size: 0.85em; color: var(--text); }
+.selinfo .elite b { font-size: 0.8em; letter-spacing: 0.08em; color: #e6c877; border: 1px solid #6d5a2e; border-radius: 3px; padding: 0 4px; }
+.selinfo .elite .pn { color: #e6d49c; }
+.selinfo .edesc { margin-top: 3px; font-size: 0.8em; color: var(--dim); white-space: normal; max-width: calc(300px * var(--ui)); }
 .selinfo .ih { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .selinfo .ih .nm { font-family: var(--serif); font-size: 1.05em; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; }
 .selinfo .ih.enemy .nm { color: #e07b62; }
@@ -398,22 +407,26 @@ pre.debug {
 .cgroups .cg.empty { opacity: 0.45; }
 .cgroups .cg.empty b { color: var(--dim); }
 .cgroups .cg.flash { border-color: var(--good); box-shadow: 0 0 10px rgba(157, 179, 107, 0.6); }
-/* commander slot under the groups: portrait + health, the command ability below */
-.cmdr { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-.cmdr.none { display: none; }
-.cmdr button { width: calc(42px * var(--ui)); border-radius: 8px; border: 1px solid var(--accent); background: var(--bg); color: var(--text); padding: 3px 2px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.cmdr .cmdr-face svg { width: calc(22px * var(--ui)); height: calc(22px * var(--ui)); }
-.cmdr .cmdr-face .hp { display: block; width: 90%; height: 4px; background: rgba(0,0,0,0.5); border-radius: 2px; overflow: hidden; }
-.cmdr .cmdr-face .hp i { display: block; height: 100%; background: var(--good); }
-.cmdr .cmdr-face.dead { border-color: var(--warn); opacity: 0.6; }
-.cmdr .cmdr-ab svg { width: calc(18px * var(--ui)); height: calc(18px * var(--ui)); }
-.cmdr .cmdr-ab i { font-style: normal; font-size: calc(9px * var(--ui)); line-height: 1.05; text-align: center; color: var(--dim); }
-.cmdr .cmdr-ab.ready { border-color: var(--warn); animation: specpulse 1.4s ease-in-out infinite; }
-.cmdr .cmdr-ab.ready i { color: var(--warn); }
-.cmdr .cmdr-ab.active { background: #3a2f1c; }
-.cmdr .cmdr-ab:disabled { opacity: 0.6; }
 .quick .q.tog.on i { color: #f3e3bb; font-weight: 700; }
 .quick .q.tog i { white-space: normal; line-height: 1.05; font-size: 0.6em; text-align: center; }
 .banner.lull { color: #b9c9d6; }
 .phase.lull { border-color: #7e93a6; }
 @media (max-height: 420px) { .cgroups .cg { min-height: calc(34px * var(--ui)); } }
+
+/* Phase 4.1: "why can't I?" — the fix line under a refusal */
+.notice.why { display: flex; flex-direction: column; gap: 2px; }
+.notice .fix { font-size: 0.82em; color: #e6d49c; opacity: 0.95; }
+.selinfo .gunst { margin-top: 4px; font-size: 0.82em; color: #e0a060; white-space: normal; }
+.selinfo .gunst small { display: block; color: #e6d49c; }
+
+/* Phase 4.1: resource lens (top bar resource tap) */
+.res .r { cursor: pointer; border-radius: 4px; }
+.res .r.lens-on { background: rgba(230, 200, 119, 0.16); box-shadow: 0 0 0 1px #6d5a2e inset; }
+.lens { display: none; position: absolute; left: 8px; top: calc(46px * var(--ui) + env(safe-area-inset-top, 0px)); max-width: min(360px, calc(100vw - 16px));
+  padding: 6px 9px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); font-size: 0.86em; z-index: 6; pointer-events: auto; }
+.lens.open { display: block; }
+.lens .lh { display: flex; align-items: center; gap: 6px; }
+.lens .lh b { font-family: var(--serif); letter-spacing: 0.03em; }
+.lens .lx { margin-left: auto; min-width: 40px; min-height: 40px; background: none; border: 0; color: var(--dim); display: flex; align-items: center; justify-content: center; }
+.lens .lt { margin-top: 3px; color: var(--dim); font-size: 0.9em; }
+.lens .li { margin-top: 4px; color: #e6d49c; font-variant-numeric: tabular-nums; }

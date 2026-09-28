@@ -14,6 +14,8 @@
 //    guard settlements, the reserve also answers raids on them; engineers burn infected dead
 //    (SANITIZE); medics / flamers / clerics / lieutenant join the order of battle; speciality
 //    choices (ai/spec_pick.js); PURGE with the Purification doctrine
+//  - Phase 4.1: elites spread behind the line (passive auras); a LIMITED COUNTERATTACK on known
+//    enemy structures when the walls are quiet (counterattack())
 import { UNITS, unitDef, hasRole } from '../data/units.js';
 import { ABILITIES } from '../data/abilities.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -72,25 +74,21 @@ export const newAntiochAI = {
       this.engineers(sim, fid, ai, squads);
       this.garrison(sim, fid, ai, squads);
       this.ruins(sim, fid, ai, squads);
-      this.placeCommander(sim, fid, ai);
+      this.placeElites(sim, fid, ai, squads);
       if (state.match.phase === 'WAR') this.guards(sim, fid, ai, squads);
     }
-    // auto reinforcement: the line (trench / garrison / heavy / leader squads) tops itself up
-    if (!stress && !ai.autoReinfSet && state.factions[fid].autoReinf !== 'important') {
-      ai.autoReinfSet = 1;
-      aiIssue(sim, { type: CMD.SET_AUTO_REINFORCE_DEFAULT, faction: fid, mode: 'important' });
-    }
+    // positional auto reinforcement: trench / garrison squads top themselves up (sim default);
+    // reinforce() asks for the open-field squads
     if (state.match.phase === 'WAR') {
       const lull = isLull(state);
       this.reserve(sim, fid, ai, squads);
+      if (!stress) this.counterattack(sim, fid, ai, squads);
       this.reinforce(sim, fid, ai, squads, lull);
       this.train(sim, fid, ai, squads);
-      // operational lull: no fire missions (refused anyway) — repair, reinforce, build, heal instead
-      if (!lull) {
-        this.artillery(sim, fid, ai, squads);
-        this.mortar(sim, fid, ai, squads);
-        this.command(sim, fid, ai);
-      }
+      // reorganisation windows are no ceasefire: the guns keep answering (the window only speeds
+      // up repairs / replacements, which reinforce() and engineers() use)
+      this.artillery(sim, fid, ai, squads);
+      this.mortar(sim, fid, ai, squads);
       if (!stress) this.purge(sim, fid, ai);
     }
   },
@@ -236,7 +234,7 @@ export const newAntiochAI = {
     if (!trenches.length) return;
     const line = squads.filter((sq) => {
       const d = unitDef(sq.type);
-      return d.combatUnit && d.canGarrison && !d.heavy && !d.commander && ai.reserveIds.indexOf(sq.id) < 0;
+      return d.combatUnit && d.canGarrison && !d.heavy && !d.aura && ai.reserveIds.indexOf(sq.id) < 0;
     });
     // capacity-aware spread: each squad to the least-filled segment near its position, and only
     // into a network with room for the WHOLE squad (the sim's own rule: no partial squads)
@@ -306,41 +304,30 @@ export const newAntiochAI = {
     void rt;
   },
 
-  /** HOLD THE LINE when the Lieutenant's line is under a real assault. */
-  command(sim, fid, ai) {
-    const { state } = sim;
-    if ((state.tick + 5) % 10 !== 0) return;
-    const c = state.factions[fid].cmdr;
-    if (!c || !c.sq || state.tick < c.abReady) return;
-    const lt = sim.rt.squadById.get(c.sq);
-    if (!lt || (state.factions[fid].resources.supply || 0) < 80) return;
-    const bit = 1 << FACTIONS[fid].index;
-    let foes = 0, friends = 0;
-    for (const e of state.squads) {
-      const d = dist(e.cx, e.cz, lt.cx, lt.cz);
-      if (e.faction === fid && d < 20 && e.engaged) friends++;
-      else if (areHostile(fid, e.faction) && (e.visibleTo & bit) && d < 30) foes++;
-    }
-    if (foes >= 2 && friends >= 1) aiIssue(sim, { type: CMD.COMMANDER_ABILITY, faction: fid });
-    void ai;
-  },
-
   /**
-   * The Lieutenant commands from behind the line (his HOLD THE LINE reaches the trenches), steps
-   * back to the bastion when badly hurt: his death costs the whole faction.
+   * ELITES with an aura (Lieutenants, Clerics) stand a few metres behind the trench segments, one
+   * per segment (several over the same spot would not stack — spread they cover the whole line);
+   * a badly hurt one steps back towards the bastion.
    */
-  placeCommander(sim, fid, ai) {
-    const { state, world } = sim;
+  placeElites(sim, fid, ai, squads) {
+    const { state } = sim;
     if ((state.tick + 13) % 40 !== 0) return;
-    const c = state.factions[fid].cmdr;
-    const lt = c && c.sq ? sim.rt.squadById.get(c.sq) : null;
-    if (!lt || lt.engaged || lt.order.t === 'attack') return;
-    let hp = 0;
-    for (const m of lt.members) if (m.state === 'alive') hp += m.hp;
     const bastion = state.structures.find((s) => s.objective && s.faction === fid);
-    const hurt = hp < unitDef(lt.type).hp * 0.5;
-    const post = hurt && bastion ? [bastion.x + 16, bastion.z - 14] : (world.anchors.na_base || [[160, 500]])[0];
-    if (dist(lt.cx, lt.cz, post[0], post[1]) > 6 && lt.order.t !== 'move') aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lt.id], x: post[0], z: post[1], face: Math.PI });
+    const trenches = state.structures.filter((s) => s.type === 'trench' && s.faction === fid && s.built).sort((a, b) => a.x - b.x || a.id - b.id);
+    const elites = squads.filter((sq) => unitDef(sq.type).aura && unitDef(sq.type).elite).sort((a, b) => a.id - b.id);
+    elites.forEach((el, i) => {
+      if (el.engaged || el.order.t === 'attack' || el.order.t === 'move') return;
+      let hp = 0;
+      for (const m of el.members) if (m.state === 'alive') hp += m.hp;
+      let post;
+      if (hp < unitDef(el.type).hp * 0.5 && bastion) post = [bastion.x + 16 - (i % 3) * 16, bastion.z - 14];
+      else if (trenches.length) {
+        const t = trenches[i % trenches.length];
+        const back = bastion ? Math.sign(bastion.z - t.z) || 1 : 1;
+        post = [t.x, t.z + back * 6];
+      } else post = (sim.world.anchors.na_base || [[160, 500]])[0];
+      if (dist(el.cx, el.cz, post[0], post[1]) > 6) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [el.id], x: post[0], z: post[1], face: Math.PI });
+    });
     void ai;
   },
 
@@ -363,7 +350,7 @@ export const newAntiochAI = {
     if (!want.length) return;
     const spare = squads.filter((sq) => {
       const d = unitDef(sq.type);
-      return d.combatUnit && d.canGarrison && !d.heavy && !d.commander && !ai.guards[sq.id] && ai.reserveIds.indexOf(sq.id) < 0 &&
+      return d.combatUnit && d.canGarrison && !d.heavy && !d.aura && !ai.guards[sq.id] && ai.reserveIds.indexOf(sq.id) < 0 &&
         sq.order.t === 'idle' && !sq.engaged && state.tick - sq.spawnTick > 20 * 8;
     });
     for (const st of want) {
@@ -408,14 +395,100 @@ export const newAntiochAI = {
       if (!sq) continue;
       if (threat) {
         if (sq.order.t !== 'attack' || sq.order.tid !== threat.id) {
-          // (a lull refuses attack orders: the reserve then engages on its own ground by itself)
-          if (!sq.engaged && !isLull(state)) aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: [id], tk: 'squad', tid: threat.id });
+          if (!sq.engaged) aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: [id], tk: 'squad', tid: threat.id });
         }
       } else if (sq.order.t === 'idle' && dist(sq.x, sq.z, home[0], home[1]) > 12) {
         // back to the reserve position, facing the front (north: PI)
         aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [id], x: home[0], z: home[1], face: Math.PI });
       }
     }
+  },
+
+  /**
+   * LIMITED COUNTERATTACK (Phase 4.1): attacker / defender are only the starting roles. When the
+   * walls are quiet (no visible enemy near the objective) and the garrison is strong, a small
+   * strike group (the heavy reserve + fresh open-field rifle squads, never the trench / ruin
+   * holders) goes for the nearest KNOWN enemy structure within reach — a nest, a mound, an altar;
+   * late in the war (or in an endless war) the enemy's base itself. It comes home when the target
+   * falls, the group is bled, it takes too long, or the walls are threatened again. Cooldown
+   * between strikes. Only what New Antioch has seen is used (seenBy / visibleTo), orders go
+   * through the normal pipeline.
+   */
+  counterattack(sim, fid, ai, squads) {
+    const { state, world } = sim;
+    if (state.tick - (ai.caCheck || 0) < 40) return; // think() is itself staggered
+    ai.caCheck = state.tick;
+    const bit = 1 << FACTIONS[fid].index;
+    const objective = state.structures.find((s) => s.objective && s.faction === fid);
+    if (!objective) return;
+    const home = world.anchors.na_reserve[0];
+    if (ai.caNext === undefined) ai.caNext = state.match.prepEndTick + 20 * 60 * 8;
+    // walls threatened? (any visible hostile fighting squad close to the objective)
+    let threat = false;
+    for (const e of state.squads) {
+      if (!areHostile(fid, e.faction) || e.civ || !(e.visibleTo & bit) || !unitDef(e.type).combatUnit) continue;
+      if (dist(e.cx, e.cz, objective.x, objective.z) < 120 && alive(e) > 0) { threat = true; break; }
+    }
+    const ca = ai.ca;
+    if (ca) {
+      const target = ca.sid ? sim.rt.structById.get(ca.sid) : null;
+      const group = ca.ids.map((id) => sim.rt.squadById.get(id)).filter((q) => q && alive(q) > 0);
+      let men = 0;
+      for (const q of group) men += alive(q);
+      // a probe (no known target) ends when it has found something or after a short push
+      const found = !ca.sid && this.knownTarget(sim, fid, objective, false);
+      const over = (ca.sid && (!target || target.hp <= 0)) || found || threat || men < ca.men * 0.55 ||
+        state.tick - ca.start > 20 * 60 * (ca.sid ? 4 : 2.5);
+      if (over) {
+        if (group.length) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: group.map((q) => q.id), x: home[0], z: home[1], face: Math.PI });
+        ai.ca = null;
+        ai.caNext = state.tick + 20 * 60 * 4;
+        return;
+      }
+      const idle = group.filter((q) => q.order.t === 'idle' && !q.engaged);
+      if (idle.length && target) aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: idle.map((q) => q.id), tk: 'struct', tid: target.id });
+      return;
+    }
+    if (threat || state.tick < ai.caNext) return;
+    // strength check: the line must stay manned
+    const combat = squads.filter((q) => unitDef(q.type).combatUnit && alive(q) > 0);
+    if (combat.length < 7) return;
+    const fresh = (q) => alive(q) >= unitDef(q.type).squadSize * 0.75 && !q.engaged && q.order.t !== 'hold_trench' && q.order.t !== 'garrison' && !unitDef(q.type).aura && !unitDef(q.type).marksman;
+    const heavies = combat.filter((q) => unitDef(q.type).heavy && fresh(q));
+    const rifles = combat.filter((q) => !unitDef(q.type).heavy && (q.type === 'yeoman_rifle' || q.type === 'shock_flamer') && fresh(q) && !(ai.guards && ai.guards[q.id]));
+    const strike = [...heavies, ...rifles].slice(0, 4);
+    if (strike.length < 2) return;
+    // target: nearest KNOWN enemy structure within reach; the base only late / in an endless war
+    const late = state.match.endless || matchProgress(state) > 0.6;
+    const target = this.knownTarget(sim, fid, objective, late);
+    let men = 0;
+    for (const q of strike) men += alive(q);
+    state.factions[fid].stats.counterattacks = (state.factions[fid].stats.counterattacks || 0) + 1;
+    if (target) {
+      ai.ca = { ids: strike.map((q) => q.id), sid: target.id, start: state.tick, men };
+      aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: ai.ca.ids, tk: 'struct', tid: target.id });
+      return;
+    }
+    // nothing known: a short PROBE in force toward the enemy's side of the map (the map itself is
+    // public knowledge — no hidden state is read); it comes back once it has found something
+    const eb = world.anchors.home_bg && world.anchors.home_bg[0];
+    if (!eb) { ai.caNext = state.tick + 20 * 60; return; }
+    const px = objective.x + (eb[0] - objective.x) * 0.42, pz = objective.z + (eb[1] - objective.z) * 0.42;
+    ai.ca = { ids: strike.slice(0, 3).map((q) => q.id), sid: 0, start: state.tick, men };
+    aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: ai.ca.ids, x: px, z: pz, attackMove: true });
+  },
+
+  /** Nearest enemy structure New Antioch has SEEN within strike reach (the base only when `late`). */
+  knownTarget(sim, fid, objective, late) {
+    const bit = 1 << FACTIONS[fid].index;
+    let target = null, td = 300;
+    for (const st of sim.state.structures) {
+      if (!areHostile(fid, st.faction) || st.hp <= 0 || !(st.seenBy & bit)) continue;
+      if (STRUCTURES[st.type].hq && !late) continue;
+      const dd = dist(st.x, st.z, objective.x, objective.z);
+      if (dd < td || (dd === td && target && st.id < target.id)) { td = dd; target = st; }
+    }
+    return target;
   },
 
   reinforce(sim, fid, ai, squads, lull = false) {
@@ -464,11 +537,17 @@ export const newAntiochAI = {
     for (const e of state.squads) if (areHostile(fid, e.faction) && (e.visibleTo & bit)) horde += alive(e);
     for (const c of state.corpses) if (c.infected && (c.seenBy & bit)) infectedDead++;
     const settlements = ownSettlements(state, fid).length;
+    // Phase 4.1: elites have no game cap any more — the AI keeps its own order of battle (a
+    // Lieutenant per ~5 line squads, one Cleric — two when the plague is thick — one Sniper Priest)
+    const lineSquads = squads.filter((sq) => sq.type === 'yeoman_rifle' || sq.type === 'mech_heavy' || sq.type === 'shock_flamer').length;
+    const wantLt = lineSquads >= 3 ? Math.max(1, Math.floor(lineSquads / 5)) : 0;
+    const wantCleric = lineSquads >= 3 ? (infectedDead >= 6 ? 2 : 1) : 0;
     let unit = null;
     if (engineers < (settlements >= 2 ? 3 : 2) && r.manpower >= 5 && r.material >= 40) unit = 'combat_engineer';
     else if (heavies < 2 && can('mech_heavy')) unit = 'mech_heavy';
-    else if (can('trench_cleric')) unit = 'trench_cleric';
-    else if (can('na_lieutenant')) unit = 'na_lieutenant';
+    else if (count('trench_cleric') < wantCleric && can('trench_cleric')) unit = 'trench_cleric';
+    else if (count('na_lieutenant') < wantLt && can('na_lieutenant')) unit = 'na_lieutenant';
+    else if (count('sniper_priest') < 1 && lineSquads >= 6 && can('sniper_priest')) unit = 'sniper_priest';
     else if (count('combat_medic') < 1 && matchProgress(state) > 0.08 && can('combat_medic')) unit = 'combat_medic';
     else if (count('shock_flamer') < (specHas(state, fid, 'na_purification') ? 2 : 1) && (horde >= 24 || infectedDead >= 4) && can('shock_flamer')) unit = 'shock_flamer';
     else if (r.manpower >= 8 && r.supply >= 50 + artilleryReserve) unit = 'yeoman_rifle';

@@ -358,7 +358,8 @@ export function updateOrders(sim) {
               }
             }
             break;
-          } else sq.order = o.fh === undefined ? { t: 'idle' } : { t: 'idle', fh: o.fh }; // keeps its facing
+          } else if (o.flee) sq.order = { t: 'idle', done: 1 }; // fled engineers resume their queue (units/engineers.js)
+          else sq.order = o.fh === undefined ? { t: 'idle' } : { t: 'idle', fh: o.fh }; // keeps its facing
           clearPath(sq);
         } else if (sq.pathState === 'failed') {
           if (sq.pathFails > 3) { sq.order = { t: 'idle' }; clearPath(sq); }
@@ -643,9 +644,15 @@ function updateGather(sim, sq, def, o) {
   if (o.phase === 'to_drop') {
     const drop = nearestDropOff(sim, sq.faction, sq.x, sq.z);
     if (!drop) { sq.order = { t: 'idle' }; clearPath(sq); return; }
+    if (!sq.dropT) sq.dropT = state.tick; // haul start (balance metric: gang travel time)
     const dd = distanceToStructure(drop, sq.x, sq.z);
     if (dd < 6) {
       const f = state.factions[sq.faction];
+      // Phase 4.1 balance metrics: haul time, and where the loads are dropped (mound / altar / ...)
+      f.stats.hauls = (f.stats.hauls || 0) + 1;
+      f.stats.haulTicks = (f.stats.haulTicks || 0) + (state.tick - sq.dropT);
+      sq.dropT = 0;
+      if (corpseMode) { const at = f.stats.dropAt || (f.stats.dropAt = {}); at[drop.type] = (at[drop.type] || 0) + Math.floor(sq.carry * 100) / 100; }
       const amount = Math.floor(sq.carry * 100) / 100;
       const res = corpseMode ? 'biomass' : 'material';
       f.resources[res] = (f.resources[res] || 0) + amount;

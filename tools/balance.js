@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Headless AI-vs-AI balance / soak runner (deterministic: same seed -> same result).
 // Usage: node tools/balance.js [--seeds 1,2,3,4] [--minutes 15] [--prep <s>] [--verbose] [--json out.json]
+//        node tools/balance.js --endless --minutes 40 ...   (ENDLESS war, stopped after --minutes)
 //
 // Reports the Phase 3 balance measurements (brief §71) per seed and as a batch summary:
 // first Grail biomass (forage, not the altar trickle), first meaningful Thrall wave, first New
@@ -21,6 +22,7 @@ const minutes = Number(opt('minutes', 15));
 const prepArg = opt('prep', null);
 const verbose = args.includes('--verbose');
 const jsonOut = opt('json', null);
+const endless = args.includes('--endless');
 
 const GRAIL = 'black_grail', NA = 'new_antioch';
 
@@ -35,16 +37,18 @@ const pct = (a, b) => (b > 0 ? Math.round((100 * a) / b) : 0);
 
 const rows = [];
 for (const seed of seeds) {
-  const settings = { warMinutes: minutes, controllers: { [NA]: 'ai', [GRAIL]: 'ai' } };
+  const settings = { warMinutes: endless ? 'endless' : minutes, controllers: { [NA]: 'ai', [GRAIL]: 'ai' } };
   if (prepArg !== null) settings.prepSeconds = Number(prepArg);
   const sim = createSimulation({ scenarioId: 'siege_default', seed, settings });
   const prepS = sim.state.match.prepEndTick / TICK_RATE;
-  // Phase 4: operational lulls extend the war clock (warEndTick moves) — run until the match ends
-  const hardCap = (prepS + minutes * 60 + 5 + 3 * 70) * TICK_RATE;
+  // Phase 4.1: the war clock never stops (lulls are no ceasefire); an ENDLESS war has no timer:
+  // it is stopped after --minutes of war
+  const hardCap = (prepS + minutes * 60 + 5) * TICK_RATE;
   let worst = 0, total = 0, firstContact = -1, peakSoldiers = 0, mpWar0 = -1, firstHaul = -1, bio60 = -1;
-  let lullEnds = [], postLull = [], waitLull = -1, gunStructDmg0 = 0;
+  let lullEnds = [], postLull = [], waitLull = -1, lullFights = 0, reinfWaitTicks = 0, reinfNotices = 0, warTicks = 0;
+  let maxCorpses = 0, maxEffects = 0, nanSeen = false, rainTicks = 0, maxMudLive = 0;
   const t0 = process.hrtime.bigint();
-  for (let i = 0; i < hardCap && sim.state.tick < sim.state.match.warEndTick + 5 * TICK_RATE; i++) {
+  for (let i = 0; i < hardCap; i++) {
     const a = process.hrtime.bigint();
     stepSimulation(sim);
     const ms = Number(process.hrtime.bigint() - a) / 1e6;
@@ -57,7 +61,19 @@ for (const seed of seeds) {
     for (const e of sim.events) {
       if (e.type === 'PHASE_CHANGED' && e.afterLull) { lullEnds.push(s.tick); waitLull = s.tick; }
       if (waitLull >= 0 && (e.type === 'FIRE' || e.type === 'MELEE')) { postLull.push(Math.round((s.tick - waitLull) / TICK_RATE)); waitLull = -1; }
-      if (e.type === 'STRUCTURE_DAMAGED' && e.faction === GRAIL) void gunStructDmg0;
+      if (s.match.lull && s.match.lull.active && (e.type === 'FIRE' || e.type === 'MELEE')) lullFights++;
+      if (e.type === 'NOTICE' && e.key === 'reinf.auto_waiting' && e.faction === NA) reinfNotices++;
+    }
+    if (s.match.phase === 'WAR') {
+      warTicks++;
+      if (s.factions[NA].reinfWait) reinfWaitTicks++;
+      if (s.weather && s.weather.rain > 0) rainTicks++;
+    }
+    if (s.tick % 100 === 0) {
+      maxCorpses = Math.max(maxCorpses, s.corpses.length);
+      maxEffects = Math.max(maxEffects, s.effects.length);
+      if (s.mud) maxMudLive = Math.max(maxMudLive, s.mud.live);
+      for (const sq of s.squads) if (!Number.isFinite(sq.cx) || !Number.isFinite(sq.cz)) nanSeen = true;
     }
     if (bio60 < 0 && s.tick % 10 === 0) {
       const by = s.factions[GRAIL].stats.biomass;
@@ -123,8 +139,13 @@ for (const seed of seeds) {
     nestShots: bgs.gunShots || 0, nestKills: bgs.gunKills || 0,
     nests: s.structures.filter((x) => x.faction === GRAIL && (x.type === 'viscera_nest' || x.type === 'belcher_nest') && x.built).length,
     gunBuilt: s.structures.some((x) => x.faction === NA && x.type === 'field_gun' && x.built) || (nas.gunShots || 0) > 0 ? 1 : 0,
-    naCmdr: nas.commanderDeathTick === undefined ? 'alive' : 'fell ' + mmss(sec(nas.commanderDeathTick)),
-    bgCmdr: bgs.commanderDeathTick === undefined ? 'alive' : 'fell ' + mmss(sec(bgs.commanderDeathTick)),
+    // Phase 4.1
+    counter: nas.counterattacks || 0,
+    moundBio: Math.round(bgs.moundBio || 0), altarBio: Math.round(bio.passive || 0),
+    moundDrop: Math.round((bgs.dropAt && bgs.dropAt.corpse_mound) || 0), altarDrop: Math.round((bgs.dropAt && bgs.dropAt.grail_altar) || 0),
+    haulS: bgs.hauls ? +((bgs.haulTicks || 0) / bgs.hauls / TICK_RATE).toFixed(1) : -1,
+    reinfWaitPct: pct(reinfWaitTicks, warTicks), reinfNotices,
+    lullFights, rainPct: pct(rainTicks, warTicks), maxMudLive, maxCorpses, maxEffects, nan: nanSeen ? 1 : 0,
     garrisons: (s.ai && s.ai[NA] && s.ai[NA].garrisonOrders) || 0,
     // combat
     naKills: nas.kills, naLosses: nas.losses, bgKills: bgs.kills, bgLosses: bgs.losses, raised: bgs.raised,
@@ -134,7 +155,8 @@ for (const seed of seeds) {
     _raw: {
       firstBiomassS: sec(bgs.firstBiomassTick), firstHaulS: sec(firstHaul), bio60S: sec(bio60), firstWaveWarS: war(bgs.firstWaveTick), firstSettleS: sec(nas.firstSettlementTick),
       breachWarS: war(bgs.breachTick), tierWarS: bgs.pestTierTick.slice(1).map((t) => war(t)), pestBy: bgs.pestBy, pestLostBy: bgs.pestLostBy,
-      biomass: bio, endS, postLull, naCmdrDied: nas.commanderDeathTick !== undefined, bgCmdrDied: bgs.commanderDeathTick !== undefined,
+      biomass: bio, endS, postLull, counter: nas.counterattacks || 0, moundBio: bgs.moundBio || 0, haulS: bgs.hauls ? (bgs.haulTicks || 0) / bgs.hauls / TICK_RATE : -1,
+      reinfWaitPct: pct(reinfWaitTicks, warTicks), lullFights, gpTick: bgs.greatPestilence || 0,
       gunShots: nas.gunShots || 0, gunKills: nas.gunKills || 0, nestKills: bgs.gunKills || 0,
       nests: s.structures.filter((x) => x.faction === GRAIL && (x.type === 'viscera_nest' || x.type === 'belcher_nest') && x.built).length,
       gunBuilt: (nas.gunShots || 0) > 0 || s.structures.some((x) => x.faction === NA && x.type === 'field_gun' && x.built),
@@ -145,7 +167,8 @@ for (const seed of seeds) {
 const cols = ['seed', 'winner', 'end', 'contact', 'bgFirstBio', 'bgFirstHaul', 'bgBio60', 'bgWave', 'bioAnimalPct', 'bioCorpsePct', 'bioPassivePct', 'raids',
   'naFirstSettle', 'settBuilt', 'settLost', 'settAlive', 'evac', 'mpPerMinWar', 'civLost', 'pestTiers', 'pestMax', 'gp', 'breach'];
 console.table(rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c]]))));
-console.table(rows.map((r) => ({ seed: r.seed, lulls: r.lulls, postLull: r.postLull, gunShots: r.gunShots, gunKills: r.gunKills, gunDmg: r.gunDmg, nestShots: r.nestShots, nestKills: r.nestKills, naCmdr: r.naCmdr, bgCmdr: r.bgCmdr, garrisons: r.garrisons })));
+console.table(rows.map((r) => ({ seed: r.seed, lulls: r.lulls, lullFights: r.lullFights, postLull: r.postLull, gunShots: r.gunShots, gunKills: r.gunKills, gunDmg: r.gunDmg, nestShots: r.nestShots, nestKills: r.nestKills, counter: r.counter, garrisons: r.garrisons })));
+console.table(rows.map((r) => ({ seed: r.seed, moundBio: r.moundBio, altarBio: r.altarBio, moundDrop: r.moundDrop, altarDrop: r.altarDrop, haulS: r.haulS, reinfWaitPct: r.reinfWaitPct, reinfNotices: r.reinfNotices, rainPct: r.rainPct, maxMudLive: r.maxMudLive, maxCorpses: r.maxCorpses, maxEffects: r.maxEffects, nan: r.nan })));
 console.table(rows.map((r) => ({ seed: r.seed, reason: r.reason, naKills: r.naKills, naLosses: r.naLosses, bgKills: r.bgKills, bgLosses: r.bgLosses, raised: r.raised, bioTotal: r.bioTotal, mpTotal: r.mpTotal, convoys: r.convoys, peakSoldiers: r.peakSoldiers, avgTickMs: r.avgTickMs, worstTickMs: r.worstTickMs, wallS: r.wallS, hash: r.hash })));
 
 // batch summary (medians over the seeds that reached the milestone)
@@ -157,7 +180,7 @@ const med = (xs) => {
 const reached = (xs) => `${xs.filter((x) => x >= 0).length}/${xs.length}`;
 const R = rows.map((r) => r._raw);
 const nWin = rows.filter((r) => r.winner === NA).length, bWin = rows.filter((r) => r.winner === GRAIL).length;
-console.log(`\nBATCH  seeds ${seeds.join(',')}  (${minutes} min war, prep ${rows[0] ? rows[0].prepS : '?'} s)`);
+console.log(`\nBATCH  seeds ${seeds.join(',')}  (${endless ? 'ENDLESS war, stopped after ' + minutes + ' min' : minutes + ' min war'}, prep ${rows[0] ? rows[0].prepS : '?'} s)`);
 console.log(`  result          New Antioch ${nWin} / Black Grail ${bWin} / unfinished ${rows.length - nWin - bWin}`);
 console.log(`  Grail 1st bio   median ${mmss(med(R.map((r) => r.firstBiomassS)))} (any non-passive source, match time; reached ${reached(R.map((r) => r.firstBiomassS))})`);
 console.log(`  Grail 1st haul  median ${mmss(med(R.map((r) => r.firstHaulS)))} (first forage delivery; reached ${reached(R.map((r) => r.firstHaulS))})`);
@@ -175,6 +198,10 @@ const allPost = R.flatMap((r) => r.postLull);
 console.log(`  post-lull tempo first shot after the front stirs: median ${med(allPost)} s (${allPost.length} lull ends)`);
 console.log(`  field gun       shots ${R.reduce((a, r) => a + r.gunShots, 0)}, kills ${R.reduce((a, r) => a + r.gunKills, 0)} (Grail nests kills ${R.reduce((a, r) => a + r.nestKills, 0)})`);
 console.log(`  emplacements    field gun in action in ${R.filter((r) => r.gunBuilt).length}/${R.length}; Grail nests standing at the end: ${R.reduce((a, r) => a + r.nests, 0)} (in ${R.filter((r) => r.nests > 0).length}/${R.length} matches)`);
-console.log(`  commanders      NA fell in ${R.filter((r) => r.naCmdrDied).length}/${R.length}, Grail fell in ${R.filter((r) => r.bgCmdrDied).length}/${R.length}`);
+console.log(`  lull fights     shots / blows during reorganisation windows: ${R.reduce((a, r) => a + r.lullFights, 0)} (no ceasefire)`);
+console.log(`  NA counterattk  ${R.reduce((a, r) => a + r.counter, 0)} strikes over ${R.length} matches (in ${R.filter((r) => r.counter > 0).length}/${R.length})`);
+console.log(`  corpse mound    ${Math.round(R.reduce((a, r) => a + r.moundBio, 0))} biomass rendered down at mounds vs altar trickle ${Math.round(bsum('passive'))}`);
+console.log(`  gang haul time  median ${med(R.map((r) => r.haulS)).toFixed(1)} s per load (pick-up to drop-off)`);
+console.log(`  auto reinforce  waiting for resources median ${med(R.map((r) => r.reinfWaitPct))}% of war time`);
 console.log(`  perf            avg tick ${med(rows.map((r) => r.avgTickMs)).toFixed(3)} ms (median), worst ${Math.max(...rows.map((r) => r.worstTickMs))} ms, peak soldiers ${Math.max(...rows.map((r) => r.peakSoldiers))}`);
 if (jsonOut) writeFileSync(jsonOut, JSON.stringify(rows, null, 1));

@@ -12,11 +12,9 @@ import { setOrder, trenchNear, releasePosts, trenchForSquad, nextAreaNode, SALVA
 import { validatePlacement, placeStructure, cancelStructure } from '../construction/construction.js';
 import { canTrain, queueTraining, cancelTraining } from './production.js';
 import { validateAbility, castAbility } from './abilities.js';
-import { requestReinforcement, AUTO_REINF_MODES } from '../factions/reinforcement.js';
-import { lullRefusal } from './lull.js';
+import { requestReinforcement, positionOf, trackPosition } from '../factions/reinforcement.js';
 import { pickBuilder, assignSite, startSanitize } from '../units/engineers.js';
 import { isGarrison, canGarrison, garrisonGeom, garrisonRefusal, startGarrison } from '../units/garrison.js';
-import { commanderAbilityRefusal, castCommanderAbility } from './commander.js';
 import { validateSpec, chooseSpec, specValue } from './specialities.js';
 import { evacuateSettlement } from '../factions/civilians.js';
 import { slaughterPen, pennedCount } from './wildlife.js';
@@ -38,19 +36,20 @@ export const CMD = Object.freeze({
   FORMATION: 'FORMATION',
   ENTER_TRENCH: 'ENTER_TRENCH',
   REINFORCE: 'REINFORCE',
-  SET_AUTO_REINFORCE: 'SET_AUTO_REINFORCE', // { squadIds, on: -1 | 0 | 1 } per-squad override (Phase 4)
-  SET_AUTO_REINFORCE_DEFAULT: 'SET_AUTO_REINFORCE_DEFAULT', // { mode: 'off' | 'important' | 'all' }
+  SET_AUTO_HUNT: 'SET_AUTO_HUNT', // { squadIds, on: 0 | 1 } work gangs: automatic SAFE hunting when idle
+  SET_AUTO_REINFORCE: 'SET_AUTO_REINFORCE', // { squadIds, on: 0 | 1 } positional auto reinforcement of squads IN a position
   // Phase 3
   EVACUATE: 'EVACUATE', // { sid } settlement
   HERD_AREA: 'HERD_AREA', // { sid, x, z } livestock pen: where its drovers look for animals
   SLAUGHTER: 'SLAUGHTER', // { sid } livestock pen: emergency slaughter (food now, less later)
   FORAGE: 'FORAGE', // { squadIds, x, z } Black Grail work gangs: hunt / strip / haul in an area
-  COMMANDER_ABILITY: 'COMMANDER_ABILITY', // { } the living commander's ability (area follows him)
   GARRISON: 'GARRISON', // { squadIds, sid } occupy a ruin garrison (nearest entrance, then slots)
   UNGARRISON: 'UNGARRISON', // { squadIds } leave through the nearest doorway
   SALVAGE_AREA: 'SALVAGE_AREA', // { squadIds?, x, z } engineers: strip every known heap in an area, then home
   SANITIZE: 'SANITIZE', // { squadIds?, x, z } engineers: burn the dead + scour the ground in an area
   CHOOSE_SPECIALITY: 'CHOOSE_SPECIALITY', // { tier, spec }
+  // Phase 4.1
+  REORIENT: 'REORIENT', // { sid, rot } re-lay a limited-arc gun emplacement: costs material + time out of action
 });
 
 const SANITIZE_R = 16;
@@ -72,7 +71,8 @@ export function makeCommand(type, faction, fields = {}) {
 }
 
 function reject(sim, cmd, reason) {
-  sim.events.push({ type: EV.COMMAND_REJECTED, faction: cmd.faction, cmd: cmd.type, reason });
+  // the command's subject travels with the refusal: the HUD explains WHY and HOW (ui/reasons.js)
+  sim.events.push({ type: EV.COMMAND_REJECTED, faction: cmd.faction, cmd: cmd.type, reason, unit: cmd.unit || '', stype: cmd.stype || '', ability: cmd.ability || '', sid: cmd.sid || 0 });
   return { ok: false, reason };
 }
 
@@ -132,9 +132,6 @@ export function applyCommand(sim, cmd) {
   const { state, rt } = sim;
   if (!cmd || !cmd.type || !state.factions[cmd.faction]) return { ok: false, reason: 'cmd.invalid' };
   if (state.match.phase === 'ENDED') return { ok: false, reason: 'match.over' };
-  // operational lull: no attacks, attack-moves or offensive abilities (everything else works)
-  const lullWhy = lullRefusal(sim, cmd);
-  if (lullWhy) return reject(sim, cmd, lullWhy);
   switch (cmd.type) {
     case CMD.MOVE: {
       const squads = ownSquads(sim, cmd);
@@ -297,6 +294,20 @@ export function applyCommand(sim, cmd) {
       st.rally = { x: clamp(cmd.x, 1, sim.world.width - 1), z: clamp(cmd.z, 1, sim.world.height - 1) };
       return { ok: true };
     }
+    case CMD.REORIENT: {
+      const st = ownStructure(sim, cmd);
+      const d = st && STRUCTURES[st.type];
+      if (!st || !st.built || !d.emplacement || !d.arc || d.arc >= 360 || !d.relay) return reject(sim, cmd, 'gun.reorient_invalid');
+      if (!Number.isFinite(cmd.rot)) return reject(sim, cmd, 'cmd.invalid');
+      const f = state.factions[cmd.faction];
+      if ((f.resources.material || 0) < d.relay.material) return reject(sim, cmd, 'build.no_resources');
+      f.resources.material -= d.relay.material;
+      st.rot = wrapAngle(cmd.rot);
+      st.targetId = 0;
+      st.relayUntil = state.tick + Math.round(d.relay.sec * 20);
+      sim.events.push({ type: EV.NOTICE, faction: cmd.faction, key: 'gun.relaying', x: st.x, z: st.z, s: d.relay.sec });
+      return { ok: true };
+    }
     case CMD.TRAIN: {
       const st = rt.structById.get(cmd.sid);
       const why = canTrain(sim, cmd.faction, st, cmd.unit);
@@ -329,16 +340,24 @@ export function applyCommand(sim, cmd) {
       ack(sim, cmd, squads, squads[0].cx, squads[0].cz, { reinforce: 1 });
       return { ok: true };
     }
-    case CMD.SET_AUTO_REINFORCE: {
-      const squads = ownSquads(sim, cmd);
-      const on = cmd.on === 1 ? 1 : cmd.on === 0 ? 0 : -1;
-      if (!squads.length || !FACTIONS[cmd.faction].reinforcements) return reject(sim, cmd, 'cmd.no_units');
-      for (const sq of squads) sq.autoReinf = on;
+    case CMD.SET_AUTO_HUNT: {
+      const gangs = ownSquads(sim, cmd).filter((sq) => unitDef(sq.type).gathers === 'corpse');
+      if (!gangs.length) return reject(sim, cmd, 'cmd.no_gatherers');
+      for (const sq of gangs) { sq.autoHunt = cmd.on ? 1 : 0; if (!cmd.on && sq.order.t === 'gather' && sq.order.auto) sq.order = { t: 'idle' }; }
       return { ok: true };
     }
-    case CMD.SET_AUTO_REINFORCE_DEFAULT: {
-      if (AUTO_REINF_MODES.indexOf(cmd.mode) < 0 || !FACTIONS[cmd.faction].reinforcements) return reject(sim, cmd, 'cmd.invalid');
-      sim.state.factions[cmd.faction].autoReinf = cmd.mode;
+    case CMD.SET_AUTO_REINFORCE: {
+      if (!FACTIONS[cmd.faction].reinforcements) return reject(sim, cmd, 'reinf.not_available');
+      const on = cmd.on ? 1 : 0;
+      let n = 0;
+      for (const sq of ownSquads(sim, cmd)) {
+        trackPosition(sq);
+        if (!positionOf(sq)) continue; // open field: auto reinforcement does not apply
+        sq.posAuto = on;
+        if (!on && sq.reinf && sq.reinf.auto) sq.reinf = null; // no new dispatches; walkers keep walking
+        n++;
+      }
+      if (!n) return reject(sim, cmd, 'autoreinf.no_position');
       return { ok: true };
     }
     // ---------------------------------------------------------------- Phase 3
@@ -375,12 +394,6 @@ export function applyCommand(sim, cmd) {
       const r = FORAGE_R * specValue(state, cmd.faction, 'forageRadius', 1);
       for (const sq of gangs) setOrder(sim, sq, { t: 'gather', mode: 'forage', fx: cmd.x, fz: cmd.z, fr: r, phase: 'seek', cid: 0, aid: 0 });
       ack(sim, cmd, gangs, cmd.x, cmd.z, { forage: 1, r });
-      return { ok: true };
-    }
-    case CMD.COMMANDER_ABILITY: {
-      const why = commanderAbilityRefusal(sim, cmd.faction);
-      if (why) return reject(sim, cmd, why);
-      castCommanderAbility(sim, cmd.faction);
       return { ok: true };
     }
     case CMD.GARRISON: {

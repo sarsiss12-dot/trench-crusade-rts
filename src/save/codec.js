@@ -5,6 +5,8 @@ import { STATE_VERSION } from '../sim/constants.js';
 import { UNITS } from '../data/units.js';
 import { createRngState } from '../core/rng.js';
 import { newStats } from '../sim/state.js';
+import { createWeatherState } from '../sim/weather.js';
+import { mapDef } from '../data/maps.js';
 
 export const SAVE_FORMAT = 'trench-crusade-rts-save';
 export const SAVE_VERSION = STATE_VERSION;
@@ -211,6 +213,56 @@ export const MIGRATIONS = {
     s.p4init = 0; // ruin garrisons are added on load (they need the world geometry)
     s.version = 4;
     return { ...save, version: 4 };
+  },
+  // Phase 4 -> Phase 4.1:
+  //  - commanders -> passive ELITES: faction cmdr state and live 'command' effects are dropped (the
+  //    Lieutenant / Lord squads themselves stay: they are ordinary elites now, auras from data)
+  //  - auto reinforcement becomes POSITIONAL: the faction default and per-squad override go; a squad
+  //    already holding a trench / garrison starts ON (posAuto), everyone else OFF; an automatic
+  //    request of a squad out in the open field is dropped (walkers already out keep walking)
+  //  - operational lulls: the old plan (ceasefire windows, war-clock extension) is replaced by the
+  //    seeded never-a-ceasefire windows; a window running at save time simply closes; windows the
+  //    old plan had not reached yet continue from the new schedule
+  //  - endless flag, work gang AUTO SAFE HUNT, rain / traffic mud state, reinforcement notice guard
+  4: (save) => {
+    const s = save.state;
+    s.settings = s.settings || {};
+    if (s.settings.endless === undefined) s.settings.endless = false;
+    if (s.settings.rain === undefined) s.settings.rain = 'auto';
+    const m = s.match || {};
+    if (m.endless === undefined) m.endless = 0;
+    if (m.warMinutes === undefined) m.warMinutes = s.settings.warMinutes || 30;
+    const old = m.lull || {};
+    let cap = s.settings.lulls !== undefined ? s.settings.lulls : 'auto';
+    // a Phase 3 save migrated through v4 had no lulls planned: keep it that way
+    if (old.plan && old.plan.length === 0 && s.settings.lulls === 0) cap = 0;
+    // the old design stretched the war clock by every lull: give that time back (never shorter)
+    if (old.ext > 0 && m.warEndTick > 0) m.warEndTick -= Math.min(old.ext, Math.max(0, m.warEndTick - (s.tick || 0) - 20));
+    m.lull = { idx: old.idx || 0, active: 0, start: 0, end: 0, warned: 0, endWarned: 0, cap };
+    s.match = m;
+    for (const fid in s.factions || {}) {
+      const f = s.factions[fid];
+      delete f.cmdr; delete f.autoReinf;
+      if (f.reinfWait === undefined) f.reinfWait = 0;
+    }
+    for (const sq of s.squads || []) {
+      const o = sq.order || {};
+      const pos = o.t === 'hold_trench' ? o.sid || 0 : o.t === 'garrison' && o.phase === 'inside' ? o.sid || 0 : 0;
+      sq.posId = pos;
+      sq.posAuto = pos ? (sq.autoReinf === 0 ? 0 : 1) : 0;
+      if (!pos && sq.reinf && sq.reinf.auto) sq.reinf = null;
+      delete sq.autoReinf; delete sq.autoReinfT;
+      if (sq.autoHunt === undefined) sq.autoHunt = 1;
+    }
+    s.effects = (s.effects || []).filter((e) => e.kind !== 'command');
+    if (!s.mud || !s.weather || s.weather.auto === undefined) {
+      const w = mapDef(s.mapId);
+      const wx = createWeatherState({ type: (s.weather && s.weather.type) || 'overcast' }, s.settings.rain, w.width, w.height);
+      s.weather = wx.weather;
+      s.mud = wx.mud;
+    }
+    s.version = 5;
+    return { ...save, version: 5 };
   },
 };
 

@@ -94,7 +94,11 @@ test('replacements walk from the rear: squads are not magically refilled', () =>
   sq.lastHitTick = -100000;
   const r = sim.state.factions.new_antioch.resources;
   const mp = r.manpower;
+  // Phase 4.1: out in the open auto reinforcement is OFF (positional only) — the squad asks
   let joiningSeen = false;
+  run(sim, 5);
+  assert.equal(sq.members.length, 5, 'no automatic top-up in the open field');
+  enqueueCommand(sim, { type: CMD.REINFORCE, faction: 'new_antioch', squadIds: [sq.id] });
   run(sim, 20, () => { if (sq.members.some((m) => m.state === 'joining')) joiningSeen = true; });
   assert.ok(joiningSeen, 'replacement walked in (joining state)');
   assert.greater(sq.members.length, 5);
@@ -105,6 +109,7 @@ test('replacements walk from the rear: squads are not magically refilled', () =>
   const sq2 = spawn(sim2, 'new_antioch', 'yeoman_rifle', 160, 360, Math.PI);
   for (let i = 0; i < 3; i++) killSoldier(sim2, sq2, sq2.members[i], 'black_grail', 'rifle', 0, 1);
   sq2.lastHitTick = -100000;
+  enqueueCommand(sim2, { type: CMD.REINFORCE, faction: 'new_antioch', squadIds: [sq2.id] });
   run(sim2, 20);
   assert.equal(sq2.members.length, 5);
 });

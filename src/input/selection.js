@@ -131,3 +131,13 @@ export function squadIdsWithRole(sim, viewer, role) {
 export function multiSelectView(multiOn) {
   return { on: !!multiOn, labelKey: multiOn ? 'hud.multi_on' : 'hud.multi_short', icon: 'multi' };
 }
+
+/**
+ * MULTI-SELECT is ONE-SHOT (Phase 4.1): one additive tap or one box, then back to normal
+ * selection. Returns true when the mode was consumed.
+ */
+export function consumeMulti(ui) {
+  if (!ui || !ui.multi) return false;
+  ui.multi = false;
+  return true;
+}

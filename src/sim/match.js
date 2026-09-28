@@ -50,24 +50,31 @@ export function checkVictory(sim) {
   const attacker = factionByRole(state, 'attacker');
   const objective = state.structures.find((s) => s.objective);
   if (!objective) { endMatch(sim, attacker, 'objective_destroyed'); return; }
-  if (state.tick >= m.warEndTick) { endMatch(sim, defender, 'time_held'); return; }
+  if (!m.endless && m.warEndTick > 0 && state.tick >= m.warEndTick) { endMatch(sim, defender, 'time_held'); return; }
+  if (state.tick % 20 !== 0) return;
   // attacker spent: no forces, nothing in production, no income or production left to rebuild
   // with, cannot afford more, no bodies waiting to rise
-  if (state.tick % 20 === 0) {
-    const hasSquads = state.squads.some((sq) => sq.faction === attacker);
-    if (hasSquads) return;
-    const producing = state.structures.some((s) => s.faction === attacker && s.queue && s.queue.length);
-    if (producing) return;
-    const rebuilding = state.structures.some((s) => {
-      if (s.faction !== attacker || !s.built) return false;
-      const d = STRUCTURES[s.type];
-      return !!(d.trains && d.trains.length) || d.biomassRate > 0 || d.supplyRate > 0 || d.materialRate > 0;
-    });
-    if (rebuilding) return;
-    const f = state.factions[attacker];
-    const res = Object.keys(f.resources)[0];
-    const canBuy = f.resources[res] >= cheapestUnitCost(attacker, res);
-    const pendingRise = state.corpses.some((c) => c.riseAt > 0);
-    if (!canBuy && !pendingRise) endMatch(sim, defender, 'attacker_spent');
-  }
+  if (attackerSpent(state, attacker)) { endMatch(sim, defender, 'attacker_spent'); return; }
+  // Phase 4.1: attacker / defender are only the STARTING roles — a defender that breaks the
+  // assault may march out and burn the attacker's base: every attacker HQ gone + no army = win
+  const hq = state.structures.some((s) => s.faction === attacker && s.built && STRUCTURES[s.type].hq);
+  if (hq) return;
+  const army = state.squads.some((sq) => sq.faction === attacker && sq.members.some((mm) => mm.state === 'alive' || mm.state === 'rising' || mm.state === 'joining'));
+  if (!army) endMatch(sim, defender, 'base_destroyed');
+}
+
+function attackerSpent(state, attacker) {
+  if (state.squads.some((sq) => sq.faction === attacker)) return false;
+  if (state.structures.some((s) => s.faction === attacker && s.queue && s.queue.length)) return false;
+  const rebuilding = state.structures.some((s) => {
+    if (s.faction !== attacker || !s.built) return false;
+    const d = STRUCTURES[s.type];
+    return !!(d.trains && d.trains.length) || d.biomassRate > 0 || d.supplyRate > 0 || d.materialRate > 0;
+  });
+  if (rebuilding) return false;
+  const f = state.factions[attacker];
+  const res = Object.keys(f.resources)[0];
+  const canBuy = f.resources[res] >= cheapestUnitCost(attacker, res);
+  const pendingRise = state.corpses.some((c) => c.riseAt > 0);
+  return !canBuy && !pendingRise;
 }

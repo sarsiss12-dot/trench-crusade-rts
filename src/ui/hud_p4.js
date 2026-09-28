@@ -11,8 +11,11 @@ import { unitDef } from '../data/units.js';
 import { FACTIONS } from '../data/factions.js';
 import { EV } from '../core/events.js';
 import { GROUP_SLOTS_UI, LONG_PRESS_MS } from '../input/control_groups.js';
-import { wantsAutoReinforce } from '../factions/reinforcement.js';
-import { commanderView } from '../sim/commander.js';
+import { autoReinforceOn, positionOf } from '../factions/reinforcement.js';
+import { STRUCTURES } from '../data/structures.js';
+import { gunStatus } from './reasons.js';
+import { moundPreview } from '../sim/corpse_view.js';
+import { processRadiusOf } from '../render/range_viz.js';
 
 export function createP4Hud(game, H) {
   const { sim, viewer } = game;
@@ -78,52 +81,6 @@ export function createP4Hud(game, H) {
     }
   }
 
-  // ------------------------------------------------------------------ COMMANDER slot
-  // portrait + health (tap: select him, double tap: camera) and the command ability with its
-  // recharge; when he has fallen: the replacement timer, or "cannot be replaced"
-  const cmdrBox = el('div.cmdr');
-  const cmdrFace = el('button.cmdr-face', { type: 'button' });
-  const cmdrAb = el('button.cmdr-ab', { type: 'button' });
-  cmdrBox.append(cmdrFace, cmdrAb);
-  box.appendChild(cmdrBox);
-  let lastFaceTap = -1e9, cmdrKey = '';
-  cmdrFace.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const v = commanderView(sim, viewer);
-    if (!v || !v.alive) return;
-    game.selection.set([v.sqId]);
-    if (game.audio) game.audio.ui('select');
-    const now = performance.now();
-    if (now - lastFaceTap < 350) { const sq = sim.rt.squadById.get(v.sqId); if (sq) game.lookAt(sq.cx, sq.cz); }
-    lastFaceTap = now;
-  });
-  cmdrAb.addEventListener('click', (e) => { e.stopPropagation(); game.actions.commanderAbility(); });
-  function renderCommander() {
-    const v = commanderView(sim, viewer);
-    toggleClass(cmdrBox, 'none', !v);
-    if (!v) return;
-    const key = [sim.state.match.phase, v.alive, Math.ceil(v.abilityCd), v.abilityActive, Math.ceil(v.replaceIn), v.replaceable, Math.round(v.hp * 20)].join('|');
-    if (key === cmdrKey) return;
-    cmdrKey = key;
-    const u = unitDef(v.unit);
-    cmdrFace.innerHTML = icon(iconForUnit(u)) + `<span class="hp"><i style="width:${Math.round(v.hp * 100)}%"></i></span>`;
-    cmdrFace.title = t(u.nameKey) + ' — ' + t(v.alive ? 'cmdr.tip' : v.replaceable ? 'cmdr.fallen_tip' : 'cmdr.lost_tip');
-    toggleClass(cmdrFace, 'dead', !v.alive);
-    const ab = v.ability;
-    let label;
-    if (!v.alive) label = v.replaceable ? (v.replaceIn > 0 ? t('cmdr.replace_in', { s: Math.ceil(v.replaceIn) }) : t('cmdr.replace_ready')) : t('cmdr.lost');
-    else if (v.abilityActive) label = t('cmdr.active');
-    else if (v.abilityCd > 0) label = Math.ceil(v.abilityCd) + 's';
-    else label = t('ability.' + ab + '.short');
-    cmdrAb.innerHTML = icon(ab === 'hold_the_line' ? 'hold_line' : 'commander') + `<i>${label}</i>`;
-    cmdrAb.title = t('ability.' + ab) + ' — ' + t('ability.' + ab + '.desc');
-    cmdrAb.disabled = !v.alive || v.abilityCd > 0;
-    const war = sim.state.match.phase === 'WAR';
-    cmdrAb.disabled = !v.alive || v.abilityCd > 0 || !war;
-    toggleClass(cmdrAb, 'ready', war && v.alive && v.abilityCd <= 0 && !v.abilityActive);
-    toggleClass(cmdrAb, 'active', v.abilityActive);
-  }
-
   // ------------------------------------------------------------------ ECONOMY VIEW toggle
   const qEcon = button('q tog', icon('economy') + `<i>${t('hud.econ_short')}</i>`, () => {
     game.ui.econView = !game.ui.econView;
@@ -142,16 +99,58 @@ export function createP4Hud(game, H) {
     if (own.some((sq) => { const g = unitDef(sq.type).gathers; return !!g && g !== 'corpse'; })) {
       out.push(H.cmd('salvage', t('hud.salvage_area'), () => game.input.startArea('salvage'), { title: t('hud.salvage_tip') }));
     }
+    // work gangs: AVLA / CESET TOPLA area order exists (forage); plus the AUTO SAFE HUNT toggle
+    const gangs = own.filter((sq) => unitDef(sq.type).gathers === 'corpse');
+    if (gangs.length) {
+      const on = gangs.every((sq) => sq.autoHunt !== 0);
+      out.push(H.cmd('forage', t(on ? 'hud.autohunt_on' : 'hud.autohunt_off'), () => { game.actions.autoHunt(on ? 0 : 1); setTimeout(() => H.markDirty(), 120); }, { on, title: t('hud.autohunt_tip') }));
+    }
     // garrisoned squads: leave the ruin through the nearest doorway
     if (own.some((sq) => sq.order.t === 'garrison')) out.push(H.cmd('garrison', t('hud.ungarrison'), () => game.actions.ungarrison(), { title: t('hud.ungarrison_tip') }));
     if (!fdef.reinforcements) return;
-    const re = own.filter((sq) => unitDef(sq.type).combatUnit);
+    // positional auto reinforcement: only for squads IN a trench / garrison (on by default there)
+    const re = own.filter((sq) => unitDef(sq.type).combatUnit && positionOf(sq));
     if (!re.length) return;
-    const on = re.every((sq) => wantsAutoReinforce(sim.state, sq));
+    const on = re.every((sq) => autoReinforceOn(sq) || !sq.posId);
     out.push(H.cmd('autoreinf', t(on ? 'hud.autoreinf_on' : 'hud.autoreinf_off'), () => {
-      game.actions.autoReinforce(on ? 0 : 1);
+      game.actions.autoReinforce(on ? 0 : 1, re.map((q) => q.id));
       setTimeout(() => H.markDirty(), 120);
     }, { on, title: t('hud.autoreinf_tip') }));
+  }
+
+  // ------------------------------------------------------------------ structures (Phase 4.1)
+  function structCommands(st, out) {
+    const def = STRUCTURES[st.type];
+    if (st.faction !== viewer || !st.built) return;
+    // re-lay a limited-arc gun: the same drag-to-turn flow as placement, then REORIENT
+    if (def.relay) {
+      out.push(H.cmd('rotate', t('gun.reorient'), () => game.input.startReorient(st), { title: t('gun.reorient_tip', { m: def.relay.material, s: def.relay.sec }) }));
+    }
+  }
+  function structInfo(st, info) {
+    const def = STRUCTURES[st.type];
+    if (st.faction !== viewer) return;
+    if (def.emplacement) info.appendChild(el('div.gunst'));
+    if (def.harvestRadius) info.appendChild(el('div.row.mound', { html: icon('corpse', 'sm') }, el('span')));
+  }
+  function updateStructInfo(st, info) {
+    const def = STRUCTURES[st.type];
+    if (st.faction !== viewer) return;
+    const g = info.querySelector('.gunst');
+    if (g) {
+      const why = st.built ? gunStatus(sim, viewer, st) : null;
+      const txt = why ? why.reason + (why.fix ? '|' + why.fix : '') : '';
+      if (g.dataset.t !== txt) {
+        g.dataset.t = txt;
+        clear(g);
+        if (why) { g.appendChild(document.createTextNode(why.reason)); if (why.fix) g.appendChild(el('small', { text: t('why.fix', { s: why.fix }) })); }
+      }
+    }
+    const m = info.querySelector('.mound span');
+    if (m) {
+      const mp = moundPreview(sim, viewer, st.x, st.z, processRadiusOf(sim, st.type, viewer), 0);
+      setText(m, t('range.in_area', { n: mp.usable }));
+    }
   }
 
   // ------------------------------------------------------------------ events
@@ -174,11 +173,6 @@ export function createP4Hud(game, H) {
       case EV.GARRISON_ENTERED:
         if (ev.faction === viewer && game.selection.has(ev.squadId)) H.notify('garrison.entered', 'good', null, 2);
         break;
-      case EV.COMMANDER_FALLEN:
-        if (ev.faction === viewer) H.showBanner(t(ev.replaceable ? 'cmdr.fallen' : 'cmdr.fallen_final'), 'war');
-        else H.notify('cmdr.enemy_fallen', 'good', null, 5);
-        cmdrKey = '';
-        break;
       case EV.RUIN_COLLAPSED:
         H.notify('ruin.collapsed', ev.holder === viewer ? 'warn' : 'info', { n: ev.killed }, 1);
         break;
@@ -190,14 +184,18 @@ export function createP4Hud(game, H) {
     }
   }
 
-  let acc = 0;
+  let acc = 0, rainOn = -1;
   function update(dt) {
     acc += dt;
     if (acc < 0.25) return;
     acc = 0;
     render(false);
-    renderCommander();
+    // Phase 4.1: the weather is public — tell the player when a shower starts / stops
+    const wx = sim.state.weather;
+    const on = wx && wx.on ? 1 : 0;
+    if (rainOn >= 0 && on !== rainOn) H.notify(on ? 'weather.rain_start' : 'weather.rain_end', 'info', null, 5);
+    rainOn = on;
   }
 
-  return { squadCommands, onEvent, update, onGroupsChanged: () => render(true) };
+  return { squadCommands, structCommands, structInfo, updateStructInfo, onEvent, update, onGroupsChanged: () => render(true) };
 }

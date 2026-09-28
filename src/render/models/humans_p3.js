@@ -1,12 +1,12 @@
 // Phase 3 roster on the shared 14-bone humanoid rig: New Antioch Combat Medic, Trench Cleric,
-// Shock Flamer team, Lieutenant, four kinds of civilians; Black Grail Herald of Beelzebub,
+// Shock Flamer team, Lieutenant, Sniper Priest (4.1), four kinds of civilians; Black Grail Herald of Beelzebub,
 // Amalgam and the Lord of Tumours. Identity through silhouette and equipment (red cross armband,
 // fuel tanks, cassock and censer, officer's cap; fly wings, fused bodies, tumour crown).
 import { MeshBuilder, MAT } from './meshbuilder.js';
 import { C, mix, scale } from './palette.js';
 import {
   BONE, makeRig, HUMAN, legs, arms, torso, coatSkirt, neckAndHead, gasMask, gothicHelmet,
-  backpack, webbing, beltAndPouches, tabardCross, naBody, greatbladeGeometry,
+  backpack, webbing, beltAndPouches, tabardCross, naBody, greatbladeGeometry, weaponAtPivot,
 } from './humans.js';
 
 // ------------------------------------------------------------------ weapons / tools
@@ -126,6 +126,42 @@ export function buildCleric(lod) {
   mb.push(0.06, r.packY + 0.7, -r.packZ - 0.08).box(0.035, 0.2, 0.03).pop();
   weaponP3(mb, r, 'pistol');
   return { mesh: mb.finish(), rig: r, weapon: 'pistol' };
+}
+
+/**
+ * Sniper Priest (Phase 4.1; official New Antioch elite — "Devotees of the Church ritually blind
+ * themselves"): hooded grey-brown robe, a white blindfold band across the eyes (his silhouette),
+ * rosary / relic pouch, a long rifle with a telescopic sight.
+ */
+export function buildSniperPriest(lod) {
+  const r = makeRig({ ...HUMAN, packZ: 0.15 });
+  const mb = new MeshBuilder({ lod, seed: 353 });
+  const robe = [0.2, 0.18, 0.15];
+  legs(mb, r, { trouser: robe, puttee: robe, boot: C.boot, thighR: 0.082, calfR: 0.062, bootW: 1, bootL: 1 });
+  torso(mb, r, { coat: robe, waistW: 0.32, chestW: 0.4, depth: 0.22, chestDepth: 0.24 });
+  coatSkirt(mb, r, robe, r.waist + 0.02, 0.1, 0.18, 0.3, { gap: 0.12 });
+  arms(mb, r, { sleeve: robe, cuff: C.coatDark, hand: C.glove, shoulderR: 0.072, upperArmR: 0.058, foreArmR: 0.054 });
+  neckAndHead(mb, r, { neck: C.skin, skin: C.skin });
+  beltAndPouches(mb, r, { belt: C.leatherDark });
+  // blindfold: a white band across the eyes, tails hanging at the back
+  mb.bone(BONE.HEAD).col(C.tabard, MAT.CLOTH);
+  mb.push(0, r.headY + 0.015, 0.0).lathe([[0.112, -0.028], [0.114, 0.028]], lod ? 9 : 14, { sz: 1.12 }).pop();
+  if (!lod) {
+    mb.col(C.crossRed, MAT.ACCENT).push(0, r.headY + 0.016, 0.127).box(0.03, 0.03, 0.006).pop();
+    mb.col(C.tabard, MAT.CLOTH).push(0.02, r.headY - 0.06, -0.12, 0.2, 0, 0.1).box(0.03, 0.14, 0.008).pop();
+  }
+  // deep hood (open face)
+  mb.col(robe, MAT.CLOTH).jitter(lod ? 0 : 0.01, 10, 4);
+  mb.push(0, r.headY - 0.06, -0.03).lathe([[0.155, -0.12], [0.15, 0.04], [0.125, 0.15], [0.06, 0.22], [0.0, 0.24]], lod ? 8 : 14, { a0: 0.85, a1: Math.PI * 2 - 0.85, sz: 1.08 }).pop();
+  mb.noJitter();
+  // relic pouch and a hanging rosary cross
+  mb.bone(BONE.PELVIS).col(C.leather, MAT.LEATHER).push(-0.19, r.waist - 0.12, 0.05).box(0.08, 0.12, 0.12, { bevel: 0.01 }).pop();
+  if (!lod) {
+    mb.bone(BONE.SPINE).col(C.brass, MAT.METAL).push(0.0, r.waist + 0.12, 0.135).box(0.018, 0.06, 0.006).pop();
+    mb.push(0.0, r.waist + 0.13, 0.135).box(0.04, 0.014, 0.006).pop();
+  }
+  weaponAtPivot(mb, r, 'sniper');
+  return { mesh: mb.finish(), rig: r, weapon: 'rifle' };
 }
 
 /** Shock Flamer: leather apron, gas mask and helmet, twin fuel tanks, projector held at the hip. */
@@ -350,6 +386,7 @@ export const UNIT_MODELS_P3 = {
   na_cleric: (lod) => buildCleric(lod),
   na_flamer: (lod) => buildFlamer(lod),
   na_lieutenant: (lod) => buildLieutenant(lod),
+  na_sniper: (lod) => buildSniperPriest(lod),
   na_civilian: (lod) => buildCivilian(lod, 0),
   na_civilian_b: (lod) => buildCivilian(lod, 1),
   na_civilian_c: (lod) => buildCivilian(lod, 2),

@@ -82,6 +82,7 @@ export const ICONS = {
   medic: S(`<circle cx="12" cy="12" r="8" ${st}/><path ${st} stroke-width="2.6" d="M12 7.5 v9 M7.5 12 h9"/>`),
   cleric: S(`<path ${st} d="M12 2 v6 M9.5 4.5 h5 M7 21 l2-11 h6 l2 11 z M10 14 h4"/>`),
   flame: S(`<path ${st} d="M12 21 c-4 0 -6 -3 -6 -6 c0 -4 4 -5 3 -10 c3 2 5 4 5 7 c1 -1 1 -2 1 -3 c2 2 3 4 3 6 c0 3 -2 6 -6 6 z M12 21 c-1.5 0 -2.5 -1 -2.5 -2.5 c0 -1.5 2.5 -3 2.5 -3 s2.5 1.5 2.5 3 c0 1.5 -1 2.5 -2.5 2.5"/>`),
+  sniper: S(`<path ${st} d="M3 15 l12 -6 M13 7 l4 -2 3 2 -4 2 M6 20 l3 -4 M12 4 v3 M10.5 5.5 h3 M4 10 h5"/>`),
   officer: S(`<path ${st} d="M5 10 c2 -5 12 -5 14 0 z M4 10 h16 l-2 2 h-12 z M12 6 v2 M8 21 v-5 l4 -3 4 3 v5"/>`),
   civilian: S(`<circle cx="12" cy="6" r="2.6" ${st}/><path ${st} d="M8 21 l1-8 3-2 3 2 1 8 M5 5 h14"/>`),
   herald: S(`<ellipse cx="12" cy="14" rx="2.6" ry="4" ${st}/><path ${st} d="M9.5 12 c-6 -5 -8 2 -3 4 M14.5 12 c6 -5 8 2 3 4 M12 10 v-4 M8 4 l4 2 4 -2"/>`),

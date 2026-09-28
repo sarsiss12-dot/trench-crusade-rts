@@ -83,6 +83,9 @@ export const MAPS = {
       { type: 'grail_altar', faction: 'black_grail', x: 95, z: 58, rot: 0.3 },
       { type: 'grail_altar', faction: 'black_grail', x: 162, z: 40, rot: 0.0 },
       { type: 'grail_altar', faction: 'black_grail', x: 232, z: 62, rot: -0.4 },
+      // Phase 4.1: a pre-built corpse mound — a forward drop-off / processing node (not required:
+      // the three altars are drop-offs too), shortens early hauling from the forests / old dead
+      { type: 'corpse_mound', faction: 'black_grail', x: 160, z: 176, rot: 0 },
       // pre-dug New Antioch line
       { type: 'trench', faction: 'new_antioch', x1: 136, z1: 477, x2: 150, z2: 475 },
       { type: 'trench', faction: 'new_antioch', x1: 150, z1: 475, x2: 164, z2: 475 },

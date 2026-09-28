@@ -246,5 +246,64 @@ await scene('p4_hud', base + '?autostart=1&seed=3&prep=900&fog=0', `(async () =>
   g.lookAt(120, 440); g.camera.dist = 70; g.camera.yaw = 0;
 })()`, [['econ', 20]]);
 
+// ---- Phase 4.1: rain + traffic mud, elite aura + card, placement arc, corpse states, lens
+await scene('p41_rain', base + '?autostart=1&seed=3&prep=900&fog=0', `(async () => { ${HELPERS}
+  const wx = sim.state.weather, mud = sim.state.mud;
+  wx.auto = 0; wx.on = 1; wx.rain = 1; wx.wet = 1;
+  // a churned lane toward the line (as heavy traffic would leave it)
+  for (let z = 380; z < 470; z += 4) for (let dx = -8; dx <= 8; dx += 4) {
+    const i = Math.floor(z / mud.cs) * mud.cols + Math.floor((160 + dx + Math.sin(z * 0.05) * 6) / mud.cs);
+    mud.v[i] = Math.max(mud.v[i], 200 - Math.abs(dx) * 8); mud.live++;
+  }
+  mud.ver++;
+  const lt = __spawn('new_antioch', 'na_lieutenant', 160, 452, Math.PI);
+  __spawn('new_antioch', 'yeoman_rifle', 150, 450, Math.PI); __spawn('new_antioch', 'yeoman_rifle', 170, 450, Math.PI);
+  g.selection.set([lt.id]);
+  g.lookAt(160, 440); g.camera.dist = 46; g.camera.yaw = 0.25;
+})()`, [['rain', 30]]);
+
+await scene('p41_place', base + '?autostart=1&seed=3&prep=900&fog=0', `(async () => { ${HELPERS}
+  sim.state.factions.new_antioch.resources.material = 900; sim.state.factions.new_antioch.resources.supply = 900;
+  g.lookAt(150, 430); g.camera.dist = 110; g.camera.yaw = 0;
+  window.__placeGun = async () => {
+    const cm = await import('/src/render/camera.js');
+    const P = [0, 0, 0, 0];
+    const at = (x, z) => { cm.projectToScreen(g.camera, x, g.renderer.groundAt(x, z), z, P); return [P[0], P[1]]; };
+    g.input.startPlacement('field_gun');
+    let t = performance.now();
+    const [sx, sy] = at(150, 460);
+    g.input.gestures.down(91, sx, sy, t, { type: 'touch' }); g.input.gestures.up(91, sx, sy, t + 50);
+    // drag around the pinned ghost: turn it toward the north-west
+    const [ax, ay] = at(153, 460), [bx, by] = at(140, 448);
+    t += 700;
+    g.input.gestures.down(92, ax, ay, t, { type: 'touch' });
+    for (let k = 1; k <= 8; k++) g.input.gestures.move(92, ax + ((bx - ax) * k) / 8, ay + ((by - ay) * k) / 8, t + k * 16);
+    g.input.gestures.up(92, bx, by, t + 150);
+  };
+})()`, [['arc', 10, () => window.__placeGun()]]);
+
+await scene('p41_corpses', base + '?autostart=1&seed=3&prep=900&fog=0&faction=black_grail', `(async () => { ${HELPERS}
+  const cb = await import('/src/combat/combat.js');
+  const na = __spawn('new_antioch', 'yeoman_rifle', 160, 300, Math.PI);
+  for (let i = 0; i < na.members.length; i++) { const m = na.members[i]; m.infection = i < 3 ? 3 : 1; m.x = 150 + i * 3; m.z = 300 + (i % 2) * 3; cb.killSoldier(sim, na, m, 'black_grail', 'claws', 0, 1); }
+  window.__states = () => {
+    const cs = sim.state.corpses.filter((c) => c.faction === 'new_antioch' && !c.old);
+    cs.forEach((c, i) => { c.infected = true; c.seenBy |= 3; if (i === 0) { c.turn = 1; c.riseAt = sim.state.tick + 900; c.sched = sim.state.tick - 400; } else if (i === 1) { c.riseAt = sim.state.tick + 600; c.sched = sim.state.tick - 100; } else if (i === 2) { c.infected = false; c.blessed = 1; } });
+  };
+  // keep the Grail's own fighters away so nothing is scheduled by accident
+  g.lookAt(160, 302); g.camera.dist = 30; g.camera.yaw = 0.3;
+})()`, [['dead', 60], ['states', 20, () => window.__states()]]);
+
+await scene('p41_hud', base + '?autostart=1&seed=3&prep=900&fog=0', `(async () => { ${HELPERS}
+  const sp = __spawn('new_antioch', 'trench_cleric', 150, 470, Math.PI);
+  g.selection.set([sp.id]);
+  const chip = document.querySelector('.res .r[data-res="supply"]'); if (chip) chip.click();
+  g.lookAt(150, 450); g.camera.dist = 80; g.camera.yaw = 0;
+})()`, [['lens', 20]]);
+
+await scene('p41_terrain', base + '?autostart=1&seed=3&prep=900&fog=0', `(async () => { ${HELPERS}
+  g.lookAt(120, 330); g.camera.dist = 150; g.camera.yaw = 0.7;
+})()`, [['far', 10], ['near', 10, () => { TC.game.lookAt(96, 250); TC.game.camera.dist = 40; TC.game.camera.yaw = 1.2; }]]);
+
 await browser.close();
 server.close();

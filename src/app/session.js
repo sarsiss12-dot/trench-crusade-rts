@@ -133,6 +133,7 @@ export function createSession(opts = {}) {
     const m = sim.state.match;
     if (m.phase === 'PREPARATION') return Math.max(0, (m.prepEndTick - sim.state.tick) * DT);
     if (m.phase === 'WAR' && m.lull && m.lull.active) return Math.max(0, (m.lull.end - sim.state.tick) * DT);
+    if (m.phase === 'WAR' && m.endless) return -1; // endless war: no countdown (HUD shows elapsed war time)
     if (m.phase === 'WAR') return Math.max(0, (m.warEndTick - sim.state.tick) * DT);
     return 0;
   };

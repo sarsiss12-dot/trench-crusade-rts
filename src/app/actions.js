@@ -76,18 +76,29 @@ export function createActions(game) {
       return true;
     },
 
-    /** Auto reinforcement for the selected squads: 1 always, 0 never, -1 follow the default. */
-    autoReinforce(on) {
-      const squads = own();
-      if (!squads.length) return false;
-      session.issue(CMD.SET_AUTO_REINFORCE, { squadIds: squads.map((s) => s.id), on });
-      if (game.audio) game.audio.ui('click');
+    /** Work gangs: automatic SAFE hunting when idle, on / off. */
+    autoHunt(on) {
+      const gangs = own().filter((sq) => unitDef(sq.type).gathers === 'corpse');
+      if (!gangs.length) return false;
+      session.issue(CMD.SET_AUTO_HUNT, { squadIds: gangs.map((s) => s.id), on: on ? 1 : 0 });
       return true;
     },
 
-    /** Faction-wide default: 'off' | 'important' | 'all'. */
-    autoReinforceDefault(mode) {
-      session.issue(CMD.SET_AUTO_REINFORCE_DEFAULT, { mode });
+    /** Positional auto reinforcement ON / OFF for the given (or selected) squads in positions. */
+    autoReinforce(on, ids) {
+      const squads = ids ? ids.map((id) => sim.rt.squadById.get(id)).filter(Boolean) : own();
+      if (!squads.length) return false;
+      session.issue(CMD.SET_AUTO_REINFORCE, { squadIds: squads.map((s) => s.id), on: on ? 1 : 0 });
+      return true;
+    },
+
+    /** Re-lay a limited-arc gun emplacement to a new heading (costs material + time). */
+    reorient(st, rot) {
+      if (!st || st.faction !== viewer || !Number.isFinite(rot)) return false;
+      const d = STRUCTURES[st.type];
+      if (d.relay && (sim.state.factions[viewer].resources.material || 0) < d.relay.material) return fail('build.no_resources');
+      session.issue(CMD.REORIENT, { sid: st.id, rot });
+      feedback('build', st.x, st.z);
       return true;
     },
 
@@ -143,12 +154,6 @@ export function createActions(game) {
       if (st.built && st.hp >= st.maxHp) return fail('cmd.no_damage');
       session.issue(st.built ? CMD.REPAIR : CMD.ASSIST_BUILD, { squadIds: squads.map((s) => s.id), sid: st.id });
       feedback('build', st.x, st.z);
-      return true;
-    },
-
-    /** The commander's ability (the area follows him). */
-    commanderAbility() {
-      session.issue(CMD.COMMANDER_ABILITY, {});
       return true;
     },
 

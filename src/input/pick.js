@@ -30,13 +30,15 @@ export function pickSquad(sim, viewer, camera, groundFn, sx, sy, radiusPx, filte
     // coarse reject: squads span at most ~12 m
     if (Math.hypot(P[0] - sx, P[1] - sy) > radiusPx + 400) continue;
     const tall = unitDef(sq.type).heavy ? 1.3 : 1.05;
+    // Phase 4.1: small squads (work gangs, a lone sniper) are hard to hit with a finger — wider pick
+    const k0 = unitDef(sq.type).squadSize <= 4 || unitDef(sq.type).gathers === 'corpse' ? 1 / 1.35 : 1;
     for (const m of sq.members) {
       if (!memberPresent(m) || !isSoldierVisibleTo(sim, sq, m, viewer)) continue;
       const y = groundFn(m.x, m.z);
       for (let k = 0; k < 2; k++) {
         projectToScreen(camera, m.x, y + (k ? tall * 1.4 : tall * 0.55), m.z, P);
         if (!P[3]) continue;
-        const d = Math.hypot(P[0] - sx, P[1] - sy);
+        const d = Math.hypot(P[0] - sx, P[1] - sy) * k0;
         if (d < bestD) { bestD = d; best = sq; }
       }
     }

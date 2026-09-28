@@ -8,6 +8,8 @@
 //  - replacements walk from a source to depleted squads (factions/reinforcement.js)
 //  - support: aid stations, workshops, muster levy; Combat Medics heal, revive the wounded and
 //    treat EARLY infection; Trench Clerics purify corpses near them (consecration is an aura)
+import { lullBonus } from '../sim/lull.js';
+import { auraOfKindAt } from '../sim/auras.js';
 import { STRUCTURES } from '../data/structures.js';
 import { unitDef } from '../data/units.js';
 import { WEAPONS } from '../data/weapons.js';
@@ -67,7 +69,8 @@ function resupply(sim, fid) {
     if (!supplyPointFor(sim, fid, sq.x, sq.z)) continue;
     const def = unitDef(sq.type);
     const fuel = def.weapon && WEAPONS[def.weapon].fuel ? WEAPONS[def.weapon].fuel : 1;
-    const want = Math.min(sq.ammoMax - sq.ammo, 6);
+    // reorganisation window: resupply flows faster to squads out of combat (sim/lull.js)
+    const want = Math.min(sq.ammoMax - sq.ammo, Math.round(6 * lullBonus(state, 'resupply', sq.lastHitTick)));
     const cost = want * 0.2 * fuel * k;
     if (f.resources.supply < cost) continue;
     f.resources.supply -= cost;
@@ -177,14 +180,21 @@ function medics(sim, fid) {
   }
 }
 
-/** Trench Clerics purify: every few seconds one infected body near them is burned. */
+/**
+ * Trench Clerics (SANCTIFIED PRESENCE, passive): every few seconds each cleric burns one infected
+ * body near him (an action of that man, so two clerics burn two bodies); and, non-stacking by
+ * kind, every cureEverySec a soldier inside ANY cleric's area with light infection (<= cureMax
+ * stacks) loses one stack — two clerics over the same trench cure no faster.
+ */
 function clerics(sim, fid) {
   const { state } = sim;
+  let cure = null;
   for (const sq of state.squads) {
     if (sq.faction !== fid) continue;
     const a = unitDef(sq.type).aura;
-    if (!a || !a.purifyEverySec || !sq.members.some((m) => m.state === 'alive')) continue;
-    if ((state.tick + sq.id) % Math.round(a.purifyEverySec * TICK_RATE) !== 0) continue;
+    if (!a || !sq.members.some((m) => m.state === 'alive')) continue;
+    if (a.cureEverySec && !cure) cure = a;
+    if (!a.purifyEverySec || (state.tick + sq.id) % Math.round(a.purifyEverySec * TICK_RATE) !== 0) continue;
     let best = null, bd = a.purifyRadius;
     for (const c of state.corpses) {
       if (!c.infected) continue;
@@ -192,6 +202,14 @@ function clerics(sim, fid) {
       if (d < bd) { bd = d; best = c; }
     }
     if (best) cremateCorpse(sim, best, fid);
+  }
+  if (!cure || state.tick % Math.round(cure.cureEverySec * TICK_RATE) !== 0) return;
+  for (const sq of state.squads) {
+    if (sq.faction !== fid) continue;
+    for (const m of sq.members) {
+      if (m.state !== 'alive' || m.infection <= 0 || m.infection > cure.cureMax) continue;
+      if (auraOfKindAt(sim, fid, cure.kind, m.x, m.z)) m.infection--;
+    }
   }
 }
 

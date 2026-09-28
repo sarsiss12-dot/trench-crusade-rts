@@ -4,7 +4,8 @@
 // Interaction modes: normal | place (construction) | ability | rally | repair | gather | attackMove.
 import { createGestures } from './gestures.js';
 import { pickSquad, pickStructure, pickNodeAt, boxSelect, squadsOfTypeOnScreen } from './pick.js';
-import { allCombatSquadIds, squadIdsWithRole } from './selection.js';
+import { allCombatSquadIds, squadIdsWithRole, consumeMulti } from './selection.js';
+import { corpseView } from '../sim/corpse_view.js';
 import { pickGround, panCamera, zoomAt, cameraPitch, worldPerPixel } from '../render/camera.js';
 import { STRUCTURES } from '../data/structures.js';
 import { ABILITIES } from '../data/abilities.js';
@@ -39,7 +40,7 @@ export function createInputController(canvas, game) {
   /** A body in sight near (x,z) for Grail work gangs (bodies out of sight are never picked). */
   function pickCorpse(x, z) {
     if (!game.selection.ownSquads(sim, viewer).some((sq) => unitDef(sq.type).gathers === 'corpse')) return null;
-    let best = null, bd = 2.6;
+    let best = null, bd = 4; // Phase 4.1: generous for fingers
     for (const c of sim.state.corpses) {
       const d = Math.hypot(c.x - x, c.z - z);
       if (d < bd && isPointVisibleTo(sim, viewer, c.x, c.z)) { bd = d; best = c; }
@@ -100,10 +101,24 @@ export function createInputController(canvas, game) {
     return out;
   }
 
+  /** Re-lay an existing limited-arc gun: the placement flow without moving it (Phase 4.1). */
+  function startReorient(st) {
+    if (!st || st.faction !== viewer) return;
+    setMode({ kind: 'place', stype: st.type, linear: false, reorient: st.id, x: st.x, z: st.z, rot: st.rot || 0, pinned: true, valid: true, reason: '', drawing: false });
+    updatePlacement();
+  }
+
   function updatePlacement() {
     const m = game.mode;
     if (m.kind !== 'place') return;
     const def = STRUCTURES[m.stype];
+    if (m.reorient) {
+      m.valid = true; m.reason = ''; m.cost = def.relay ? { material: def.relay.material } : null;
+      game.frame.placement = { stype: m.stype, valid: true, params: { x: m.x, z: m.z, rot: m.rot }, reorient: m.reorient };
+      if (game.hud) game.hud.onModeChanged();
+      return;
+    }
+    if (!m.linear && m.hidden) { game.frame.placement = null; if (game.hud) game.hud.onModeChanged(); return; }
     if (m.linear) {
       if (!m.p1) { game.frame.placement = null; return; }
       const p2 = m.p2 || m.hover;
@@ -144,17 +159,49 @@ export function createInputController(canvas, game) {
       } else {
         m.p2 = clampLinear(def, m.p1, g[0], g[2], [0, 0]);
       }
+    } else if (m.reorient) {
+      // re-laying: a tap turns the gun toward the tapped point (it never moves)
+      if (Math.hypot(g[0] - m.x, g[2] - m.z) > 2) m.rot = Math.atan2(g[0] - m.x, g[2] - m.z);
     } else {
+      // tap PINS the ghost there; a drag on / around it then turns it (placement rotation)
       m.x = g[0]; m.z = g[2];
       m.pinned = true;
+      m.hidden = false;
     }
     updatePlacement();
+  }
+
+  /** ✕ in build mode: drop this spot but stay in BUILD MODE (a second ✕ leaves it). */
+  function cancelSpot() {
+    const m = game.mode;
+    if (m.kind !== 'place' || m.reorient) { setMode(null); return; }
+    if (m.linear) {
+      if (!m.p1) { setMode(null); return; }
+      m.p1 = null; m.p2 = null; m.hover = null;
+    } else {
+      if (!m.pinned && m.hidden) { setMode(null); return; }
+      m.pinned = false;
+      m.hidden = true; // touch: the next tap places a new ghost (mouse: it follows the pointer)
+    }
+    updatePlacement();
+  }
+
+  /** Radius around a pinned ghost in which a drag turns it (generous for fingers). */
+  function rotateGrab(def) {
+    return Math.max(def.footprint.w, def.footprint.d) * 0.8 + 9;
   }
 
   function confirmPlacement() {
     const m = game.mode;
     if (m.kind !== 'place') return false;
     if (m.linear && (!m.p1 || !m.p2)) return false;
+    if (m.reorient) {
+      const st = sim.rt.structById.get(m.reorient);
+      if (st) game.actions.reorient(st, m.rot);
+      setMode(null);
+      return true;
+    }
+    if (!m.linear && m.hidden) return false;
     const params = m.linear ? { x1: m.p1[0], z1: m.p1[1], x2: m.p2[0], z2: m.p2[1] } : { x: m.x, z: m.z, rot: m.rot };
     const ok = game.actions.build(m.stype, params);
     if (!ok) return false;
@@ -214,6 +261,7 @@ export function createInputController(canvas, game) {
       const sq = hit.sq;
       if (sq.faction === viewer) {
         game.selection.tapOwn(sq.id, additive);
+        consumeMulti(ui); // one-shot: the next tap selects normally again
         if (game.audio) game.audio.ui('select');
       } else if (own.length && !ui.inspect) {
         game.actions.attack('squad', sq.id, sq.cx, sq.cz);
@@ -275,6 +323,23 @@ export function createInputController(canvas, game) {
       return;
     }
     if (!additive) game.selection.clear();
+    // Phase 4.1: a tap on a body with nothing selected tells what the viewer knows about it
+    // (Grail: state + seconds to rise; others: only the coarse risk) — sim/corpse_view.js
+    const cinfo = corpseInfoAt(gx, gz);
+    if (cinfo && game.notify) game.notify(cinfo.key, cinfo.level, cinfo.params);
+  }
+
+  function corpseInfoAt(x, z) {
+    let best = null, bd = 4;
+    for (const c of sim.state.corpses) {
+      const d = Math.hypot(c.x - x, c.z - z);
+      if (d >= bd) continue;
+      const v = corpseView(sim, viewer, c);
+      if (v) { bd = d; best = v; }
+    }
+    if (!best) return null;
+    const key = { infected: 'corpse.infected', scheduled: 'corpse.scheduled', gathering: 'corpse.infected', turn: 'corpse.turn', purified: 'corpse.purified', risk: 'corpse.na_risk', imminent: 'corpse.na_imminent' }[best.st];
+    return { key, level: best.st === 'purified' ? 'good' : 'warn', params: { s: best.secs } };
   }
 
   function modeTap(sx, sy, info) {
@@ -334,7 +399,7 @@ export function createInputController(canvas, game) {
   }
 
   // ------------------------------------------------------------------ gestures
-  let drawDrag = false, moveDrag = false;
+  let drawDrag = false, moveDrag = false, rotateDrag = false;
   let face = null; // facing drag in progress { x0, z0, x1, z1, attackMove }
   const FACE_MIN = 2.5; // world metres: shorter drags give a plain move
   const handlers = {
@@ -423,10 +488,14 @@ export function createInputController(canvas, game) {
             m.p2 = null;
           }
         } else {
-          // drag the building ghost only when the drag starts on it
           const g = groundAt(x, y);
           const def = STRUCTURES[m.stype];
-          if (g && Math.hypot(g[0] - m.x, g[2] - m.z) < Math.max(def.footprint.w, def.footprint.d) * 0.8 + 2) { moveDrag = true; m.pinned = true; }
+          const d = g ? Math.hypot(g[0] - m.x, g[2] - m.z) : Infinity;
+          // a PINNED ghost (or a gun being re-laid): a drag on / around it turns it freely with a
+          // live firing arc; elsewhere the drag pans the camera. An unpinned ghost (mouse, before
+          // the first click) is still dragged along when the drag starts on it.
+          if ((m.pinned || m.reorient) && !m.hidden && d < rotateGrab(def)) rotateDrag = true;
+          else if (!m.pinned && !m.hidden && d < Math.max(def.footprint.w, def.footprint.d) * 0.8 + 2) { moveDrag = true; m.pinned = true; }
         }
       }
     },
@@ -435,6 +504,11 @@ export function createInputController(canvas, game) {
       if (drawDrag && m.kind === 'place') {
         const g = groundAt(x, y);
         if (g && m.p1) { m.p2 = clampLinear(STRUCTURES[m.stype], m.p1, g[0], g[2], [0, 0]); updatePlacement(); }
+        return;
+      }
+      if (rotateDrag && m.kind === 'place') {
+        const g = groundAt(x, y);
+        if (g && Math.hypot(g[0] - m.x, g[2] - m.z) > 1.2) { m.rot = Math.atan2(g[0] - m.x, g[2] - m.z); updatePlacement(); }
         return;
       }
       if (moveDrag && m.kind === 'place') {
@@ -447,6 +521,7 @@ export function createInputController(canvas, game) {
     onDragEnd(vx, vy) {
       if (drawDrag) { drawDrag = false; if (game.mode.kind === 'place') game.mode.drawing = false; updatePlacement(); return; }
       if (moveDrag) { moveDrag = false; return; }
+      if (rotateDrag) { rotateDrag = false; return; }
       // inertia: screen velocity -> world velocity (same mapping as panCamera)
       const k = worldPerPixel(cam);
       const pitch = cameraPitch(cam);
@@ -471,6 +546,7 @@ export function createInputController(canvas, game) {
       if (game.hud) game.hud.hideBox();
       const ids = boxSelect(sim, viewer, cam, ground, x0, y0, x1, y1);
       game.selection.applyBox(ids, ui.multi || keys.has('Shift'), ui.multi);
+      if (ids.length) consumeMulti(ui); // one-shot
       if (ids.length && game.audio) game.audio.ui('select');
     },
     onPinchStart() {
@@ -490,7 +566,7 @@ export function createInputController(canvas, game) {
         const g = groundAt(x, y);
         if (!g) return;
         if (m.linear) { if (m.p1 && !m.p2) { m.hover = clampLinear(STRUCTURES[m.stype], m.p1, g[0], g[2], [0, 0]); updatePlacement(); } }
-        else if (!m.pinned) { m.x = g[0]; m.z = g[2]; updatePlacement(); }
+        else if (!m.pinned && !m.reorient) { m.x = g[0]; m.z = g[2]; m.hidden = false; updatePlacement(); }
         return;
       }
       if (m.kind === 'ability') { updateAbilityTarget(x, y); return; }
@@ -659,6 +735,7 @@ export function createInputController(canvas, game) {
     startGather() { setMode({ kind: 'gather' }); },
     startArea,
     cancelMode() { setMode(null); },
+    cancelSpot, startReorient,
     gestures,
   };
 }
