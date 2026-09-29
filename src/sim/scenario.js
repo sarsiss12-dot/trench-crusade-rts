@@ -101,7 +101,7 @@ function addStructure(sim, owner, sd, extra) {
     if (sd.variant === 'old') s.hp = Math.round(s.maxHp * 0.6);
   } else {
     s = createStructure(state, sd.type, owner, {
-      x: sd.x, z: sd.z, rot: sd.rot || 0, built: true, objective: !!extra.objective, quickSlot: extra.quickSlot,
+      x: sd.x, z: sd.z, rot: sd.rot || 0, built: true, objective: !!extra.objective,
     });
   }
   state.structures.push(s);
@@ -119,7 +119,7 @@ export function setupScenario(sim, scenario) {
     packages[sd.id] = pkg;
     for (const item of pkg.structures) {
       const p = placeInRegion(world, item, pkg.authored, sd.region);
-      addStructure(sim, sd.id, p, { objective: !!item.primary && !!objRoles[sd.role], quickSlot: item.quickSlot });
+      addStructure(sim, sd.id, p, { objective: !!item.primary && !!objRoles[sd.role] });
     }
   }
   for (const sd of world.map.structures) addStructure(sim, sd.faction, sd, {});
