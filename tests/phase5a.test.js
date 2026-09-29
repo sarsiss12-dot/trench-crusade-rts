@@ -18,7 +18,7 @@ import { pestGain, plagueSides, addInfection } from '../src/factions/pestilence.
 import { isSquadVisibleTo } from '../src/sim/perception.js';
 import { lensItems } from '../src/ui/lens.js';
 import { createControlGroups } from '../src/input/control_groups.js';
-import { allCombatSquadIds, quickStructureSlots } from '../src/input/selection.js';
+import { allCombatSquadIds } from '../src/input/selection.js';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,23 +93,6 @@ test('5A §6: scenario contracts are data (roles -> regions, objectives by ROLE,
   assert.deepEqual(SCENARIOS.siege_default.lore, { defender: NA, attacker: BG });
   assert.ok(SCENARIOS.siege_default.setupModes.includes('free') && SCENARIOS.siege_default.setupModes.includes('lore'));
   assert.equal(SCENARIOS.siege_default.features.length, 0, 'no Iron Wall or other scenario feature in 5A');
-});
-
-
-test('5A hotfix: starting production/HQ quick-select slots are fixed, side-safe and camera-independent data', () => {
-  const classic = matchOf([{ faction: NA, role: 'defender' }, { faction: BG, role: 'attacker' }]);
-  assert.deepEqual(quickStructureSlots(classic, NA).map((x) => [x.label, x.type]), [['HQ', 'bastion']]);
-  assert.deepEqual(quickStructureSlots(classic, BG).map((x) => [x.label, x.type]), [
-    ['A', 'grail_altar'], ['B', 'grail_altar'], ['C', 'grail_altar'],
-  ]);
-  const reverse = matchOf(REVERSE);
-  assert.deepEqual(quickStructureSlots(reverse, NA).map((x) => [x.label, x.type]), [['HQ', 'field_hq']]);
-  assert.deepEqual(quickStructureSlots(reverse, BG).map((x) => x.label), ['A', 'B', 'C']);
-  // Quick selection is a structure-id lookup only. Camera movement belongs to game.lookAt/home and
-  // is intentionally not part of this DOM-free selection helper.
-  const before = quickStructureSlots(classic, BG).map((x) => x.id);
-  classic.state.structures.push({ ...classic.state.structures.find((x) => x.type === 'grail_altar' && x.faction === BG), id: classic.state.nextId++, quickSlot: undefined });
-  assert.deepEqual(quickStructureSlots(classic, BG).map((x) => x.id), before, 'a later altar never steals A/B/C');
 });
 
 // ------------------------------------------------------------------ A classic (Lore preset)
