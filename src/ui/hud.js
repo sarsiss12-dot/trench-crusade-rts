@@ -18,7 +18,7 @@ import { isSquadAlive } from '../sim/state.js';
 import { isCorpseKnownTo, isStructureVisibleTo, isSoldierVisibleTo } from '../sim/perception.js';
 import { canAfford } from '../economy/economy.js';
 import { trenchSlotCount, trenchCoverStrength, trenchNetwork, networkCapacity } from '../construction/trench.js';
-import { allCombatSquadIds, squadIdsWithRole, multiSelectView, quickStructureSlots } from '../input/selection.js';
+import { allCombatSquadIds, squadIdsWithRole, multiSelectView } from '../input/selection.js';
 import { unitCost, unlockedBySpec } from '../sim/specialities.js';
 import { structureCost } from '../construction/construction.js';
 import { createP3Hud } from './hud_p3.js';
@@ -98,23 +98,6 @@ export function createHud(game) {
   const qHome = button('q', icon('home'), () => game.home(), t('hud.home'));
   quick.append(qAll);
   if (qEng) quick.append(qEng);
-  // Phase 5A hotfix: fixed starting-structure shortcuts. Black Grail gets A/B/C for its three
-  // starting production altars; New Antioch gets HQ for the church-bastion (or field HQ when the
-  // faction is the attacker). Selecting one changes selection only: the camera deliberately stays.
-  const qStructButtons = [];
-  for (const slot of quickStructureSlots(sim, viewer)) {
-    const title = t('struct.' + slot.type) + ' · ' + slot.label;
-    const b = button('q structq', icon(iconForStructure(slot.type)) + `<i>${slot.label}</i>`, () => {
-      const st = sim.rt.structById.get(slot.id);
-      if (!st || st.faction !== viewer) return;
-      game.selection.setStruct(st.id);
-      if (game.audio) game.audio.ui('select');
-      dirty = true;
-    }, title);
-    b.dataset.structId = String(slot.id);
-    qStructButtons.push(b);
-    quick.append(b);
-  }
   quick.append(qBox, qMulti, qHome);
   root.appendChild(quick);
 
@@ -803,7 +786,6 @@ export function createHud(game) {
       acc = 0;
       updateTop();
       updateInfo();
-      for (const b of qStructButtons) b.disabled = !sim.rt.structById.has(Number(b.dataset.structId));
       if (game.mode.kind === 'place') renderModebarLive();
     }
     if (p3) p3.update(dt);
