@@ -19,7 +19,7 @@ export const PACKAGES = {
       resources: { material: 280, supply: 320, manpower: 24, food: 100 },
       population: 40,
       structures: [
-        { type: 'bastion', x: 160, z: 524, rot: PI, primary: true, quickSlot: 'HQ' },
+        { type: 'bastion', x: 160, z: 524, rot: PI, primary: true },
         { type: 'supply_depot', x: 100, z: 550, rot: PI },
         { type: 'field', x: 50, z: 534, rot: 0 },
         { type: 'field', x: 268, z: 536, rot: 0 },
@@ -41,7 +41,7 @@ export const PACKAGES = {
       resources: { material: 260, supply: 360, manpower: 24, food: 90 },
       population: 26,
       structures: [
-        { type: 'field_hq', x: 160, z: 514, rot: PI, primary: true, quickSlot: 'HQ' },
+        { type: 'field_hq', x: 160, z: 514, rot: PI, primary: true },
         { type: 'supply_depot', x: 100, z: 550, rot: PI },
         { type: 'field', x: 50, z: 534, rot: 0 },
         { type: 'trench', x1: 146, z1: 490, x2: 160, z2: 489 },
@@ -60,9 +60,9 @@ export const PACKAGES = {
       authored: 'north',
       resources: { biomass: 110 },
       structures: [
-        { type: 'grail_altar', x: 95, z: 58, rot: 0.3, quickSlot: 'A' },
-        { type: 'grail_altar', x: 162, z: 40, rot: 0.0, primary: true, quickSlot: 'B' },
-        { type: 'grail_altar', x: 232, z: 62, rot: -0.4, quickSlot: 'C' },
+        { type: 'grail_altar', x: 95, z: 58, rot: 0.3 },
+        { type: 'grail_altar', x: 162, z: 40, rot: 0.0, primary: true },
+        { type: 'grail_altar', x: 232, z: 62, rot: -0.4 },
         { type: 'corpse_mound', x: 160, z: 176, rot: 0 },
       ],
       forces: [
@@ -77,9 +77,9 @@ export const PACKAGES = {
       authored: 'south',
       resources: { biomass: 140 },
       structures: [
-        { type: 'grail_altar', x: 88, z: 528, rot: 0, quickSlot: 'A' },
-        { type: 'grail_altar', x: 160, z: 530, rot: PI, primary: true, quickSlot: 'B' },
-        { type: 'grail_altar', x: 262, z: 502, rot: 0.2, quickSlot: 'C' },
+        { type: 'grail_altar', x: 88, z: 528, rot: 0 },
+        { type: 'grail_altar', x: 160, z: 530, rot: PI, primary: true },
+        { type: 'grail_altar', x: 262, z: 502, rot: 0.2 },
         { type: 'corpse_mound', x: 160, z: 462, rot: 0 },
         { type: 'viscera_nest', x: 140, z: 470, rot: PI },
       ],
