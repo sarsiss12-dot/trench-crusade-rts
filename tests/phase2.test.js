@@ -14,7 +14,7 @@ import { validatePlacement } from '../src/construction/construction.js';
 import { coverAt, protectionAgainst } from '../src/combat/cover.js';
 import { COVER_INDEX } from '../src/data/cover.js';
 import { STRUCTURES, WALL_TYPES } from '../src/data/structures.js';
-import { FACTIONS } from '../src/data/factions.js';
+import { FACTIONS, sideIndex } from '../src/data/factions.js';
 import { UNITS } from '../src/data/units.js';
 import { addCrater, abilityCooldown } from '../src/sim/abilities.js';
 import { requestReinforcement } from '../src/factions/reinforcement.js';
@@ -348,7 +348,9 @@ test('Black Grail construction: organic structures on own ground or infected gro
   assert.equal(validatePlacement(sim, 'black_grail', 'plague_pit', { x: 160, z: 300, rot: 0 }).reason, 'build.out_of_zone');
   const inf = sim.state.infection;
   for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
-    inf.v[(Math.floor(300 / inf.cs) + dz) * inf.cols + Math.floor(160 / inf.cs) + dx] = 160;
+    const i = (Math.floor(300 / inf.cs) + dz) * inf.cols + Math.floor(160 / inf.cs) + dx;
+    inf.v[i] = 160;
+    inf.o[i] = sideIndex('black_grail') + 1; // Phase 5A: the ground is the Grail's own plague
   }
   assert.ok(validatePlacement(sim, 'black_grail', 'plague_pit', { x: 160, z: 300, rot: 0 }).ok);
   // a thrall work gang raises it with the normal BUILD pipeline

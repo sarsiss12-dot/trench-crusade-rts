@@ -30,7 +30,12 @@ export function generateWorld(map, seed) {
     width: map.width, height: map.height,
     props: [], ruins: [], houses: [], craters: [], bridges: [], riverSamples: [],
     graveyards: map.graveyards || [],
-    anchors: map.anchors, zones: map.zones, lanes: map.lanes, defensePlan: map.defensePlan || [], grailPlan: map.grailPlan || [],
+    // Phase 5A: faction-neutral start regions + doctrine plans authored for one region each
+    anchors: map.anchors, regions: map.regions || {}, lanes: map.lanes,
+    plans: {
+      fortify: { region: 'south', items: map.fortifyPlan || [] },
+      organic: { region: 'north', items: map.organicPlan || [] },
+    },
     // Phase 3 (static map data; per-match richness / animals live in GameState)
     sectors: map.sectors || [], habitats: map.habitats || [], oldDead: [],
   };
@@ -230,6 +235,9 @@ function nearStructurePad(world, x, z, margin) {
     const r = Math.max(def.footprint.w, def.footprint.d) * 0.5 + margin;
     if (dist(x, z, sd.x, sd.z) < r) return true;
   }
+  // Phase 5A: start-region pads / clearings (packages build there) stay free of props
+  for (const p of world.map.pads || []) if (dist(x, z, p[0], p[1]) < p[2] * 0.81 + margin) return true;
+  for (const p of world.map.clearings || []) if (dist(x, z, p[0], p[1]) < p[2] + margin) return true;
   for (const r of world.map.ruins) if (dist(x, z, r.x, r.z) < Math.max(r.w, r.d) * 0.6 + margin) return true;
   for (const h of world.map.houses) if (dist(x, z, h.x, h.z) < Math.max(h.w, h.d) * 0.6 + margin) return true;
   return false;
@@ -306,6 +314,8 @@ function flattenPads(world) {
     const r = Math.max(def.footprint.w, def.footprint.d) * 0.62;
     flattenArea(t, sd.x, sd.z, r, 8);
   }
+  // Phase 5A: building pads of the start regions (whoever's package stands on them)
+  for (const p of world.map.pads || []) flattenArea(t, p[0], p[1], p[2], 8);
   for (const h of world.map.houses) flattenArea(t, h.x, h.z, Math.max(h.w, h.d) * 0.62, 5);
   for (const r of world.map.ruins) flattenArea(t, r.x, r.z, Math.max(r.w, r.d) * 0.55, 4);
 }

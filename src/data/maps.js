@@ -75,21 +75,10 @@ export const MAPS = {
       { x: 128, z: 534, w: 7, d: 6, rot: 0.0 },
     ],
     graveyards: [{ x: 238, z: 516, w: 18, d: 12 }, { x: 60, z: 486, w: 12, d: 9 }],
+    // Phase 5A: only NEUTRAL map structures live here. Faction structures (bastion, depots, altars,
+    // corpse mound, pre-dug trenches...) come from STARTING PACKAGES (data/packages.js) placed in
+    // the region of the side that owns them — the map no longer knows who holds which half.
     structures: [
-      { type: 'bastion', faction: 'new_antioch', x: 160, z: 524, rot: 3.141592653589793, objective: true },
-      { type: 'supply_depot', faction: 'new_antioch', x: 100, z: 550, rot: 3.141592653589793 },
-      { type: 'field', faction: 'new_antioch', x: 50, z: 534, rot: 0 },
-      { type: 'field', faction: 'new_antioch', x: 268, z: 536, rot: 0 },
-      { type: 'grail_altar', faction: 'black_grail', x: 95, z: 58, rot: 0.3 },
-      { type: 'grail_altar', faction: 'black_grail', x: 162, z: 40, rot: 0.0 },
-      { type: 'grail_altar', faction: 'black_grail', x: 232, z: 62, rot: -0.4 },
-      // Phase 4.1: a pre-built corpse mound — a forward drop-off / processing node (not required:
-      // the three altars are drop-offs too), shortens early hauling from the forests / old dead
-      { type: 'corpse_mound', faction: 'black_grail', x: 160, z: 176, rot: 0 },
-      // pre-dug New Antioch line
-      { type: 'trench', faction: 'new_antioch', x1: 136, z1: 477, x2: 150, z2: 475 },
-      { type: 'trench', faction: 'new_antioch', x1: 150, z1: 475, x2: 164, z2: 475 },
-      { type: 'trench', faction: 'new_antioch', x1: 164, z1: 475, x2: 178, z2: 477 },
       // old remnants in no man's land (neutral, collapsed)
       { type: 'trench', faction: 'neutral', x1: 54, z1: 352, x2: 68, z2: 348, variant: 'old', progress: 0.7 },
       { type: 'trench', faction: 'neutral', x1: 100, z1: 358, x2: 114, z2: 355, variant: 'old', progress: 0.65 },
@@ -109,16 +98,46 @@ export const MAPS = {
       { type: 'salvage_wreck', x: 122, z: 342, amount: 180 },
       { type: 'salvage_gun', x: 232, z: 368, amount: 240 },
     ],
+    // Phase 5A: START REGIONS — faction-neutral. A scenario maps battle roles onto regions
+    // (siege: defender = south, attacker = north); a side's starting package, anchors, build zone
+    // and doctrine plans are taken from ITS region. 'facing' is the heading toward the enemy;
+    // package coordinates are authored for the south region and point-reflected for the north.
+    regions: {
+      south: {
+        facing: 3.141592653589793,
+        zone: { x0: 0, z0: 330, x1: 320, z1: 576 },
+        anchors: {
+          line: [[112, 486], [132, 484], [152, 483], [172, 484], [192, 486], [208, 488]],
+          base: [[140, 500], [180, 500]],
+          reserve: [[160, 498]],
+          mass: [[236, 390], [208, 384], [180, 380], [138, 380], [110, 386], [82, 392], [222, 410], [160, 404], [94, 410], [192, 400]],
+          support: [[188, 418], [128, 418]],
+          elite: [[170, 430], [146, 430]],
+          home: [[160, 486]],
+        },
+      },
+      north: {
+        facing: 0,
+        zone: { x0: 0, z0: 0, x1: 320, z1: 228 },
+        anchors: {
+          line: [[208, 90], [188, 92], [168, 93], [148, 92], [128, 90], [112, 88]],
+          base: [[180, 76], [140, 76]],
+          reserve: [[160, 78]],
+          mass: [[84, 186], [112, 192], [140, 196], [182, 196], [210, 190], [238, 184], [98, 166], [160, 172], [226, 166], [128, 176]],
+          support: [[132, 158], [192, 158]],
+          elite: [[150, 146], [174, 146]],
+          home: [[162, 72]],
+        },
+      },
+    },
+    // levelled building pads (terrain only; the structures on them come from packages)
+    pads: [
+      [160, 524, 16], [100, 550, 8.7], [95, 58, 6.2], [162, 40, 6.2], [232, 62, 6.2], [160, 176, 4.4],
+      [160, 62, 9], [88, 528, 6.2], [262, 502, 6.2], [160, 462, 4.4],
+    ],
+    // open ground kept free of props (the classic fortress fields)
+    clearings: [[50, 534, 20], [268, 536, 20]],
     anchors: {
-      na_line: [[112, 486], [132, 484], [152, 483], [172, 484], [192, 486], [208, 488]],
-      na_base: [[140, 500], [180, 500]],
-      na_reserve: [[160, 498]],
-      bg_mass: [[84, 186], [112, 192], [140, 196], [182, 196], [210, 190], [238, 184], [98, 166], [160, 172], [226, 166], [128, 176]],
-      bg_support: [[132, 158], [192, 158]],
-      bg_elite: [[150, 146], [174, 146]],
-      // faction home / base focus (fallbacks when the faction's HQ structure is gone)
-      home: [[160, 486]],
-      home_bg: [[162, 72]],
       // model gallery lineup (presentation sandbox)
       gallery_na_a: [[146, 394]], gallery_na_b: [[160, 394]], gallery_na_c: [[174, 394]],
       gallery_bg_a: [[146, 381]], gallery_bg_b: [[160, 381]], gallery_bg_c: [[174, 381]],
@@ -128,17 +147,17 @@ export const MAPS = {
       gallery_bg_d: [[132, 381]], gallery_bg_e: [[188, 381]], gallery_bg_f: [[160, 368]],
       gallery_animals: [[139, 358], [146, 358], [153, 358], [160, 358], [167, 358], [174, 358]],
     },
-    zones: {
-      new_antioch: { x0: 0, z0: 330, x1: 320, z1: 576 },
-      black_grail: { x0: 0, z0: 0, x1: 320, z1: 228 },
-    },
+    // attack lanes, listed from the NORTH region toward the SOUTH (point-reflected for a southern
+    // side: sim/sides.js lanesFor)
     lanes: {
       west: [[82, 214], [72, 262], [80, 330], [100, 410], [128, 472], [150, 508]],
       center: [[160, 218], [162, 262], [160, 330], [160, 410], [160, 470], [160, 508]],
       east: [[240, 212], [248, 262], [238, 330], [218, 410], [192, 472], [170, 508]],
     },
-    // Defender AI build plan (priority order). Engineers use the normal BUILD pipeline.
-    defensePlan: [
+    // DOCTRINE PLANS (priority order, normal BUILD pipeline), authored for one region and
+    // point-reflected when the side holds the other one (sim/sides.js planFor).
+    // New Antioch fortification doctrine — authored for the SOUTH region.
+    fortifyPlan: [
       { type: 'trench', x1: 122, z1: 479, x2: 136, z2: 477 },
       { type: 'trench', x1: 178, z1: 477, x2: 192, z2: 479 },
       { type: 'fire_post', x: 160, z: 466, rot: 3.141592653589793 },
@@ -180,6 +199,14 @@ export const MAPS = {
       { id: 'depot_w', kind: 'depot', x: 116, z: 350, r: 22 },
       { id: 'pasture_w', kind: 'pasture', x: 58, z: 352, r: 22 },
       { id: 'fertile_e', kind: 'fertile', x: 280, z: 400, r: 22 },
+      // Phase 5A: the northern half has economic ground too (a New Antioch side starting in the
+      // north can expand as it advances); appended so the southern sectors roll exactly as before
+      { id: 'n_fertile_w', kind: 'fertile', x: 40, z: 112, r: 20 },
+      { id: 'n_pasture_e', kind: 'pasture', x: 282, z: 106, r: 20 },
+      { id: 'n_hamlet_c', kind: 'hamlet', x: 124, z: 108, r: 22 },
+      { id: 'n_scrap_e', kind: 'scrap', x: 276, z: 206, r: 20 },
+      { id: 'n_quarry_w', kind: 'quarry', x: 40, z: 210, r: 18 },
+      { id: 'n_depot_c', kind: 'depot', x: 206, z: 200, r: 20 },
     ],
     // wildlife habitats (population cap per habitat, slow respawn) — both halves of the map
     habitats: [
@@ -199,8 +226,8 @@ export const MAPS = {
       { x0: 40, z0: 296, x1: 280, z1: 396, count: 16 },
       { x0: 40, z0: 150, x1: 280, z1: 238, count: 10 },
     ],
-    // Black Grail AI organic build plan (work gangs; BUILD pipeline, same rules as the player)
-    grailPlan: [
+    // Black Grail organic doctrine (work gangs; BUILD pipeline) — authored for the NORTH region.
+    organicPlan: [
       { type: 'corpse_mound', x: 160, z: 200, rot: 0 },
       { type: 'fly_nest', x: 150, z: 212, rot: 0 },
       // Phase 4 organic defences covering the altar approaches

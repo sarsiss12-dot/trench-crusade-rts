@@ -49,20 +49,28 @@ korunur, kayıt sürümü gerekiyorsa artırılır ve göç yazılır.
   yapamıyorum?"; 30 / 60 / 120 / 180 / SÜRESİZ; savunmanın sınırlı karşı taarruzu; yağmur + trafik çamuru; çöküşten
   kurtulan siviller; istihkâmcı kendini koruma; kayıt sürümü 5 + v4 göçü; 256 Node testi.
 
-## Faz 05A — Iron Sultanate (yalnızca kaynakla doğrulanmış içerik)
-- Taraf verisi, 3–4 çekirdek birim (resmî listeden), ekonomi farkı, AI; Iron Wall / Grand Cannon gibi yapılar
-  yalnızca resmî kaynak doğrulamasından sonra. Kanon olmayan hiçbir şey kanon diye sunulmaz.
+## Faz 05A — Genel maç kurulumu + fraksiyon / rol / senaryo ayrımı (tamamlandı)
+- FACTION ≠ ATTACKER / DEFENDER: taraf (SIDE) modeli, rol (ROLE) yalnızca başlangıç konumu; veri tabanlı senaryo
+  sözleşmesi (rol → bölge, hedef rol ile, zafer kuralı); fraksiyon + rol başlangıç paketleri (Yeni Antakya
+  saldıran için Sahra Karargâhı); taraf başına sis, kaynak, Salgın, ceset / zemin sahipliği; genel zafer (kuşatma /
+  imha); AI = fraksiyon doktrini + stratejik rol katmanı + zorluk; mobil Maç Kurulumu (Lore / Serbest, ayna maç,
+  kilitli "Yakında" kartları); Açık Muharebe senaryosu; kayıt sürümü 6 + v5 göçü. Ayrıntı: `docs/ARCHITECTURE.md`.
 
-## Faz 05B — Heretic Legion
-- Taraf verisi ve çekirdek birimler (resmî liste), Heretic tankı ancak doğrulanırsa; mevcut seçkin / aura / takviye
-  sistemleriyle uyum; üç taraflı eşleşmelerde AI rol ataması.
+## Faz 05B — Iron Sultanate (yalnızca kaynakla doğrulanmış içerik)
+- Taraf verisi, çekirdek birimler (resmî listeden), ekonomi farkı, fraksiyon doktrini + `STRATEGY` rol katmanı,
+  iki rol için başlangıç paketi. Iron Wall bir SENARYO özelliği olarak (`scenario.features`), Grand Cannon / ileri
+  karakol / istihkâmcı / sur katmanları ancak resmî kaynak doğrulamasından sonra. Kanon olmayan hiçbir şey kanon diye
+  sunulmaz.
 
-## Faz 05C — Yeraltı ve çok oyunculu
-- Yeraltı katmanı (tüneller: çamurdan etkilenmez), Burrower / Countermine; lockstep çok oyunculu (komutlar zaten
-  tick + seq taşıyor, stateHash ile desenkron tespiti).
-- Faz 4.1'den kalanlar: gerçek Android ölçümü (yağmur çizgileri, çamur dokusu, ceset rozetleri dahil), insanla denge
-  testi (AI'ya karşı AI 30 dk'da Kara Kâse ağır basıyor), organik yuvaların AI'da neredeyse hiç ateş etmemesi,
-  otomatik takviyenin ikmal baskısı (%42–85 bekleme), Yeni Antakya AI'sının keşif / karşı taarruz sıklığı.
+## Faz 05C — Heretic Legion
+- Taraf verisi ve çekirdek birimler (resmî liste), savaş kampları (HQ etiketi), Heretic tankı ancak doğrulanırsa;
+  mevcut seçkin / aura / takviye sistemleriyle uyum; üç taraflı eşleşmelerde sis katmanı ve AI rol ataması.
+
+## Faz 05D — Yeraltı
+- Yeraltı katmanı (tüneller: çamurdan etkilenmez), Burrower / Countermine. Çok oyunculu (lockstep: komutlar zaten
+  tick + seq taşıyor, stateHash ile desenkron tespiti) ayrı bir faz.
+- Önceki fazlardan kalanlar: gerçek Android ölçümü, insanla denge testi (AI'ya karşı AI'da 30 dk'da Kara Kâse ağır
+  basıyor; ters rol / ayna eşleşmeleri Faz 05A raporunda), Yeni Antakya saldıran AI'sının kuşatma ritmi.
 
 ## Faz 4b — Gerçek cihaz ve his
 - Gerçek Android cihazlarda (Adreno / Mali / PowerVR) profil: GPU zamanlayıcı sorguları, kalite ön ayarı kalibrasyonu.

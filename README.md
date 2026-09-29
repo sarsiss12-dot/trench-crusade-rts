@@ -7,14 +7,19 @@
 HTML5 + JavaScript (native ES modules) + WebGL2 + Web Audio ile yazılmış, **harici model / doku / ses dosyası
 kullanmayan** (her şey prosedürel), Android öncelikli, masaüstünde de oynanan bir kuşatma RTS'i.
 
-- **Yeni Antakya (savunan):** siper kazar, kum torbası ve dikenli tel çeker, makineli mevzi kurar; haritadaki kaynak
+> **Faz 05A:** fraksiyon ≠ saldıran / savunan. Aşağıdaki "savunan / saldıran" etiketleri **Yeni Antakya Kuşatması**
+> lore ön ayarıdır; Maç Kurulumu'nda (Serbest Kurulum) her fraksiyon her iki rolü oynar, ayna maçlar da mümkündür.
+> Kavramlar: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+- **Yeni Antakya (klasik ön ayarda savunan):** siper kazar, kum torbası ve dikenli tel çeker, makineli mevzi kurar; haritadaki kaynak
   bölgelerine sivil yerleşimler kurarak yayılır (nüfus → insan gücü, tarla, ağıl, taş ocağı, konvoy); malzeme, ikmal,
   insan gücü ve erzak ile yaşar; cephane ikmal yarıçapı ve arkadan yürüyerek gelen takviye ile savaşır.
-- **Kara Kâse (saldıran):** işçi → maden → kışla yoktur; hayvanları avlar, cesetleri biyokütleye çevirir, enfekte
+- **Kara Kâse (klasik ön ayarda saldıran):** işçi → maden → kışla yoktur; hayvanları avlar, cesetleri biyokütleye çevirir, enfekte
   ölüleri düştükleri yerde yeniden kaldırır, Beelzebub sunaklarından ucuz Köle sürüleri yetiştirir, vebayı toprağa
   yayar, veba ölçeğini doldurup Büyük Veba'yı salar, sinek sürüsü salar.
 - Akış: **HAZIRLIK** (hasar yok, konuşlanma bölgeleri, tahkimat) → **SAVAŞ** (süre veri ile ayarlı: 5–180 dk)
-  → zafer / yenilgi (Kilise Burcu düşerse saldıran, süre dolarsa ya da saldıran tükenirse savunan kazanır).
+  → zafer / yenilgi (kuşatma: savunanın birincil karargâhı düşerse saldıran; süre dolarsa, saldıran tükenirse ya da
+  savunan saldıranın üssünü yakıp ordusunu dağıtırsa savunan kazanır; Açık Muharebe: imha).
 
 ---
 
@@ -24,10 +29,11 @@ Gereksinim yok (sıfır bağımlılık). Node.js ≥ 18 yalnızca geliştirme su
 
 ```bash
 node tools/serve.js            # http://localhost:8080  (aynı ağdaki telefon için LAN adresi de yazdırılır)
-npm test                       # = node tests/run.js      — 256 Node testi
+npm test                       # = node tests/run.js      — 279 Node testi
 npm run build                  # = node tools/build.js    — dist/index.html (tek dosya, çevrimdışı çalışır)
 npm run balance                # = node tools/balance.js  — AI'ya karşı AI deterministik maçlar + Faz 3 denge ölçümleri
                                #   (--seeds 1,2,…  --minutes 15  --verbose  --json çıktı.json)
+npm run matchups               # = node tools/matchups.js — Faz 05A: klasik / ters rol / ayna eşleşmeleri, AI'ya karşı AI (--setups --seeds --minutes)
 npm run test:browser           # = node tools/browser_smoke.js — (Playwright varsa) 9 gerçek tarayıcı kontrolü
 node tools/showcase.js [ad]    # (Playwright varsa) Faz 2 + Faz 3 görsel sahneleri → test-output/showcase-*.png
                                #   Faz 3: p3_settlement, p3_units, p3_flame, p3_plague, p3_hud, p3_convoy
@@ -36,7 +42,9 @@ node tools/showcase.js [ad]    # (Playwright varsa) Faz 2 + Faz 3 görsel sahnel
 Build çıktısı `dist/index.html` tek başına çift tıklanarak (`file://`) veya herhangi bir statik sunucudan açılır.
 
 **Doğrudan başlatma (URL parametreleri):**
-`?autostart=1&faction=black_grail&minutes=30&seed=7&quality=high&prep=60` · `?stress=160|320|480` ·
+`?autostart=1&faction=black_grail&minutes=30&seed=7&quality=high&prep=60` (lore ön ayarı) ·
+`?autostart=1&setup=free&pf=new_antioch&ef=black_grail&role=attacker&scenario=open_battle&ai=hard` (Serbest Kurulum;
+`pf=ef` ayna maç) · `&aiai=1` (her taraf AI) · `?stress=160|320|480` ·
 `?view=gallery` (model galerisi) · `&ff=120` (120 sn ileri sar) · `&cam=x,z,mesafe` · `&debug=1` · `&lang=en` ·
 `&fog=0` (sisi kapatır — yalnızca `debug=1` veya stres/sandbox modunda; normal maçta sis kapatılamaz)
 
@@ -258,6 +266,28 @@ Faz 04'teki bazı kararlar bu fazda düzeltildi (Faz 04 bölümündeki "saldır�
   açık arazi otomatik istekleri düşer, eski ateşkes penceresi kapanır ve savaş saatinin uzatması geri verilir,
   yağmur / çamur durumu, süresiz bayrağı).
 
+## 2f. Faz 05A — Genel maç kurulumu, fraksiyon / taraf / rol / senaryo ayrımı
+
+Yeni fraksiyon **eklenmedi**; "Yeni Antakya = savunan, Kara Kâse = saldıran" varsayımı çekirdekten söküldü.
+
+- **Taraf (SIDE) modeli:** sahip olunan her şey taraf kimliğiyle; ayna maçta ikinci taraf `new_antioch~2` /
+  `black_grail~2`. Düşmanlık, sis, kaynak, Salgın ölçeği, ceset / zemin sahipliği, AI hafızası taraf başına.
+- **Rol yalnızca başlangıç konumu:** bölge (güney / kuzey), başlangıç paketi, hedef ilişkisi, AI başlangıç eğilimi.
+  Birim, ekonomi, uzmanlık, kaynak değişmez. Savunan karşı saldırabilir, saldıranın üssünü yakıp kazanabilir.
+- **Senaryo sözleşmesi** (`data/scenarios.js`): rol → bölge, hedefler rol ile (`defenderPrimaryObjective`), zafer
+  kuralı (kuşatma / imha), kurulum modları, lore ön ayarı, senaryo özellikleri (boş; Iron Wall burada olacak).
+- **Başlangıç paketleri** (`data/packages.js`, fraksiyon + rol): Yeni Antakya saldıran = **Sahra Karargâhı** (oyun
+  soyutlaması) + ikmal deposu + tarla + kısa siper; Kara Kâse savunan = sunaklar + höyük + iç organ yuvası.
+- **Maç Kurulumu (mobil):** KURULUM (Lore / Serbest) → SENARYO → FRAKSİYONUN → DÜŞMAN → ROLÜN (iki büyük düğme) →
+  YAPAY ZEKÂ (kolay / normal / zor = yalnız düşünme hızı) → SÜRE → KURALLAR + ÖZET ("YENİ ANTAKYA SALDIRAN — KARA
+  KÂSE SAVUNAN · 30 DK") → BAŞLAT. Iron Sultanate / Heretic Legion kilitli "Yakında / uygulanmadı" kartları.
+- **AI = fraksiyon doktrini + stratejik rol katmanı** (`data/ai.js STRATEGY`): Yeni Antakya saldıran erken, büyük
+  vurucu gruplarla hedefe yürür ve bulduğunu vurur; Kara Kâse savunan evin önünde toplanır, kapıdaki düşmanı karşılar,
+  ölçtüğü düşmanı açıkça aşınca ya da savaşın geç evresinde taşar.
+- **Açık Muharebe** (ikincil senaryo): kale yok, imha ile biter.
+- **Kayıt sürümü 6** + v5→v6 göçü (eski kayıtlar = Yeni Antakya savunan / Kara Kâse saldıran; hiçbir şey kaybolmaz).
+- Ayrıntı: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Denge: AI'ya karşı AI ölçümü; **insan testi yapılmadı**.
+
 ## 3. Mimari
 
 Tek kaynak ağacı, alan (domain) bazlı modüller, **döngüsel bağımlılık yok** (test ile zorunlu), dev `game.js` yok.
@@ -265,10 +295,12 @@ Tek kaynak ağacı, alan (domain) bazlı modüller, **döngüsel bağımlılık 
 ```
 src/
   core/         rng (sfc32, durum GameState içinde), dmath (deterministik sin/cos/atan2), events, noise
-  data/         units, weapons, structures, factions, abilities, cover, terrain_types, maps, scenarios  (veri odaklı)
+  data/         units, weapons, structures, factions, abilities, cover, terrain_types, maps, scenarios, packages
+                (fraksiyon + rol başlangıç paketleri), ai (zorluk + stratejik rol katmanı)  (veri odaklı)
   world/        mapgen (katmanlı harita), terrain, nav (A* + yumuşatma + önbellek), fog, ground, structgrid
   sim/          state (JSON GameState), commands, simulation (sabit 20 Hz tick), match, perception (sis + görünürlük
-                bitmaskeleri + olay filtreleme), production, abilities (+ kraterler, patlamalar), scenario, home (taraf
+                bitmaskeleri + olay filtreleme), production, abilities (+ kraterler, patlamalar), scenario, sides (Faz 05A:
+                taraf / rol / bölge yardımcıları, paket yansıtma), home (taraf
                 farkında HOME), corpses, runtime (yeniden kurulabilir önbellekler); Faz 3: wildlife (hayvanlar,
                 ağıllar), specialities (uzmanlık kuralları), auras (rahip / lider auraları)
   units/        orders (manga emir makinesi, yol istek kısıtlama), movement (manga + asker yönlendirme), formation,
@@ -352,7 +384,10 @@ src/
 
 ## 5. Testler
 
-`npm test` — 256 test (Node, sıfır bağımlılık; Faz 4.1: `tests/phase41.test.js` 24 — tüm kaynak modüllerinin
+`npm test` — 279 test (Node, sıfır bağımlılık; Faz 05A: `tests/phase5a.test.js` 23 — test matrisi A–O: klasik,
+ters rol, NA / BG ayna, savunanın karşı saldırısı, süresiz, Lore / Serbest kurulum, v5→v6 göçü = canlı durum,
+kayıt/yükleme determinizmi, 480 ayna stres, AI yalnız komutla, ayna maçta sis / mercek / kontrol grubu güvenliği,
+çekirdekte fraksiyon adı karşılaştırması yasağı; Faz 4.1: `tests/phase41.test.js` 24 — tüm kaynak modüllerinin
 yüklenmesi dahil; Faz 4 testleri yeni tasarıma uyarlandı: `tests/phase4.test.js` 28 + `tests/audio.test.js` 9): mimari (döngü yok, katman kuralları, yasak API'ler, import konumu,
 DOM'suz modüller), simülasyon, savaş, hareket (sıkışma kurtarma, cepler, katılma), inşa/siper, ekonomi, AI,
 kayıt/yükleme + göç, determinizm (kayıt → yükle → devam = kesintisiz), sis (asker bazlı görünürlük, kör atış yok,
@@ -416,6 +451,16 @@ saf 480 asker savaşı ≈ 0.57 ms/tick; sunum CPU: 64 dört ayaklı + 40 sivil 
 katmanının yeniden kurulması — Faz 1'den bilinen). Faz 3 için de gerçek cihaz FPS'i ölçülmedi.
 
 ## 7. Bilinen sınırlamalar
+
+- **Faz 05A eşleşmeleri yalnızca AI'ya karşı AI ile ölçüldü, insan testi yok.** Klasik (16 tohum, aynı makinede
+  Faz 04.1 kodu ile yan yana): 15 dk Yeni Antakya 8 / Kara Kâse 8 (04.1: 9 / 7); 30 dk 2 / 14 (04.1: 4 / 12) — yeni
+  sektörlerin RNG tüketimi tüm maçları kaydırdığı için tohum bazında karşılaştırma yok. Ters rol (8 tohum): 15 ve 30
+  dk'da Kara Kâse savunan 8 / 8 kazandı; Yeni Antakya saldıran AI hedef sunağa hiç ulaşamadı (savunan sürü 30 dk'da
+  5 / 8 maçta Sahra Karargâhı'nı yaktı). NA ayna: savunan 8 / 8 (15 ve 30 dk). BG ayna: savunan 6 / 8. Saldıran AI'nın
+  kuşatma ritmi (özellikle Yeni Antakya saldıran) zayıf — bilinen risk.
+- Ayna maçta iki ordunun modelleri aynıdır; yalnızca birim kumaş vurgusu farklıdır (ikiz taraf mavi-gri / mor), yapı
+  modelleri ayrışmaz; HUD adların önüne "Düşman ·" yazar.
+- Sahra Karargâhı ayrı bir model değil (ikmal deposu modeli); oyun soyutlaması.
 
 - Faz 4.1 dengesi yalnızca AI'ya karşı AI ile ölçüldü (16 tohum): 15 dk Yeni Antakya 9 / Kara Kâse 7; 30 dk 4 / 12
   (Kâse zaferleri medyan 16:52). Aynı makinede Faz 04 kodu 8 tohumda 30 dk için de Kâse ağırlıklıydı (7/8), ama

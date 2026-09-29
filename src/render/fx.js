@@ -8,6 +8,7 @@ import { ABILITIES } from '../data/abilities.js';
 import { isSquadVisibleTo, isStructureVisibleTo, isPointVisibleTo, effectVisibleTo, isSoldierVisibleTo } from '../sim/perception.js';
 import { groundHeightAt } from '../world/ground.js';
 import { planDeath, createPoolSet, GORE_QUALITY } from './gore.js';
+import { isOrganic } from '../data/factions.js';
 
 const SHAPE = { SOFT: 0, GLOW: 1, STREAK: 2, CHUNK: 3, SPECK: 4 };
 const DSHAPE = { SHADOW: 0, RING: 1, BLOOD: 2, SCORCH: 3, CRATER: 4, MARKER: 5, LIGHT: 6, ATTACK: 7, AREA: 8, BOX: 9, SHOCK: 10, TIMER: 11, SPRAY: 12 };
@@ -290,7 +291,7 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
    */
   function deathGore(ev) {
     const plan = planDeath(ev, goreQ);
-    const bio = ev.faction === 'black_grail';
+    const bio = isOrganic(ev.faction);
     const C = bio ? ICHOR : RED, CD = bio ? ICHOR_DARK : RED_DARK;
     const y = ground(ev.x, ev.z);
     const dx = ev.dx || 0, dz = ev.dz || 0;
@@ -387,7 +388,7 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
         if (!ev.hit) break;
         if ((show & IMP) || (show & TGT)) {
           const d = Math.hypot(ev.tx - ev.x, ev.tz - ev.z) || 1;
-          impact(ev.tx, ev.tz, ev.impact === 'blade' || ev.impact === 'claw' || ev.impact === 'blunt' ? (ev.faction === 'black_grail' ? 'flesh' : 'organic') : ev.impact, (ev.tx - ev.x) / d, (ev.tz - ev.z) / d, ev.weapon === 'plague_greatblade' || ev.weapon === 'great_hammer');
+          impact(ev.tx, ev.tz, ev.impact === 'blade' || ev.impact === 'claw' || ev.impact === 'blunt' ? (isOrganic(ev.faction) ? 'flesh' : 'organic') : ev.impact, (ev.tx - ev.x) / d, (ev.tz - ev.z) / d, ev.weapon === 'plague_greatblade' || ev.weapon === 'great_hammer');
         }
         break;
       }
@@ -439,7 +440,7 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
       case 'ANIMAL_KILLED':
         if (!show || ev.cause === 'slaughter') break;
         bloodHit(ev.x, ground(ev.x, ev.z) - 0.4, ev.z, 0, 0, false, true);
-        if (ev.by === 'black_grail') flyBurst(ev.x, ev.z, 6);
+        if (isOrganic(ev.by)) flyBurst(ev.x, ev.z, 6);
         break;
       case 'CONVOY_LOST':
         if (!show) break;
@@ -844,14 +845,14 @@ export function createFx(gl, particleProgram, decalProgram, opts) {
     const { state } = sim;
     // flies around visible Black Grail squads
     for (const sq of state.squads) {
-      if (sq.faction !== 'black_grail' || !isSquadVisibleTo(sq, viewer)) continue;
+      if (!isOrganic(sq.faction) || !isSquadVisibleTo(sq, viewer)) continue;
       if (Math.abs(sq.cx - camera.tx) > 90 || Math.abs(sq.cz - camera.tz) > 90) continue;
       const x = sq.cx + (vr.next() - 0.5) * 6, z = sq.cz + (vr.next() - 0.5) * 6;
       spawn({ x, y: ground(x, z) + 1 + vr.next() * 1.4, z, vx: (vr.next() - 0.5) * 2, vy: (vr.next() - 0.5) * 0.6, vz: (vr.next() - 0.5) * 2, size: 0.03, r: 0.015, g: 0.015, b: 0.01, a: 1, life: 1.2, shape: SHAPE.SPECK });
     }
     // visibly infected soldiers the viewer sees: a few flies and sick motes around them
     for (const sq of state.squads) {
-      if (sq.faction === 'black_grail' || !isSquadVisibleTo(sq, viewer)) continue;
+      if (isOrganic(sq.faction) || !isSquadVisibleTo(sq, viewer)) continue;
       if (Math.abs(sq.cx - camera.tx) > 80 || Math.abs(sq.cz - camera.tz) > 80) continue;
       for (const m of sq.members) {
         if (m.state !== 'alive' || m.infection < 2 || vr.next() > 0.25) continue;

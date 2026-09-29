@@ -15,9 +15,9 @@ import { cellAt } from '../world/nav.js';
 import { footprintCellsVisit } from '../world/nav.js';
 import { snapToTrenchEndpoint, chooseFront } from './trench.js';
 import { WALL_TYPES } from '../data/structures.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideDef, baseFaction } from '../data/factions.js';
 import { POPULATION } from '../data/economy.js';
-import { infectionAt } from '../factions/black_grail.js';
+import { ownInfectionAt } from '../factions/black_grail.js';
 import { specValue, specRule, specAny } from '../sim/specialities.js';
 import { sectorAt } from '../economy/sectors.js';
 import { econHostAt, isSettlement, onSettlementCompleted } from '../economy/settlements.js';
@@ -42,12 +42,12 @@ function segSegDistance(a, b) {
 }
 
 export function enemyDirection(sim, faction, x, z, out) {
-  // toward the opposing deployment zone center
-  const zones = sim.world.zones;
+  // toward the opposing side's deployment zone center (Phase 5A: per SIDE, from state)
   let tx = x, tz = 0;
-  for (const fid in zones) {
+  for (const fid in sim.state.factions) {
     if (fid === faction) continue;
-    const zn = zones[fid];
+    const zn = sim.state.factions[fid].zone;
+    if (!zn) continue;
     tx = (zn.x0 + zn.x1) * 0.5; tz = (zn.z0 + zn.z1) * 0.5;
   }
   const dx = tx - x, dz = tz - z;
@@ -83,14 +83,15 @@ function endToEnd(a, b, out) {
  */
 /**
  * Where a faction may build: its deployment zone; the Black Grail also on ground its corruption has
- * claimed (infection >= FACTIONS[f].buildOnInfection) — organic structures grow where it festers.
+ * claimed (infection >= sideDef(f).buildOnInfection) — organic structures grow where it festers.
  */
 export function canBuildAt(sim, faction, x, z) {
-  if (inZone(sim.world.zones[faction], x, z)) return true;
-  const base = FACTIONS[faction].buildOnInfection;
+  const f = sim.state.factions[faction];
+  if (f && inZone(f.zone, x, z)) return true;
+  const base = sideDef(faction).buildOnInfection;
   if (!base) return false;
   const th = specValue(sim.state, faction, 'buildOnInfection', base);
-  return infectionAt(sim.state, x, z) >= th;
+  return ownInfectionAt(sim.state, faction, x, z) >= th; // only its OWN plague's ground
 }
 
 /**
@@ -168,7 +169,7 @@ export function validatePlacement(sim, faction, type, params) {
   const { state, world, rt } = sim;
   const def = STRUCTURES[type];
   if (!def || !def.buildable) return fail('build.invalid');
-  if (def.builder !== faction) return fail('build.not_faction');
+  if (def.builder !== baseFaction(faction)) return fail('build.not_faction');
   if (state.match.phase === 'ENDED') return fail('build.match_over');
   if (def.requiresSpec && !specAny(state, faction, def.requiresSpec)) return fail('build.spec');
   const needs = def.requires && !(type === 'fortified_wall' && specRule(state, faction, 'fortifiedNoWorkshop'));

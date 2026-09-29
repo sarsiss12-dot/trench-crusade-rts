@@ -4,7 +4,7 @@
 import { el } from './dom.js';
 import { TERRAIN_TYPES } from '../data/terrain_types.js';
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideIndex } from '../data/factions.js';
 import { CELL_FLAG } from '../world/terrain.js';
 import { isSquadVisibleTo, isStructureKnownTo, isNodeKnownTo, visibleCentroid, isSectorKnownTo, isConvoyVisibleTo } from '../sim/perception.js';
 import { isSquadAlive } from '../sim/state.js';
@@ -124,7 +124,7 @@ export function createMinimap(game) {
     ctx.drawImage(base, 0, 0, cw, ch);
     // fog of war: unexplored black, explored dimmed, visible clear
     if (game.renderer.fogEnabled) {
-      const j = FACTIONS[viewer].index;
+      const j = sideIndex(viewer);
       const vis = fog.vis[j], seen = fog.seen[j];
       const d = fogImg.data;
       for (let i = 0; i < vis.length; i++) {

@@ -7,7 +7,8 @@ import { auraValue } from '../sim/auras.js';
 import { moveSpeed } from './speed.js';
 import { mudSpeedAt } from '../sim/weather.js';
 import { unitDef } from '../data/units.js';
-import { FACTIONS } from '../data/factions.js';
+import { contentIndex, sideDef } from '../data/factions.js';
+import { plagueSides, plagueFaction } from '../factions/pestilence.js';
 import { STRUCTURES } from '../data/structures.js';
 import { DT, DETOURS_PER_TICK, PATH_WORK_PER_TICK, STUCK_WINDOW, JOIN_TIMEOUT_TICKS } from '../sim/constants.js';
 import { dist, headingOf, turnToward, rotateOffset, dsin, dcos, datan2 } from '../core/dmath.js';
@@ -35,7 +36,9 @@ function holdsWhenEngaged(sq) {
   return o.t === 'attack' || o.t === 'idle' || o.t === 'hold_trench';
 }
 
-let infSlow = 1; // set per tick from the Grail's speciality (plain function of state)
+let infSlow = 1; // strongest infected-slow of the match's plague sides (set per tick, plain function of state)
+const slowBy = {}; // per plague side (Plague Dominion belongs to whoever laid the stacks)
+let slowFirst = null;
 
 function advanceAnchor(sim, sq, def) {
   const px = sq.x, pz = sq.z;
@@ -48,18 +51,23 @@ function advanceAnchor(sim, sq, def) {
     }
     return;
   }
-  const fIdx = FACTIONS[sq.faction].index;
+  const fIdx = contentIndex(sq.faction);
   let mult = moveSpeedMult(sim.rt.nav, sq.x, sq.z, sq.faction, fIdx, def.heavy);
   if (mult < 0.2) mult = 0.2;
   if (sq.suppressUntil > sim.state.tick) mult *= SUPPRESS_SPEED; // pinned by mortar fire
   mult *= mudSpeedAt(sim.state, sq.x, sq.z); // Phase 4.1: wet ground / traffic mud (1 when dry)
   if (sq.tideUntil > sim.state.tick) mult *= 1.3; // Black Tide surge
   if (sq.civ && (sq.civ.mode === 'flee' || sq.civ.mode === 'shelter')) mult *= 1.3; // panicked civilians run
-  if (infSlow < 1 && sq.faction !== 'black_grail') {
-    // Plague Dominion: the sick drag their feet (the squad keeps pace with its infected men)
-    let inf = 0, n = 0;
-    for (const m of sq.members) if (m.state === 'alive') { n++; if (m.infection > 0) inf++; }
-    if (inf > 0) mult *= 1 - (1 - infSlow) * (inf / n);
+  if (infSlow < 1 && !(sideDef(sq.faction) || {}).plagueImmune) {
+    // Plague Dominion: the sick drag their feet (the squad keeps pace with its infected men); the
+    // slow is the infecting side's speciality
+    let loss = 0, n = 0;
+    for (const m of sq.members) {
+      if (m.state !== 'alive') continue;
+      n++;
+      if (m.infection > 0) { const k = slowBy[m.infBy || slowFirst]; if (k !== undefined) loss += 1 - k; }
+    }
+    if (loss > 0) mult *= 1 - loss / n;
   }
   let cohesion = 1;
   if (sq.lag > 5) cohesion = 0.45;
@@ -324,14 +332,17 @@ export function updateMovement(sim) {
   const { state } = sim;
   const nav = sim.rt.nav;
   detourBudget = DETOURS_PER_TICK;
-  infSlow = state.factions.black_grail ? specValue(state, 'black_grail', 'infectedSlow', 1) : 1;
+  infSlow = 1;
+  for (const k in slowBy) delete slowBy[k];
+  slowFirst = plagueFaction(state);
+  for (const s of plagueSides(state)) { slowBy[s] = specValue(state, s, 'infectedSlow', 1); if (slowBy[s] < infSlow) infSlow = slowBy[s]; }
   for (const sq of state.squads) {
     const def = unitDef(sq.type);
     advanceAnchor(sim, sq, def);
   }
   for (const sq of state.squads) {
     const def = unitDef(sq.type);
-    const fIdx = FACTIONS[sq.faction].index;
+    const fIdx = contentIndex(sq.faction);
     // formation / work spots are laid out for the members PRESENT; walking replacements are not
     // part of the squad until they reach it (Phase 4: no early HP / count / slot / post)
     let aliveTotal = 0, joiners = 0;

@@ -9,10 +9,11 @@
 //    allow them (near a fortress anchor, or with the Fortified Settlements speciality)
 //  - evacuate a settlement about to be overrun, slaughter a threatened pen's herd, point drovers at
 //    visible livestock, burn infected dead near its own lines, purge plague ground
+import { sideAnchor, enemyHomeAnchor, sideFacing } from '../sim/sides.js';
 import { STRUCTURES } from '../data/structures.js';
 import { unitDef } from '../data/units.js';
 import { SPECIES } from '../data/animals.js';
-import { FACTIONS, areHostile } from '../data/factions.js';
+import { areHostile, sideBit } from '../data/factions.js';
 import { ABILITIES } from '../data/abilities.js';
 import { POPULATION } from '../data/economy.js';
 import { CMD } from '../sim/commands.js';
@@ -41,7 +42,7 @@ const HOME = [0, 0];
 const ENEMY = [0, 0];
 
 function bit(fid) {
-  return 1 << FACTIONS[fid].index;
+  return sideBit(fid);
 }
 
 function aliveIn(sq) {
@@ -74,13 +75,13 @@ export function defendersNear(sim, fid, x, z, r) {
 
 function homeXZ(sim, fid) {
   const hq = sim.state.structures.find((s) => s.faction === fid && STRUCTURES[s.type].hq && s.hp > 0);
-  if (hq) { HOME[0] = hq.x; HOME[1] = hq.z; } else { HOME[0] = sim.world.anchors.home[0][0]; HOME[1] = sim.world.anchors.home[0][1]; }
+  if (hq) { HOME[0] = hq.x; HOME[1] = hq.z; } else { const a = sideAnchor(sim, fid, 'home'); HOME[0] = a[0]; HOME[1] = a[1]; }
   return HOME;
 }
 
-/** Where the enemy comes from (map knowledge: the attacker's home anchor). */
-function enemyXZ(sim) {
-  const a = sim.world.anchors.home_bg ? sim.world.anchors.home_bg[0] : [sim.world.width / 2, 0];
+/** Where the enemy comes from (map knowledge: the enemy side's start-region home anchor). */
+function enemyXZ(sim, fid) {
+  const a = enemyHomeAnchor(sim, fid);
   ENEMY[0] = a[0]; ENEMY[1] = a[1];
   return ENEMY;
 }
@@ -94,7 +95,7 @@ export function exposure(sim, fid, x, z) {
   const h = homeXZ(sim, fid);
   const hx = h[0], hz = h[1];
   const dh = dist(x, z, hx, hz);
-  const e = enemyXZ(sim);
+  const e = enemyXZ(sim, fid);
   const ex = e[0] - hx, ez = e[1] - hz;
   const len2 = Math.max(1, ex * ex + ez * ez);
   const ahead = Math.max(0, Math.min(1, ((x - hx) * ex + (z - hz) * ez) / len2));
@@ -155,7 +156,7 @@ export function pickSector(sim, fid, ai) {
 
 function placeSettlement(sim, fid, sec) {
   for (const [dx, dz] of RING) {
-    const params = { x: sec.x + dx, z: sec.z + dz, rot: Math.PI };
+    const params = { x: sec.x + dx, z: sec.z + dz, rot: sideFacing(sim, fid) };
     if (validatePlacement(sim, fid, 'settlement', params).ok) return params;
   }
   return null;
@@ -163,7 +164,7 @@ function placeSettlement(sim, fid, sec) {
 
 /** A spot for an economic building around settlement st (the side away from the enemy first). */
 function econSpot(sim, fid, st, sec, type) {
-  const e = enemyXZ(sim);
+  const e = enemyXZ(sim, fid);
   const away = datan2(st.x - e[0], st.z - e[1]); // heading pointing away from the enemy
   const def = STRUCTURES[type];
   if (def.requiresSectorKind) {
@@ -218,7 +219,7 @@ function fortifyFor(sim, fid, ai, st) {
   const { state } = sim;
   const threatened = state.tick - (ai.seenThreat[st.id] || -1e9) < 20 * 240;
   if (!threatened && exposure(sim, fid, st.x, st.z) < 0.3) return null;
-  const e = enemyXZ(sim);
+  const e = enemyXZ(sim, fid);
   let dx = e[0] - st.x, dz = e[1] - st.z;
   const d = Math.max(1, Math.sqrt(dx * dx + dz * dz));
   dx /= d; dz /= d;

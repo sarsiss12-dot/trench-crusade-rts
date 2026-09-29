@@ -69,7 +69,11 @@ function grailBio(sim) {
 
 test('multiple settlement sites: 8-12 sectors of every kind, known in the home half, placement rules', () => {
   const sim = makeSim();
-  const secs = sim.state.sectors;
+  // Phase 5A: both start regions have sectors (a New Antioch ATTACKER settles in the north); the
+  // classic defender's home country (south zone) keeps its 8-12 sectors of every kind
+  const zone = sim.state.factions[NA].zone;
+  const inNa = (s) => s.x >= zone.x0 && s.x <= zone.x1 && s.z >= zone.z0 && s.z <= zone.z1;
+  const secs = sim.state.sectors.filter(inNa);
   assert.ok(secs.length >= 8 && secs.length <= 12, 'sector count ' + secs.length);
   for (const k of Object.keys(SECTOR_KINDS)) assert.ok(secs.some((s) => s.kind === k), 'kind ' + k);
   // richness rolled per match (not all equal)
@@ -77,6 +81,10 @@ test('multiple settlement sites: 8-12 sectors of every kind, known in the home h
   for (const s of secs) {
     assert.ok(isSectorKnownTo(s, NA), 'New Antioch knows its own country: ' + s.id);
     assert.ok(!isSectorKnownTo(s, BG), 'the Grail has not scouted ' + s.id);
+  }
+  // the northern sectors are the other region's home country (known to its side, not to NA)
+  for (const s of sim.state.sectors.filter((q) => !inNa(q))) {
+    assert.ok(isSectorKnownTo(s, BG) && !isSectorKnownTo(s, NA), 'north sector ' + s.id);
   }
   const sec = sector(sim, 'fertile_c');
   assert.ok(validatePlacement(sim, NA, 'settlement', { x: sec.x, z: sec.z, rot: Math.PI }).ok, 'on a sector');

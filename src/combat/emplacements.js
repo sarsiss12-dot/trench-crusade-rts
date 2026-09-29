@@ -13,7 +13,7 @@
 import { STRUCTURES } from '../data/structures.js';
 import { EMPLACEMENT_WEAPONS } from '../data/emplacements.js';
 import { ABILITIES } from '../data/abilities.js';
-import { FACTIONS, areHostile } from '../data/factions.js';
+import { areHostile, sideBit } from '../data/factions.js';
 import { EV } from '../core/events.js';
 import { rngFloat } from '../core/rng.js';
 import { dist, dsin, dcos, headingOf, turnToward, wrapAngle } from '../core/dmath.js';
@@ -57,7 +57,7 @@ function inArc(st, def, x, z) {
  */
 function pickTarget(sim, st, def, w) {
   const { state } = sim;
-  const bit = 1 << FACTIONS[st.faction].index;
+  const bit = sideBit(st.faction);
   let best = null, bestS = Infinity, kind = '';
   let tooClose = 0, outArc = 0;
   for (const e of state.squads) {
@@ -90,7 +90,7 @@ function resolveTarget(sim, st) {
   if (!st.targetId) return null;
   const t = st.tk === 'struct' ? sim.rt.structById.get(st.targetId) : sim.rt.squadById.get(st.targetId);
   if (!t) return null;
-  const bit = 1 << FACTIONS[st.faction].index;
+  const bit = sideBit(st.faction);
   if (!(t.visibleTo & bit)) return null;
   if (st.tk === 'squad' && !aliveCount(t)) return null;
   return t;

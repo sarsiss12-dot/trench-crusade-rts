@@ -5,7 +5,7 @@
 // lost with their cargo if hostile soldiers catch them (a mule carcass is left behind).
 // Designed so a later phase can extend it (escorts, routes, depots -> front) without redesign.
 import { CONVOY } from '../data/economy.js';
-import { FACTIONS, areHostile } from '../data/factions.js';
+import { areHostile, sideBit, sideIndex } from '../data/factions.js';
 import { SPECIES } from '../data/animals.js';
 import { EV } from '../core/events.js';
 import { dist, datan2, turnToward } from '../core/dmath.js';
@@ -55,7 +55,7 @@ export function dispatchConvoys(sim, fid) {
     st.lastConvoy = state.tick;
     const c = {
       id: state.nextId++, faction: fid, from: st.id, to: home.id, x: sx, z: sz, rot: datan2(home.x - sx, home.z - sz),
-      path: res.points, pi: 0, cargo, hp: CONVOY.hp, maxHp: CONVOY.hp, visibleTo: 1 << FACTIONS[fid].index, seenBy: 0, vx: 0, vz: 0,
+      path: res.points, pi: 0, cargo, hp: CONVOY.hp, maxHp: CONVOY.hp, visibleTo: sideBit(fid), seenBy: 0, vx: 0, vz: 0,
     };
     state.convoys.push(c);
     sim.events.push({ type: EV.CONVOY_DISPATCHED, id: c.id, faction: fid, x: sx, z: sz });
@@ -86,7 +86,7 @@ export function updateConvoys(sim) {
   const nav = rt.nav;
   for (let i = state.convoys.length - 1; i >= 0; i--) {
     const c = state.convoys[i];
-    const fIdx = FACTIONS[c.faction].index;
+    const fIdx = sideIndex(c.faction);
     // destination lost: head for another home drop-off (or give up: cargo lost)
     let dest = rt.structById.get(c.to);
     if (!dest || dest.hp <= 0) {

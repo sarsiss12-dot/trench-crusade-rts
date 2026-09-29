@@ -19,7 +19,9 @@
 import { UNITS, unitDef, hasRole } from '../data/units.js';
 import { ABILITIES } from '../data/abilities.js';
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS, areHostile } from '../data/factions.js';
+import { areHostile, sideBit, baseFaction } from '../data/factions.js';
+import { strategyFor } from '../data/ai.js';
+import { homeStructure, planFor, sideAnchor, sideAnchors, sideFacing, sideForward, enemyHomeAnchor } from '../sim/sides.js';
 import { CMD } from '../sim/commands.js';
 import { dist } from '../core/dmath.js';
 import { validatePlacement } from '../construction/construction.js';
@@ -108,7 +110,7 @@ export const newAntiochAI = {
     const { state, world } = sim;
     const f = state.factions[fid];
     const engineers = squads.filter((sq) => hasRole(unitDef(sq.type), 'builder'));
-    const bit = 1 << FACTIONS[fid].index;
+    const bit = sideBit(fid);
     const busyTargets = new Set();
     for (const e of engineers) if (e.order.sid) busyTargets.add(e.order.sid);
     let placedEco = false; // one economy placement per think (commands resolve next tick)
@@ -162,7 +164,7 @@ export const newAntiochAI = {
       // 2b) Phase 4: the field gun is a priority once the first line stands (it answers the waves in
       //     no man's land) — placed from the map plan when affordable, one site at a time
       if (!ai.gunSite && (f.resources.material || 0) >= 135 && !state.structures.some((s) => s.faction === fid && s.type === 'field_gun')) {
-        const gi = world.defensePlan.find((it) => it.type === 'field_gun');
+        const gi = planFor(sim, fid, 'fortify').find((it) => it.type === 'field_gun');
         // after the first line AND the first settlement (the economy is not starved for a gun)
         const setts = ownSettlements(state, fid).filter((s) => s.built).length;
         const warSec = state.match.phase === 'WAR' ? (state.tick - state.match.prepEndTick) / 20 : 0;
@@ -179,7 +181,7 @@ export const newAntiochAI = {
       }
       // 3) economy and the defence plan take turns (the first settlement goes up early in the
       //    preparation, right after the first line of trenches)
-      const plan = world.defensePlan;
+      const plan = planFor(sim, fid, 'fortify');
       let planLeft = 0, planDoneN = 0;
       for (const item of plan) { if (planDone(sim, fid, item)) planDoneN++; else planLeft++; }
       const ecoFirst = ai.ecoTurn % 2 === 1 || !planLeft || (state.match.phase === 'PREPARATION' && planDoneN >= 2);
@@ -276,10 +278,12 @@ export const newAntiochAI = {
   ruins(sim, fid, ai, squads) {
     const { state, rt } = sim;
     if ((state.tick + 11) % 40 >= 10 || state.match.phase !== 'WAR') return; // the trenches fill first
-    const objective = state.structures.find((s) => s.objective && s.faction === fid);
+    const objective = homeStructure(state, fid);
     if (!objective) return;
+    const fw = sideForward(sim, fid);
     const ruins = state.structures.filter((s) => STRUCTURES[s.type].garrison && !s.collapsed &&
-      (!s.holder || s.holder === fid) && dist(s.x, s.z, objective.x, objective.z) < 140 && s.z > objective.z - 140)
+      (!s.holder || s.holder === fid) && dist(s.x, s.z, objective.x, objective.z) < 140 &&
+      (s.x - objective.x) * fw[0] + (s.z - objective.z) * fw[1] < 140)
       .sort((a, b) => dist(a.x, a.z, objective.x, objective.z) - dist(b.x, b.z, objective.x, objective.z) || a.id - b.id);
     if (!ruins.length) return;
     const coming = new Map();
@@ -312,7 +316,9 @@ export const newAntiochAI = {
   placeElites(sim, fid, ai, squads) {
     const { state } = sim;
     if ((state.tick + 13) % 40 !== 0) return;
-    const bastion = state.structures.find((s) => s.objective && s.faction === fid);
+    const bastion = homeStructure(state, fid);
+    const fw = sideForward(sim, fid);
+    const face = sideFacing(sim, fid);
     const trenches = state.structures.filter((s) => s.type === 'trench' && s.faction === fid && s.built).sort((a, b) => a.x - b.x || a.id - b.id);
     const elites = squads.filter((sq) => unitDef(sq.type).aura && unitDef(sq.type).elite).sort((a, b) => a.id - b.id);
     elites.forEach((el, i) => {
@@ -320,13 +326,13 @@ export const newAntiochAI = {
       let hp = 0;
       for (const m of el.members) if (m.state === 'alive') hp += m.hp;
       let post;
-      if (hp < unitDef(el.type).hp * 0.5 && bastion) post = [bastion.x + 16 - (i % 3) * 16, bastion.z - 14];
+      if (hp < unitDef(el.type).hp * 0.5 && bastion) post = [bastion.x + 16 - (i % 3) * 16, bastion.z + fw[1] * 14];
       else if (trenches.length) {
         const t = trenches[i % trenches.length];
         const back = bastion ? Math.sign(bastion.z - t.z) || 1 : 1;
         post = [t.x, t.z + back * 6];
-      } else post = (sim.world.anchors.na_base || [[160, 500]])[0];
-      if (dist(el.cx, el.cz, post[0], post[1]) > 6) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [el.id], x: post[0], z: post[1], face: Math.PI });
+      } else post = sideAnchor(sim, fid, 'base');
+      if (dist(el.cx, el.cz, post[0], post[1]) > 6) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [el.id], x: post[0], z: post[1], face });
     });
     void ai;
   },
@@ -357,7 +363,7 @@ export const newAntiochAI = {
       const sq = spare.shift();
       if (!sq) break;
       ai.guards[sq.id] = st.id;
-      const e = sim.world.anchors.home_bg ? sim.world.anchors.home_bg[0] : [st.x, 0];
+      const e = enemyHomeAnchor(sim, fid);
       const dx = e[0] - st.x, dz = e[1] - st.z, d = Math.max(1, Math.sqrt(dx * dx + dz * dz));
       aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [sq.id], x: st.x + (dx / d) * 12, z: st.z + (dz / d) * 12, attackMove: true });
     }
@@ -365,10 +371,10 @@ export const newAntiochAI = {
 
   reserve(sim, fid, ai, squads) {
     const { state, world } = sim;
-    const bit = 1 << FACTIONS[fid].index;
+    const bit = sideBit(fid);
     // heavies are the reserve
     ai.reserveIds = squads.filter((sq) => unitDef(sq.type).heavy).map((sq) => sq.id);
-    const objective = state.structures.find((s) => s.objective && s.faction === fid);
+    const objective = homeStructure(state, fid);
     if (!objective) return;
     // threat: nearest visible hostile squad close to the line/objective
     let threat = null, td = 95;
@@ -389,7 +395,8 @@ export const newAntiochAI = {
         }
       }
     }
-    const home = world.anchors.na_reserve[0];
+    const home = sideAnchor(sim, fid, 'reserve');
+    const face = sideFacing(sim, fid);
     for (const id of ai.reserveIds) {
       const sq = sim.rt.squadById.get(id);
       if (!sq) continue;
@@ -398,8 +405,8 @@ export const newAntiochAI = {
           if (!sq.engaged) aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: [id], tk: 'squad', tid: threat.id });
         }
       } else if (sq.order.t === 'idle' && dist(sq.x, sq.z, home[0], home[1]) > 12) {
-        // back to the reserve position, facing the front (north: PI)
-        aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [id], x: home[0], z: home[1], face: Math.PI });
+        // back to the reserve position, facing the front (the side's region facing)
+        aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [id], x: home[0], z: home[1], face });
       }
     }
   },
@@ -418,11 +425,15 @@ export const newAntiochAI = {
     const { state, world } = sim;
     if (state.tick - (ai.caCheck || 0) < 40) return; // think() is itself staggered
     ai.caCheck = state.tick;
-    const bit = 1 << FACTIONS[fid].index;
-    const objective = state.structures.find((s) => s.objective && s.faction === fid);
+    const bit = sideBit(fid);
+    const objective = homeStructure(state, fid);
     if (!objective) return;
-    const home = world.anchors.na_reserve[0];
-    if (ai.caNext === undefined) ai.caNext = state.match.prepEndTick + 20 * 60 * 8;
+    const home = sideAnchor(sim, fid, 'reserve');
+    const face = sideFacing(sim, fid);
+    // STRATEGIC ROLE layer (data/ai.js): the defender strikes out late and small, the attacker
+    // early and in force — same doctrine, same pipeline
+    const S = strategyFor(baseFaction(fid), state.factions[fid].role);
+    if (ai.caNext === undefined) ai.caNext = state.match.prepEndTick + Math.round(20 * 60 * S.firstStrikeMin);
     // walls threatened? (any visible hostile fighting squad close to the objective)
     let threat = false;
     for (const e of state.squads) {
@@ -438,11 +449,17 @@ export const newAntiochAI = {
       // a probe (no known target) ends when it has found something or after a short push
       const found = !ca.sid && this.knownTarget(sim, fid, objective, false);
       const over = (ca.sid && (!target || target.hp <= 0)) || found || threat || men < ca.men * 0.55 ||
-        state.tick - ca.start > 20 * 60 * (ca.sid ? 4 : 2.5);
+        state.tick - ca.start > 20 * 60 * (ca.sid ? S.strikeMin : 2.5);
       if (over) {
-        if (group.length) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: group.map((q) => q.id), x: home[0], z: home[1], face: Math.PI });
+        // attacker doctrine (pressOn): a probe that found something attacks it, and a strike group
+        // that razed its target goes on to the next one — while it keeps its strength and home is
+        // not threatened
+        const strong = !threat && men >= ca.men * 0.55 && group.length > 0;
+        const next = S.pressOn && strong && (found || (ca.sid && (!target || target.hp <= 0))) ? this.knownTarget(sim, fid, objective, true) : null;
+        if (next) { ca.sid = next.id; ca.start = state.tick; aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: group.map((q) => q.id), tk: 'struct', tid: next.id }); return; }
+        if (group.length) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: group.map((q) => q.id), x: home[0], z: home[1], face });
         ai.ca = null;
-        ai.caNext = state.tick + 20 * 60 * 4;
+        ai.caNext = state.tick + Math.round(20 * 60 * S.cooldownMin);
         return;
       }
       const idle = group.filter((q) => q.order.t === 'idle' && !q.engaged);
@@ -452,14 +469,19 @@ export const newAntiochAI = {
     if (threat || state.tick < ai.caNext) return;
     // strength check: the line must stay manned
     const combat = squads.filter((q) => unitDef(q.type).combatUnit && alive(q) > 0);
-    if (combat.length < 7) return;
+    if (combat.length < S.minCombat) return;
     const fresh = (q) => alive(q) >= unitDef(q.type).squadSize * 0.75 && !q.engaged && q.order.t !== 'hold_trench' && q.order.t !== 'garrison' && !unitDef(q.type).aura && !unitDef(q.type).marksman;
     const heavies = combat.filter((q) => unitDef(q.type).heavy && fresh(q));
     const rifles = combat.filter((q) => !unitDef(q.type).heavy && (q.type === 'yeoman_rifle' || q.type === 'shock_flamer') && fresh(q) && !(ai.guards && ai.guards[q.id]));
-    const strike = [...heavies, ...rifles].slice(0, 4);
+    const strike = [...heavies, ...rifles].slice(0, S.group);
+    // attacker doctrine: the trench line may give men to the assault, above a home garrison
+    if (strike.length < S.group && combat.length - strike.length > S.keepHome) {
+      const holders = combat.filter((q) => q.order.t === 'hold_trench' && !q.engaged && q.type === 'yeoman_rifle' && alive(q) >= unitDef(q.type).squadSize * 0.75).sort((a, b) => a.id - b.id);
+      while (strike.length < S.group && holders.length && combat.length - strike.length > S.keepHome) strike.push(holders.shift());
+    }
     if (strike.length < 2) return;
     // target: nearest KNOWN enemy structure within reach; the base only late / in an endless war
-    const late = state.match.endless || matchProgress(state) > 0.6;
+    const late = state.match.endless || matchProgress(state) > S.baseAfter - 1e-9;
     const target = this.knownTarget(sim, fid, objective, late);
     let men = 0;
     for (const q of strike) men += alive(q);
@@ -471,17 +493,23 @@ export const newAntiochAI = {
     }
     // nothing known: a short PROBE in force toward the enemy's side of the map (the map itself is
     // public knowledge — no hidden state is read); it comes back once it has found something
-    const eb = world.anchors.home_bg && world.anchors.home_bg[0];
-    if (!eb) { ai.caNext = state.tick + 20 * 60; return; }
-    const px = objective.x + (eb[0] - objective.x) * 0.42, pz = objective.z + (eb[1] - objective.z) * 0.42;
-    ai.ca = { ids: strike.slice(0, 3).map((q) => q.id), sid: 0, start: state.tick, men };
+    const eb = enemyHomeAnchor(sim, fid);
+    const px = objective.x + (eb[0] - objective.x) * S.probe, pz = objective.z + (eb[1] - objective.z) * S.probe;
+    ai.ca = { ids: strike.slice(0, Math.max(3, S.group - 1)).map((q) => q.id), sid: 0, start: state.tick, men };
     aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: ai.ca.ids, x: px, z: pz, attackMove: true });
   },
 
   /** Nearest enemy structure New Antioch has SEEN within strike reach (the base only when `late`). */
   knownTarget(sim, fid, objective, late) {
-    const bit = 1 << FACTIONS[fid].index;
-    let target = null, td = 300;
+    const bit = sideBit(fid);
+    const S = strategyFor(baseFaction(fid), sim.state.factions[fid].role);
+    let target = null, td = S.reach || 300;
+    // attacker doctrine: once the enemy's objective has been SEEN, the assault goes for it
+    if (S.pressOn && late) {
+      for (const st of sim.state.structures) {
+        if (st.objective && areHostile(fid, st.faction) && st.hp > 0 && (st.seenBy & bit)) return st;
+      }
+    }
     for (const st of sim.state.structures) {
       if (!areHostile(fid, st.faction) || st.hp <= 0 || !(st.seenBy & bit)) continue;
       if (STRUCTURES[st.type].hq && !late) continue;
@@ -532,7 +560,7 @@ export const newAntiochAI = {
       return true;
     };
     // what the faction sees of the plague and the horde
-    const bit = 1 << FACTIONS[fid].index;
+    const bit = sideBit(fid);
     let horde = 0, infectedDead = 0;
     for (const e of state.squads) if (areHostile(fid, e.faction) && (e.visibleTo & bit)) horde += alive(e);
     for (const c of state.corpses) if (c.infected && (c.seenBy & bit)) infectedDead++;
@@ -553,7 +581,7 @@ export const newAntiochAI = {
     else if (r.manpower >= 8 && r.supply >= 50 + artilleryReserve) unit = 'yeoman_rifle';
     if (!unit) return;
     ai.lastTrain = state.tick;
-    const line = world.anchors.na_line;
+    const line = sideAnchors(sim, fid).line || [sideAnchor(sim, fid, 'base')];
     const rally = line[Math.floor(line.length / 2)];
     aiIssue(sim, { type: CMD.SET_RALLY, faction: fid, sid: bastion.id, x: rally[0], z: rally[1] });
     aiIssue(sim, { type: CMD.TRAIN, faction: fid, sid: bastion.id, unit });
@@ -567,7 +595,7 @@ export const newAntiochAI = {
     if (!st || st.readyTick > state.tick || (f.resources.supply || 0) < ab.cost.supply + 30) return;
     if (state.tick - ai.lastArtillery < 40) return;
     ai.lastArtillery = state.tick;
-    const bit = 1 << FACTIONS[fid].index;
+    const bit = sideBit(fid);
     let best = null, bestN = 11;
     for (const e of state.squads) {
       if (!areHostile(fid, e.faction) || !(e.visibleTo & bit)) continue;
@@ -606,8 +634,8 @@ export const newAntiochAI = {
     if (!st || st.readyTick > state.tick || (f.resources.supply || 0) < ab.cost.supply + 50) return;
     if (state.tick - (ai.lastMortar || -1e9) < 30) return;
     ai.lastMortar = state.tick;
-    const bit = 1 << FACTIONS[fid].index;
-    const objective = state.structures.find((s) => s.objective && s.faction === fid);
+    const bit = sideBit(fid);
+    const objective = homeStructure(state, fid);
     if (!objective) return;
     let best = null, bestN = 5;
     for (const e of state.squads) {

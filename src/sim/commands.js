@@ -4,7 +4,7 @@
 import { EV } from '../core/events.js';
 import { unitDef, hasRole } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS, areHostile } from '../data/factions.js';
+import { areHostile, sideDef, sideBit } from '../data/factions.js';
 import { dist, headingOf, rotateOffset, clamp, wrapAngle } from '../core/dmath.js';
 import { inZone, clampToZone } from '../world/mapgen.js';
 import { PLAYER_FORMATIONS, formationRadius } from '../units/formation.js';
@@ -119,7 +119,7 @@ function groupDestinations(squads, x, z, face) {
 function clampPrep(sim, faction, p) {
   const { state, world } = sim;
   if (state.match.phase !== 'PREPARATION') return p;
-  const zone = world.zones[faction];
+  const zone = state.factions[faction] && state.factions[faction].zone;
   if (zone && !inZone(zone, p[0], p[1])) clampToZone(zone, p[0], p[1], p);
   return p;
 }
@@ -187,7 +187,7 @@ export function applyCommand(sim, cmd) {
       if (state.match.phase === 'PREPARATION') return reject(sim, cmd, 'match.prep_no_attack');
       const squads = ownSquads(sim, cmd);
       if (!squads.length) return reject(sim, cmd, 'cmd.no_units');
-      const bit = 1 << FACTIONS[cmd.faction].index;
+      const bit = sideBit(cmd.faction);
       let tgt = null;
       if (cmd.tk === 'squad') {
         tgt = rt.squadById.get(cmd.tid);
@@ -260,7 +260,7 @@ export function applyCommand(sim, cmd) {
       return { ok: true };
     }
     case CMD.GATHER: {
-      const bit = 1 << FACTIONS[cmd.faction].index;
+      const bit = sideBit(cmd.faction);
       if (cmd.cid) {
         // corpse field (Black Grail work gangs): a known body that is not the plague's to raise
         const c = rt.corpseById.get(cmd.cid);
@@ -347,7 +347,7 @@ export function applyCommand(sim, cmd) {
       return { ok: true };
     }
     case CMD.SET_AUTO_REINFORCE: {
-      if (!FACTIONS[cmd.faction].reinforcements) return reject(sim, cmd, 'reinf.not_available');
+      if (!sideDef(cmd.faction).reinforcements) return reject(sim, cmd, 'reinf.not_available');
       const on = cmd.on ? 1 : 0;
       let n = 0;
       for (const sq of ownSquads(sim, cmd)) {

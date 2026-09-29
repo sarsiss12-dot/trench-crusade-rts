@@ -19,6 +19,7 @@ import { isSquadVisibleTo, isCorpseKnownTo, isSoldierVisibleTo, isAnimalVisibleT
 import { corpseTwitching } from '../sim/corpse_view.js';
 import { hash32 } from '../core/rng.js';
 import { DT, DYING_TICKS, RISING_TICKS } from '../sim/constants.js';
+import { isOrganic, isPlagueImmune, baseFaction, isTwin } from '../data/factions.js';
 
 export const MAX_LIVE_ROWS = 720;
 export const MAX_CORPSE_ROWS = 300;
@@ -31,6 +32,17 @@ export const ACCENTS = {
   new_antioch: [0.42, 0.1, 0.08],
   black_grail: [0.52, 0.55, 0.24],
 };
+// Phase 5A mirror matches: the twin side wears a different cloth accent (same faction models /
+// silhouettes — only the banner / sash colour tells the two armies apart)
+export const MIRROR_ACCENTS = {
+  new_antioch: [0.14, 0.2, 0.34],
+  black_grail: [0.38, 0.2, 0.34],
+};
+
+export function accentFor(side) {
+  const b = baseFaction(side);
+  return (isTwin(side) ? MIRROR_ACCENTS[b] : ACCENTS[b]) || null;
+}
 
 function uploadModel(gl, mesh) {
   const vbo = createBuffer(gl, gl.ARRAY_BUFFER, mesh.vertices);
@@ -105,7 +117,7 @@ export function createUnitRenderer(gl, program, opts) {
   const groundFn = opts.ground || ((x, z) => (sim0 ? groundHeightAt(sim0.world, sim0.rt.structGrid, x, z) : 0));
   function modelIdFor(sq, m) {
     const def = unitDef(sq.type);
-    if (def.model === 'bg_thrall') return (hash32(m.id, 3) & 3) === 0 || risenFrom.get(m.id) === 'new_antioch' ? 'bg_thrall_b' : 'bg_thrall';
+    if (def.model === 'bg_thrall') return (hash32(m.id, 3) & 3) === 0 || baseFaction(risenFrom.get(m.id) || '') === 'new_antioch' ? 'bg_thrall_b' : 'bg_thrall';
     if (def.model === 'na_civilian') return CIV_MODELS[hash32(m.id, 5) & 3];
     return models[def.model] ? def.model : 'na_yeoman';
   }
@@ -115,7 +127,7 @@ export function createUnitRenderer(gl, program, opts) {
     if (!v) {
       const mid = modelIdFor(sq, m);
       v = newVisual(m.id, mid, models[mid], hash32(m.id, 17));
-      v.accent = ACCENTS[sq.faction] || v.accent;
+      v.accent = accentFor(sq.faction) || v.accent;
       v.x = m.x; v.z = m.z; v.rot = m.rot;
       visuals.set(m.id, v);
     }
@@ -153,7 +165,7 @@ export function createUnitRenderer(gl, program, opts) {
           else if (v.variant === 1 && (ev.dx || ev.dz)) v.rot = Math.atan2(ev.dx, ev.dz);
           v.deathRot = v.rot;
           v.blood = Math.max(v.blood, ev.cause === 'plague' || ev.cause === 'swarm' ? 0.25 : 0.55 + (plan.lost ? 0.35 : 0));
-          v.bio = ev.faction === 'black_grail';
+          v.bio = isOrganic(ev.faction);
           if (plan.lost) tearLimbs(v, plan, ev);
         }
         break;
@@ -278,12 +290,12 @@ export function createUnitRenderer(gl, program, opts) {
     cv.y = groundFn(c.x, c.z);
     cv.death = 1;
     cv.variant = v ? v.variant : deathVariant(seed);
-    cv.accent = ACCENTS[c.faction] || cv.accent;
+    cv.accent = accentFor(c.faction) || cv.accent;
     cv.mud = Math.min(1, (v ? v.mud : 0.5) + 0.25);
     // gore persists on the body the viewer saw fall (presentation only)
     cv.lost = v ? v.lost : 0;
     cv.blood = v ? Math.max(0.35, v.blood) : 0.5;
-    cv.bio = c.faction === 'black_grail';
+    cv.bio = isOrganic(c.faction);
     cv.sick = c.infected ? 0.7 : 0;
     if (c.old) { cv.mud = 1; cv.wear = 1; cv.blood = 0.12; cv.sick = 0.3; cv.tint = -0.8; cv.accent = NEUTRAL_ACCENT; }
     if (c.sp) { cv.accent = NEUTRAL_ACCENT; cv.blood = 0.45; cv.scale = 0.9 + ((seed >> 4) & 255) / 255 * 0.2; }
@@ -419,8 +431,8 @@ export function createUnitRenderer(gl, program, opts) {
         v.workPhase += dt * 4.2;
         v.packPulse = def.model === 'bg_corpse_guard' ? Math.sin(time * 3 + v.seed) * 0.012 : 0;
         // visible sickness of a soldier the viewer sees (infection stacks)
-        v.sick = sq.faction === 'black_grail' ? 0 : Math.min(1, m.infection / INFECTION_MAX * 1.4);
-        v.bio = sq.faction === 'black_grail';
+        v.sick = isPlagueImmune(sq.faction) ? 0 : Math.min(1, m.infection / INFECTION_MAX * 1.4);
+        v.bio = isOrganic(sq.faction);
         if (m.state !== 'dying') v.lost = 0;
         const key = v.modelId + '|' + lod;
         let b = buckets.get(key);

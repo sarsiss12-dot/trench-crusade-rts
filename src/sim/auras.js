@@ -9,13 +9,12 @@
 // created / loaded, so readers never see a stale or missing list.
 import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS } from '../data/factions.js';
 import { specRule } from './specialities.js';
 
 export function rebuildAuras(sim) {
   const { state, rt } = sim;
   const auras = rt.auras || (rt.auras = {});
-  for (const fid in FACTIONS) { if (!auras[fid]) auras[fid] = []; auras[fid].length = 0; }
+  for (const fid in state.factions) { if (!auras[fid]) auras[fid] = []; auras[fid].length = 0; }
   for (const sq of state.squads) {
     const a = unitDef(sq.type).aura;
     if (!a || !auras[sq.faction]) continue;
@@ -24,7 +23,7 @@ export function rebuildAuras(sim) {
     if (!alive) continue;
     auras[sq.faction].push({ ...a, kind: a.kind || sq.type, x: sq.cx, z: sq.cz, r: a.radius, sq: sq.id });
   }
-  for (const fid in FACTIONS) {
+  for (const fid in state.factions) {
     if (!specRule(state, fid, 'consecrate')) continue;
     for (const st of state.structures) {
       if (st.faction !== fid || !st.built || !STRUCTURES[st.type].heal) continue;

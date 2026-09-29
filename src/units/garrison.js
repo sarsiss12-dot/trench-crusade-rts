@@ -11,7 +11,7 @@
 // Deterministic: plain state (st.occ = squad ids, st.holder, m.gslot, m.gexit), fixed iteration.
 import { STRUCTURES } from '../data/structures.js';
 import { unitDef, hasRole } from '../data/units.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideBit } from '../data/factions.js';
 import { EV } from '../core/events.js';
 import { dist } from '../core/dmath.js';
 import { createStructure } from '../sim/state.js';
@@ -64,7 +64,7 @@ export function canGarrison(sq) {
 
 /** An occupant of st that the faction can see (fog-safe knowledge of an enemy garrison). */
 export function visibleOccupant(sim, st, faction) {
-  const bit = 1 << (FACTIONS[faction] ? FACTIONS[faction].index : 0);
+  const bit = sideBit(faction);
   for (const id of st.occ) {
     const o = sim.rt.squadById.get(id);
     if (o && o.faction !== faction && (o.visibleTo & bit)) return o;

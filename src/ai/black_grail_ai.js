@@ -16,7 +16,9 @@
 //    entrenched cluster; Black Tide on an engaged wave; heralds / amalgams / the Lord of Tumours
 import { unitDef, hasRole } from '../data/units.js';
 import { ABILITIES } from '../data/abilities.js';
-import { FACTIONS, areHostile } from '../data/factions.js';
+import { areHostile, sideBit, baseFaction } from '../data/factions.js';
+import { strategyFor } from '../data/ai.js';
+import { lanesFor, planFor, homeStructure, enemyTarget, sideForward, sideAnchors } from '../sim/sides.js';
 import { CMD } from '../sim/commands.js';
 import { dist } from '../core/dmath.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -74,14 +76,41 @@ function newGroup(ai, lane, role) {
   return g;
 }
 
-function laneWaypoint(sim, lane, stage) {
-  const pts = sim.world.lanes[lane];
+/**
+ * STRATEGIC ROLE: a horde that holds home (defender) forms up just in front of its own base line
+ * (region 'line' anchors: west / centre / east by lane), not at the lane heads out in the field.
+ */
+function roleStrategy(sim, fid) {
+  const f = sim.state.factions[fid];
+  const S = strategyFor(baseFaction(fid), f ? f.role : 'attacker');
+  // the stress benchmark is a pure soldier load: every horde goes at once
+  return sim.scenario && sim.scenario.mode === 'stress' ? { ...S, holdHome: false } : S;
+}
+
+function holdsHome(sim, fid) {
+  return !!roleStrategy(sim, fid).holdHome;
+}
+
+function homeStage(sim, fid, lane) {
+  const line = (sideAnchors(sim, fid).line || []).slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (!line.length) return null;
+  const p = lane === 'west' ? line[0] : lane === 'east' ? line[line.length - 1] : line[(line.length - 1) >> 1];
+  const fw = sideForward(sim, fid);
+  return [p[0] + fw[0] * 12, p[1] + fw[1] * 12];
+}
+
+function laneWaypoint(sim, fid, lane, stage) {
+  if (stage <= 0 && holdsHome(sim, fid)) {
+    const h = homeStage(sim, fid, lane);
+    if (h) return h;
+  }
+  const pts = lanesFor(sim, fid)[lane];
   return pts[Math.max(0, Math.min(stage, pts.length - 1))];
 }
 
 /** Stage index (next waypoint) along a lane for a position: nearest polyline segment + 1. */
-function laneStageFor(sim, lane, x, z) {
-  const pts = sim.world.lanes[lane];
+function laneStageFor(sim, fid, lane, x, z) {
+  const pts = lanesFor(sim, fid)[lane];
   let best = 0, bestD = Infinity;
   for (let k = 0; k < pts.length - 1; k++) {
     const ax = pts[k][0], az = pts[k][1], bx = pts[k + 1][0], bz = pts[k + 1][1];
@@ -116,6 +145,12 @@ function groupCentroid(sim, g, out) {
   return out;
 }
 const C = [0, 0];
+
+/** The enemy's headquarters if this side has seen it (fog-honest), else null. */
+function knownEnemyHome(sim, fid) {
+  const t = enemyTarget(sim, fid);
+  return t && ((t.visibleTo | t.seenBy) & sideBit(fid)) ? t : null;
+}
 
 export const blackGrailAI = {
   init(sim, fid) {
@@ -181,7 +216,7 @@ export const blackGrailAI = {
         sq.aiGroup = best.id;
         if (best.mode === 'advance') {
           ai.stage[sq.id] = best.stage;
-          const wp = laneWaypoint(sim, best.lane, best.stage);
+          const wp = laneWaypoint(sim, fid, best.lane, best.stage);
           aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [sq.id], x: wp[0], z: wp[1], attackMove: true });
         }
       } else {
@@ -203,11 +238,15 @@ export const blackGrailAI = {
     // reorganisation window (no ceasefire): waves that are not in contact pull back to regroup
     // and gather in strength; waves already fighting keep fighting, raids / abilities go on
     if (isLull(state)) this.lullRegroup(sim, fid, ai);
+    const S = roleStrategy(sim, fid);
     if (ai.phase === 'deploy') {
       ai.phase = 'assault';
       ai.launchedTick = state.tick;
-      for (const g of ai.groups) if (g.squadIds.length) this.launch(sim, fid, ai, g);
+      // STRATEGIC ROLE: an attacking horde goes at once; a defending one holds its staging points
+      // (defendHome) and sallies out when it is strong enough (sally())
+      if (!S.holdHome) for (const g of ai.groups) if (g.squadIds.length) this.launch(sim, fid, ai, g);
     }
+    if (S.holdHome) this.defendHome(sim, fid, ai);
     this.manageGroups(sim, fid, ai);
     if (!stress) this.raids(sim, fid, ai);
     this.useAbility(sim, fid, ai);
@@ -232,7 +271,7 @@ export const blackGrailAI = {
       g.mode = 'forming';
       g.formedTick = state.tick;
       g.stage = 0;
-      const wp = laneWaypoint(sim, g.lane, 0);
+      const wp = laneWaypoint(sim, fid, g.lane, 0);
       const ids = [];
       for (const id of g.squadIds) {
         const sq = rt.squadById.get(id);
@@ -267,7 +306,7 @@ export const blackGrailAI = {
       const cv = convoyNear(sim, fid, C[0], C[1], 70);
       let tgt = rt.structById.get(ai.raid.sid);
       if (!tgt || tgt.hp <= 0) {
-        const home = state.structures.find((s) => s.objective && ((s.visibleTo | s.seenBy) & (1 << FACTIONS[fid].index)));
+        const home = knownEnemyHome(sim, fid);
         tgt = raidTarget(sim, fid, C[0], C[1], 90, home ? home.x : undefined, home ? home.z : undefined);
         if (!tgt && !cv) { this.endRaid(sim, fid, ai, g); return; }
         ai.raid.sid = tgt ? tgt.id : 0;
@@ -288,7 +327,7 @@ export const blackGrailAI = {
     if (tick - (ai.lastRaid || 0) < (hungry ? RAID_EVERY : RAID_EVERY * 2)) return;
     const forming = ai.groups.find((g) => g.mode === 'forming' && g.squadIds.length >= 2);
     if (!forming || !groupCentroid(sim, forming, C)) return;
-    const home = state.structures.find((s) => s.objective && ((s.visibleTo | s.seenBy) & (1 << FACTIONS[fid].index)));
+    const home = knownEnemyHome(sim, fid);
     const tgt = raidTarget(sim, fid, C[0], C[1], 420, home ? home.x : undefined, home ? home.z : undefined);
     if (!tgt) { ai.lastRaid = tick - RAID_EVERY / 2; return; }
     const pack = [];
@@ -349,7 +388,7 @@ export const blackGrailAI = {
     ai.lastGangThink = state.tick;
     if (sim.scenario && sim.scenario.mode === 'stress') return;
     const f = state.factions[fid];
-    const bit = 1 << FACTIONS[fid].index;
+    const bit = sideBit(fid);
     const gangs = state.squads.filter((sq) => sq.faction === fid && hasRole(unitDef(sq.type), 'builder') && sq.members.some((m) => m.state === 'alive'));
     // production: two gangs (three with the Hunger), the first as soon as it is affordable
     const want = Math.min(unitMaxSquads(state, fid, 'thrall_gang') || 2, specHas(state, fid, 'bg_hunger') ? 3 : 2);
@@ -359,7 +398,7 @@ export const blackGrailAI = {
       const altar = state.structures.find((s) => s.faction === fid && s.built && s.queue && s.queue.length === 0 && STRUCTURES[s.type].trains.indexOf('thrall_gang') >= 0);
       if (altar) {
         ai.lastGang = state.tick;
-        aiIssue(sim, { type: CMD.SET_RALLY, faction: fid, sid: altar.id, x: altar.x, z: altar.z + 12 });
+        aiIssue(sim, { type: CMD.SET_RALLY, faction: fid, sid: altar.id, x: altar.x, z: altar.z + sideForward(sim, fid)[1] * 12 });
         aiIssue(sim, { type: CMD.TRAIN, faction: fid, sid: altar.id, unit: 'thrall_gang' });
       }
     }
@@ -383,7 +422,7 @@ export const blackGrailAI = {
       if (!placedNow && state.match.phase === 'WAR' && state.tick - (state.match.prepEndTick || 0) > 20 * 120) {
         for (const type of ['viscera_nest', 'belcher_nest']) {
           if (state.structures.some((s) => s.faction === fid && s.type === type)) continue;
-          const item = (world.grailPlan || []).find((it) => it.type === type);
+          const item = planFor(sim, fid, 'organic').find((it) => it.type === type);
           const cost = STRUCTURES[type].cost.biomass;
           if (!item || (f.resources.biomass || 0) < cost) break;
           const params = { x: item.x, z: item.z, rot: item.rot || 0 };
@@ -399,7 +438,7 @@ export const blackGrailAI = {
       if (!placedNow && state.match.phase === 'WAR') {
         const due = state.tick - (ai.lastPlan || state.match.prepEndTick || 0) > 20 * 90;
         let placed = false, want = 0;
-        for (const item of world.grailPlan || []) {
+        for (const item of planFor(sim, fid, 'organic')) {
           if (planDone(sim, fid, item)) continue;
           const params = item.x1 !== undefined ? { x1: item.x1, z1: item.z1, x2: item.x2, z2: item.z2 } : { x: item.x, z: item.z, rot: item.rot || 0 };
           if (!validatePlacement(sim, fid, item.type, params).ok) continue;
@@ -443,7 +482,7 @@ export const blackGrailAI = {
     if (ai.deployed) return;
     ai.deployed = true;
     for (const g of ai.groups) {
-      const wp = laneWaypoint(sim, g.lane, 0);
+      const wp = laneWaypoint(sim, fid, g.lane, 0);
       if (g.squadIds.length) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: g.squadIds.slice(), x: wp[0], z: wp[1] });
     }
   },
@@ -459,7 +498,7 @@ export const blackGrailAI = {
       const sq = sim.rt.squadById.get(id);
       if (!sq) continue;
       g.peak += aliveCount(sq);
-      const st = Math.max(1, laneStageFor(sim, g.lane, sq.cx, sq.cz));
+      const st = Math.max(1, laneStageFor(sim, fid, g.lane, sq.cx, sq.cz));
       ai.stage[id] = st;
       if (st < minStage) minStage = st;
       if (!byStage.has(st)) byStage.set(st, []);
@@ -467,7 +506,7 @@ export const blackGrailAI = {
     }
     g.stage = minStage === Infinity ? 1 : minStage;
     for (const [st, ids] of byStage) {
-      const wp = laneWaypoint(sim, g.lane, st);
+      const wp = laneWaypoint(sim, fid, g.lane, st);
       aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: ids, x: wp[0], z: wp[1], attackMove: true });
     }
   },
@@ -490,23 +529,91 @@ export const blackGrailAI = {
       let hp = 0;
       for (const m of lord.members) if (m.state === 'alive') hp += m.hp;
       if (hp < unitDef(lord.type).hp * 0.45 && altar) {
-        if (dist(lord.cx, lord.cz, altar.x, altar.z) > 20 && lord.order.t !== 'move') aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lord.id], x: altar.x, z: altar.z + 14 });
+        if (dist(lord.cx, lord.cz, altar.x, altar.z) > 20 && lord.order.t !== 'move') aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lord.id], x: altar.x, z: altar.z + sideForward(sim, fid)[1] * 14 });
         return;
       }
       const w = waves[i % Math.max(1, waves.length)];
       if (!w || lord.engaged || lord.order.t === 'attack') return;
-      const home = altar ? [altar.x, altar.z] : [lord.cx, lord.cz - 30];
+      const home = altar ? [altar.x, altar.z] : [lord.cx, lord.cz - sideForward(sim, fid)[1] * 30];
       const dx = home[0] - w.x, dz = home[1] - w.z, d = Math.max(1, dist(0, 0, dx, dz));
       const tx = w.x + (dx / d) * 22, tz = w.z + (dz / d) * 22;
       if (dist(lord.cx, lord.cz, tx, tz) > 10) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [lord.id], x: tx, z: tz, attackMove: true });
     });
   },
 
+  /**
+   * DEFENDER role: forming waves answer visible enemies near the own base (HQ / structures) with
+   * attack-moves; when the threat is gone they walk back to their staging points (manageGroups).
+   */
+  defendHome(sim, fid, ai) {
+    const { state, rt } = sim;
+    if (state.tick - (ai.defCheck || 0) < 20) return;
+    ai.defCheck = state.tick;
+    const bit = sideBit(fid);
+    const home = homeStructure(state, fid);
+    if (!home) return;
+    let threat = null, td = 150;
+    for (const e of state.squads) {
+      if (!areHostile(fid, e.faction) || e.civ || !(e.visibleTo & bit) || !unitDef(e.type).combatUnit) continue;
+      if (!e.members.some((m) => m.state === 'alive')) continue;
+      const d = dist(e.cx, e.cz, home.x, home.z);
+      if (d < td || (d === td && threat && e.id < threat.id)) { td = d; threat = e; }
+    }
+    ai.defending = threat ? threat.id : 0;
+    if (!threat) return;
+    for (const g of ai.groups) {
+      if (g.mode !== 'forming') continue;
+      const ids = [];
+      for (const id of g.squadIds) {
+        const sq = rt.squadById.get(id);
+        if (!sq || sq.engaged || sq.order.t === 'attack') continue;
+        if (sq.order.t === 'move' && sq.order.am && dist(sq.order.x, sq.order.z, threat.cx, threat.cz) < 12) continue;
+        ids.push(id);
+      }
+      if (ids.length) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: ids, x: threat.cx, z: threat.cz, attackMove: true });
+    }
+  },
+
+  /**
+   * DEFENDER role: a counter-wave sallies out when the horde clearly outnumbers what it has seen of
+   * the enemy recently (memory decays; fog-honest), or late in the war. Returns true to launch.
+   */
+  sally(sim, fid, ai, S) {
+    const { state } = sim;
+    const bit = sideBit(fid);
+    let foe = 0, mine = 0;
+    for (const e of state.squads) {
+      if (!unitDef(e.type).combatUnit || e.civ) continue;
+      let n = 0;
+      for (const m of e.members) if (m.state === 'alive') n++;
+      if (e.faction === fid) mine += n;
+      else if (areHostile(fid, e.faction) && (e.visibleTo & bit)) foe += n;
+    }
+    if (state.tick - (ai.foeTick || 0) >= 20) {
+      ai.foe = Math.max(foe, Math.floor((ai.foe || 0) * 0.97));
+      ai.foePeak = Math.max(ai.foePeak || 0, foe);
+      ai.foeTick = state.tick;
+    }
+    if (ai.defending) return false;
+    // the horde only sallies against an enemy it has actually measured (never blind): clearly
+    // outnumbering the strongest force it has seen, after the first minutes of the war — or late
+    // in the war, when time is on the attacker's side no longer (endless: after the nominal length)
+    const war = state.tick - state.match.prepEndTick;
+    const nominal = Math.max(1, (state.match.warMinutes || 30) * 60 * 20);
+    const late = war > nominal * 0.55;
+    if (mine < 30) return false;
+    if (late) return true;
+    return war > 20 * 180 && (ai.foePeak || 0) > 0 && mine >= S.sallyRatio * Math.max(ai.foePeak, ai.foe || 0) * 1.5;
+  },
+
   manageGroups(sim, fid, ai) {
     const { state, rt } = sim;
-    const bit = 1 << FACTIONS[fid].index;
-    const objective = state.structures.find((s) => s.objective);
+    const bit = sideBit(fid);
+    // the ENEMY's headquarters (objective first) — never the own base, whatever the role
+    const objective = enemyTarget(sim, fid);
     const objKnown = objective && ((objective.visibleTo | objective.seenBy) & bit);
+    const S = roleStrategy(sim, fid);
+    const sally = !S.holdHome || this.sally(sim, fid, ai, S);
     for (const g of ai.groups) {
       if (!g.squadIds.length || g.mode === 'raid') continue;
       if (g.mode === 'forming') {
@@ -518,11 +625,11 @@ export const blackGrailAI = {
         // in a reorganisation window the horde gathers in strength before it goes again
         const lull = isLull(state);
         const need = lull ? 5 : early ? 2 : 3, wait = lull ? 60 : early ? 25 : 40;
-        if (g.squadIds.length >= need || state.tick - g.formedTick > 20 * wait) {
+        if (sally && (g.squadIds.length >= need || state.tick - g.formedTick > 20 * wait)) {
           g.lane = safestLane(ai, state.rng.ai);
           this.launch(sim, fid, ai, g);
         } else {
-          const wp = laneWaypoint(sim, g.lane, 0);
+          const wp = laneWaypoint(sim, fid, g.lane, 0);
           for (const id of g.squadIds) {
             const sq = rt.squadById.get(id);
             if (sq && sq.order.t === 'idle' && dist(sq.cx, sq.cz, wp[0], wp[1]) > 20) aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [id], x: wp[0], z: wp[1] });
@@ -530,7 +637,7 @@ export const blackGrailAI = {
         }
         continue;
       }
-      const pts = sim.world.lanes[g.lane];
+      const pts = lanesFor(sim, fid)[g.lane];
       const last = pts.length - 1;
       // per-squad stages; a squad may run at most one waypoint ahead of its group's rearmost
       let minStage = last;
@@ -549,7 +656,7 @@ export const blackGrailAI = {
             g.lane = LANES[(LANES.indexOf(g.lane) + 1) % LANES.length];
             ai.retry[id] = 0;
           }
-          const w2 = laneWaypoint(sim, g.lane, ai.stage[id]);
+          const w2 = laneWaypoint(sim, fid, g.lane, ai.stage[id]);
           aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [id], x: w2[0], z: w2[1], attackMove: true });
           continue;
         }
@@ -561,13 +668,13 @@ export const blackGrailAI = {
         }
         if (o.t !== 'idle') continue; // still travelling
         // idle: advance when the current waypoint is reached, otherwise re-issue the order
-        const wp = laneWaypoint(sim, g.lane, ai.stage[id]);
+        const wp = laneWaypoint(sim, fid, g.lane, ai.stage[id]);
         // arrival is judged by the squad anchor (always on its path), not by the centroid a
         // straggler can drag away
         if (dist(sq.x, sq.z, wp[0], wp[1]) < WAYPOINT_REACHED) {
           if (ai.stage[id] < last && ai.stage[id] <= minStage) {
             ai.stage[id]++;
-            const nwp = laneWaypoint(sim, g.lane, ai.stage[id]);
+            const nwp = laneWaypoint(sim, fid, g.lane, ai.stage[id]);
             aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: [id], x: nwp[0], z: nwp[1], attackMove: true });
           }
           // else: wait for the rest of the wave
@@ -588,7 +695,7 @@ export const blackGrailAI = {
         g.formedTick = state.tick;
         g.stage = 0;
         for (const id of g.squadIds) ai.stage[id] = 0;
-        const back = laneWaypoint(sim, g.lane, 0);
+        const back = laneWaypoint(sim, fid, g.lane, 0);
         aiIssue(sim, { type: CMD.MOVE, faction: fid, squadIds: g.squadIds.slice(), x: back[0], z: back[1] });
       }
     }
@@ -602,7 +709,7 @@ export const blackGrailAI = {
     if ((f.resources.biomass || 0) < ab.cost.biomass) return;
     if (state.tick - ai.lastAbilityCheck < 20) return;
     ai.lastAbilityCheck = state.tick;
-    const bit = 1 << FACTIONS[fid].index;
+    const bit = sideBit(fid);
     const own = state.squads.filter((s) => s.faction === fid);
     let best = null, bestScore = 6;
     for (const e of state.squads) {
@@ -671,7 +778,7 @@ export const blackGrailAI = {
     const altar = altars[ai.altarIndex % altars.length];
     ai.altarIndex++;
     const lane = safestLane(ai, state.rng.ai);
-    const stage = laneWaypoint(sim, lane, 0);
+    const stage = laneWaypoint(sim, fid, lane, 0);
     aiIssue(sim, { type: CMD.SET_RALLY, faction: fid, sid: altar.id, x: stage[0], z: stage[1] });
     aiIssue(sim, { type: CMD.TRAIN, faction: fid, sid: altar.id, unit });
   },

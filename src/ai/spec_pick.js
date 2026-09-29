@@ -6,6 +6,7 @@ import { availableTier } from '../sim/specialities.js';
 import { rngFloat } from '../core/rng.js';
 import { CMD } from '../sim/commands.js';
 import { aiIssue } from './issue.js';
+import { baseFaction } from '../data/factions.js';
 
 /**
  * weightsFor(tier, ids) -> { id: weight } (missing / negative = 0). One command per open tier;
@@ -16,7 +17,8 @@ export function aiPickSpeciality(sim, fid, ai, weightsFor) {
   const tier = availableTier(state, fid);
   if (tier < 0) return null;
   if (ai.specTier === tier && state.tick - (ai.specTick || 0) < 60) return null;
-  const opts = SPECIALITIES[fid] && SPECIALITIES[fid][tier];
+  const tiers = SPECIALITIES[baseFaction(fid)];
+  const opts = tiers && tiers[tier];
   if (!opts || !opts.length) return null;
   const w = weightsFor(tier, opts.map((o) => o.id)) || {};
   let total = 0;

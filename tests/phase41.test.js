@@ -568,7 +568,7 @@ test('save v4 -> v5 migration: commander fields converted safely, positional rei
   const loaded = deserializeSave(JSON.stringify({ ...hdr, version: 4, state: s }));
   const st = loaded.state;
   assert.equal(st.version, STATE_VERSION);
-  assert.equal(STATE_VERSION, 5);
+  assert.ok(STATE_VERSION >= 5, 'v4 saves migrate through v5 to the current version');
   for (const fid of [NA, BG]) assert.ok(st.factions[fid].cmdr === undefined && st.factions[fid].autoReinf === undefined && st.factions[fid].reinfWait === 0);
   const t2 = st.squads.find((q) => q.id === trenchSq.id);
   assert.equal(t2.posId, 77); assert.equal(t2.posAuto, 1, 'a squad in a trench starts ON');

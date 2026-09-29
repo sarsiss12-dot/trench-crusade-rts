@@ -7,6 +7,7 @@ import { UNITS } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { EV } from '../core/events.js';
 import { clamp } from '../core/dmath.js';
+import { baseFaction } from '../data/factions.js';
 
 const EMPTY = [];
 
@@ -77,7 +78,7 @@ export function availableTier(state, fid) {
 }
 
 export function validateSpec(state, fid, tier, id) {
-  const tiers = SPECIALITIES[fid];
+  const tiers = SPECIALITIES[baseFaction(fid)];
   if (!tiers || !Number.isInteger(tier) || tier < 0 || tier >= tiers.length) return 'spec.invalid';
   if (!tiers[tier].some((o) => o.id === id)) return 'spec.invalid';
   const list = specList(state, fid);

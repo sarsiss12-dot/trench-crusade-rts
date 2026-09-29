@@ -20,6 +20,18 @@ export const STRUCTURES = {
     hq: true, reinforceSource: true, hub: true, fortAnchor: true, anchorRadius: 90, homeEcon: 70, shelter: true,
     model: 'bastion',
   },
+  // Phase 5A: a New Antioch side that STARTS as the attacker has no fortress-city behind it; its
+  // HQ is a forward field headquarters (same HQ capability as the bastion: trains, reinforcement
+  // source, resupply, drop-off; lighter economy). Gameplay abstraction, no canon name.
+  field_hq: {
+    id: 'field_hq', faction: 'new_antioch', kind: 'building', nameKey: 'struct.field_hq',
+    lore: { status: 'abstraction', ref: 'Forward command posts of trench warfare (WWI); New Antioch campaigns far from its walls (official lore) — the structure itself is a gameplay abstraction' },
+    footprint: { w: 14, d: 10 }, hp: 5200, blocks: true, vision: 52, buildable: false,
+    dropOff: true, resupplyRadius: 38, reinforceRadius: 40, supplyRate: 0.55, materialRate: 0.2,
+    trains: ['yeoman_rifle', 'combat_engineer', 'mech_heavy', 'combat_medic', 'shock_flamer', 'trench_cleric', 'na_lieutenant', 'sniper_priest'], canBeObjective: true,
+    hq: true, reinforceSource: true, hub: true, fortAnchor: true, anchorRadius: 80, homeEcon: 60, shelter: true,
+    model: 'depot',
+  },
   supply_depot: {
     id: 'supply_depot', faction: 'new_antioch', kind: 'building', nameKey: 'struct.supply_depot',
     lore: { status: 'abstraction' },

@@ -132,7 +132,7 @@ export function iconForUnit(def) {
 }
 
 export function iconForStructure(id) {
-  const map = { grail_altar: 'altar', supply_depot: 'depot', field: 'food', observation_post: 'observation_post', ruin_house: 'garrison', ruin_chapel: 'garrison', viscera_nest: 'organic_gun', belcher_nest: 'belcher' };
+  const map = { grail_altar: 'altar', supply_depot: 'depot', field_hq: 'depot', field: 'food', observation_post: 'observation_post', ruin_house: 'garrison', ruin_chapel: 'garrison', viscera_nest: 'organic_gun', belcher_nest: 'belcher' };
   if (!ICONS[map[id] || id]) return 'build';
   return map[id] || id;
 }

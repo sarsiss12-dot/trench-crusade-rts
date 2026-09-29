@@ -105,11 +105,21 @@ olarak işaretlidir; kuralın kendisi (bonuslar, açtıkları) yine oyun soyutla
 | Yağmur ve trafik çamuru | abstraction | Yağmurlu, çamurlu siper cephesi evrenin görsel dilinde sürekli işlenir | Tohumlu sağanak takvimi, çamur ızgarası ve hız cezası soyutlama |
 | Ceset Yığını başlangıç yapısı | abstraction | Kara Kâse'nin ölüleri kullanması kanon | Başlangıçta bir yığın + 22 m işleme alanı soyutlama |
 
+## Faz 05A eklemeleri
+
+| Varlık | Durum | Doğrulanan | Proje yorumu |
+|---|---|---|---|
+| Sahra Karargâhı (`field_hq`) | abstraction | Yeni Antakya'nın surlarından uzakta sefer yürüttüğü resmî lore'da var; siper savaşının ileri komuta noktaları tarihî | Taarruzda başlayan Yeni Antakya tarafının HQ'su; oyun soyutlaması, kanon yapı adı değil |
+| Iron Sultanate / Heretic Legion (kilitli kartlar) | canon (isimler) | Resmî Trench Crusade fraksiyonları | Faz 05A'da **içerik yok**: yalnızca "Yakında / uygulanmadı" kartı. Birim / yapı / Iron Wall vb. ancak 05B / 05C'de kaynakla |
+| "Yeni Antakya Kuşatması" lore ön ayarı | abstraction | Yeni Antakya'nın kuşatmaları resmî lore'da var | Bir senaryo ön ayarıdır; tek olası savaş değildir. Ters rol ve ayna maçlar oyun kurgusudur, kanon olay iddiası değil |
+| Fraksiyon kimlik satırları (kurulum kartları) | abstraction | — | Bu oyundaki fraksiyonların oynanış tarifi; lore iddiası değil |
+
 ## Bilinçli olarak eklenmeyenler
 
 Tanklar, alev makineli tanklar, Communicant'lar, Hounds / Fly Thrall gibi birimler resmî kaynaklarda var ancak henüz
 uygulanmadı (bkz. `ROADMAP.md`). Amalgam, Herald of Beelzebub, Lord of Tumours, Combat Medic, Trench Cleric ve
-Lieutenant Faz 3'te, Sniper Priest Faz 4.1'de eklendi. Iron Sultanate ve Heretic Legion Faz 05'e bırakıldı. `scenario.techEra` alanı ileride yıl/teknoloji ön ayarları için
+Lieutenant Faz 3'te, Sniper Priest Faz 4.1'de eklendi. Iron Sultanate (05B) ve Heretic Legion (05C) için Faz 05A yalnızca
+mimariyi hazırladı; içerik yok. `scenario.techEra` alanı ileride yıl/teknoloji ön ayarları için
 ayrıldı; kaynakla doğrulanmadan içerik eklenmeyecek.
 
 ## Kaynaklar
@@ -123,3 +133,4 @@ ayrıldı; kaynakla doğrulanmadan içerik eklenmeyecek.
 - [Trench Crusade — The Armaments of the Great War (resmî lore)](https://www.trenchcrusade.com/lore/the-armaments-of-the-great-war/)
 - [New Recruit Wiki — Viscera Cannon](https://www.newrecruit.eu/wiki/trenchcrusade/trench-crusade/black-grail/9eea-4e25-e838-01e4/viscera-cannon)
 - [Trench Companion — Battlekit glossary (Corruption Belcher)](https://trench-companion.com/compendium/battlekit/ranged)
+- [Trench Companion — Warbands (Iron Sultanate, Heretic Legion…)](https://trench-companion.com/compendium/warbands)

@@ -3,7 +3,7 @@
 // Individual soldiers never run A*; they steer to formation slots around the squad anchor.
 import { STRUCTURES } from '../data/structures.js';
 import { TERRAIN_TYPES } from '../data/terrain_types.js';
-import { FACTIONS, FACTION_ORDER } from '../data/factions.js';
+import { FACTIONS, FACTION_ORDER, contentIndex } from '../data/factions.js';
 import { linearCellsVisit } from '../construction/trench.js';
 import { dsin, dcos } from '../core/dmath.js';
 
@@ -286,7 +286,7 @@ export function worldLineClear(nav, ax, az, bx, bz) {
  */
 export function findPath(nav, factionId, sx, sz, gx, gz) {
   nav.lastCost = 0;
-  const fIdx = FACTIONS[factionId] ? FACTIONS[factionId].index : 0;
+  const fIdx = contentIndex(factionId); // terrain speed tables are faction CONTENT (a mirror twin moves alike)
   const { cols } = nav;
   let s = cellAt(nav, sx, sz), g = cellAt(nav, gx, gz);
   if (s < 0 || g < 0) return null;

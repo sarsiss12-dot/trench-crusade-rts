@@ -4,6 +4,7 @@
 import { unitDef } from '../data/units.js';
 import { isSquadVisibleTo, isStructureKnownTo } from '../sim/perception.js';
 import { isSquadAlive } from '../sim/state.js';
+import { STRUCTURES } from '../data/structures.js';
 
 export function createSelection() {
   const sel = {
@@ -125,6 +126,27 @@ export function squadIdsWithRole(sim, viewer, role) {
     ids.push(sq.id);
   }
   return ids.sort((a, b) => a - b);
+}
+
+
+/**
+ * Fixed quick-select structures for the local side. New Phase 5A starts persist `quickSlot` on the
+ * structure itself (A/B/C for the Black Grail production altars, HQ for New Antioch's starting
+ * church-bastion / field HQ). The fallback keeps migrated pre-hotfix saves useful: the first three
+ * own train-capable HQ structures become A/B/C; a single one becomes HQ. This returns ids only and
+ * never performs camera movement.
+ */
+export function quickStructureSlots(sim, viewer) {
+  const own = sim.state.structures.filter((s) => s.faction === viewer && s.built).sort((a, b) => a.id - b.id);
+  const tagged = own.filter((s) => !!s.quickSlot).map((s) => ({ id: s.id, type: s.type, label: s.quickSlot }));
+  if (tagged.length) return tagged;
+  const hubs = own.filter((s) => {
+    const d = STRUCTURES[s.type];
+    return !!(d && d.hq && d.trains && d.trains.length);
+  });
+  if (hubs.length >= 3) return hubs.slice(0, 3).map((s, i) => ({ id: s.id, type: s.type, label: String.fromCharCode(65 + i) }));
+  if (hubs.length === 1) return [{ id: hubs[0].id, type: hubs[0].type, label: 'HQ' }];
+  return [];
 }
 
 /** The MULTI-SELECT quick button's visible state: explicit ON label + class (Phase 4 mobile UX). */

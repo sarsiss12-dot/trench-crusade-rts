@@ -6,7 +6,7 @@
 // can leak what happened behind the fog. The memory survives a renderer rebuild (lost GPU context)
 // and is stored with saves (outside the GameState: it is the player's knowledge, not the world).
 import { isStructureVisibleTo, isStructureKnownTo, isPointVisibleTo, isNodeKnownTo } from '../sim/perception.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideDef } from '../data/factions.js';
 import { fogIndex } from '../world/fog.js';
 
 function snapshot(st) {
@@ -63,7 +63,7 @@ export function createStructureMemory(init = null) {
     const n = src.cols * src.rows;
     if (!inf || inf.length !== n) inf = new Uint8Array(n);
     const fog = sim.state.fog;
-    const f = FACTIONS[viewer];
+    const f = sideDef(viewer);
     if (!f) { inf.set(src.v); return inf; }
     const vis = fog.vis[f.index];
     for (let z = 0; z < src.rows; z++) {

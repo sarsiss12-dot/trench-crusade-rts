@@ -5,6 +5,7 @@ import { TR_P2, EN_P2 } from './i18n_p2.js';
 import { TR_P3, EN_P3 } from './i18n_p3.js';
 import { TR_P4, EN_P4 } from './i18n_p4.js';
 import { TR_P41, EN_P41 } from './i18n_p41.js';
+import { TR_P5, EN_P5 } from './i18n_p5.js';
 
 const TR = {
   'app.title': 'Yeni Antakya Kuşatması',
@@ -369,6 +370,8 @@ Object.assign(TR, TR_P4);
 Object.assign(EN, EN_P4);
 Object.assign(TR, TR_P41);
 Object.assign(EN, EN_P41);
+Object.assign(TR, TR_P5);
+Object.assign(EN, EN_P5);
 
 export const LANGUAGES = { tr: TR, en: EN };
 let current = 'tr';

@@ -12,7 +12,7 @@
 //    slower manpower. Runs at 1 Hz; everything is plain state (deterministic, saved).
 import { STRUCTURES } from '../data/structures.js';
 import { SECTOR_KINDS, POPULATION, CONVOY } from '../data/economy.js';
-import { FACTIONS, areHostile } from '../data/factions.js';
+import { areHostile, sideBit } from '../data/factions.js';
 import { EV } from '../core/events.js';
 import { dist, clamp } from '../core/dmath.js';
 import { TICK_RATE } from '../sim/constants.js';
@@ -58,7 +58,7 @@ export function econHostAt(sim, fid, x, z) {
 
 /** Visible hostile presence near a point (what the settlement's people can see coming). */
 export function threatNear(sim, fid, x, z, r) {
-  const bit = 1 << FACTIONS[fid].index;
+  const bit = sideBit(fid);
   for (const sq of sim.state.squads) {
     if (!areHostile(fid, sq.faction) || !(sq.visibleTo & bit)) continue;
     if (dist(sq.cx, sq.cz, x, z) > r) continue;

@@ -7,7 +7,7 @@ import { icon, iconForUnit, iconForStructure } from './icons.js';
 import { t, formatClock } from './i18n.js';
 import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideDef, isOrganic, isPlagueImmune, baseFaction } from '../data/factions.js';
 import { ABILITIES } from '../data/abilities.js';
 import { WEAPONS } from '../data/weapons.js';
 import { COVER_TYPES, COVER_IDS } from '../data/cover.js';
@@ -18,7 +18,7 @@ import { isSquadAlive } from '../sim/state.js';
 import { isCorpseKnownTo, isStructureVisibleTo, isSoldierVisibleTo } from '../sim/perception.js';
 import { canAfford } from '../economy/economy.js';
 import { trenchSlotCount, trenchCoverStrength, trenchNetwork, networkCapacity } from '../construction/trench.js';
-import { allCombatSquadIds, squadIdsWithRole, multiSelectView } from '../input/selection.js';
+import { allCombatSquadIds, squadIdsWithRole, multiSelectView, quickStructureSlots } from '../input/selection.js';
 import { unitCost, unlockedBySpec } from '../sim/specialities.js';
 import { structureCost } from '../construction/construction.js';
 import { createP3Hud } from './hud_p3.js';
@@ -40,8 +40,8 @@ function coverLevel(idx) {
 
 export function createHud(game) {
   const { session, sim, viewer } = game;
-  const fdef = FACTIONS[viewer];
-  const root = el('div.hud' + (viewer === 'black_grail' ? '.bg' : '.na'));
+  const fdef = sideDef(viewer);
+  const root = el('div.hud' + (isOrganic(viewer) ? '.bg' : '.na'));
   let p3 = null; // Phase 3 panels (created at the end, see hud_p3.js)
   let p4 = null; // Phase 4 parts (control groups, auto reinforcement, lull banners — hud_p4.js)
   game.env.root.appendChild(root);
@@ -49,7 +49,7 @@ export function createHud(game) {
   // ------------------------------------------------------------------ top bar
   const resBox = el('div.res');
   const resNodes = {};
-  const resList = viewer === 'black_grail' ? ['biomass', 'corpses'] : fdef.resources;
+  const resList = fdef.hudResources || fdef.resources;
   for (const k of resList) {
     const v = el('b');
     const n = el('span.r', { title: t('res.' + k) + ' — ' + t('res.' + k + '.tip'), html: icon(k) }, v);
@@ -64,7 +64,11 @@ export function createHud(game) {
   const phaseTime = el('span.pt');
   // siege objective: the Church Bastion's condition (attackers only see what they last saw)
   const objBar = el('div.bar.objbar', null, el('i'));
-  const objBox = el('div.obj', { title: t('struct.bastion'), html: icon('bastion', 'sm') }, objBar);
+  // the scenario objective (whatever structure / side holds it — Phase 5A)
+  const objSt = sim.state.structures.find((x) => x.objective);
+  const objType = objSt ? objSt.type : 'bastion';
+  const objBox = el('div.obj', { title: t('struct.' + objType) + (objSt && objSt.faction !== viewer ? ' · ' + t('side.enemy') : ''), html: icon(iconForStructure(objType), 'sm') }, objBar);
+  if (!objSt) objBox.style.display = 'none';
   const phaseBox = el('div.phase', null, phaseName, phaseTime, objBox);
   const speedBox = el('div.speed');
   const speedBtns = {};
@@ -74,7 +78,7 @@ export function createHud(game) {
     speedBox.appendChild(b);
   }
   const menuBtn = button('menubtn', icon('menu'), () => game.env.onPause && game.env.onPause(), t('hud.menu'));
-  const crest = el('span.crest', { html: icon(viewer === 'black_grail' ? 'grail' : 'cross'), title: t('faction.' + viewer + '.full') });
+  const crest = el('span.crest', { html: icon(fdef.card.icon), title: t('faction.' + baseFaction(viewer) + '.full') });
   const top = el('div.hud-top', null, el('div.tl', null, crest, resBox), phaseBox, el('div.tr', null, speedBox, menuBtn));
   root.appendChild(top);
 
@@ -85,7 +89,7 @@ export function createHud(game) {
   // ------------------------------------------------------------------ quick stack (right)
   const quick = el('div.quick');
   const qAll = button('q', icon('all') + `<i>${t('hud.all')}</i>`, () => selectIds(allCombatSquadIds(sim, viewer)), t('hud.all'));
-  const bg = viewer === 'black_grail';
+  const bg = isOrganic(viewer);
   const qEng = fdef.buildList.length ? button('q', icon(bg ? 'gang' : 'engineer') + `<i>${t(bg ? 'hud.gangs' : 'hud.engineers')}</i>`, () => selectIds(squadIdsWithRole(sim, viewer, 'builder')), t(bg ? 'hud.gangs' : 'hud.engineers')) : null;
   // box / multi-select modes carry a label and an explicit ON state (Phase 4: the old multi-select
   // glyph was read as a "copy" button)
@@ -94,6 +98,23 @@ export function createHud(game) {
   const qHome = button('q', icon('home'), () => game.home(), t('hud.home'));
   quick.append(qAll);
   if (qEng) quick.append(qEng);
+  // Phase 5A hotfix: fixed starting-structure shortcuts. Black Grail gets A/B/C for its three
+  // starting production altars; New Antioch gets HQ for the church-bastion (or field HQ when the
+  // faction is the attacker). Selecting one changes selection only: the camera deliberately stays.
+  const qStructButtons = [];
+  for (const slot of quickStructureSlots(sim, viewer)) {
+    const title = t('struct.' + slot.type) + ' · ' + slot.label;
+    const b = button('q structq', icon(iconForStructure(slot.type)) + `<i>${slot.label}</i>`, () => {
+      const st = sim.rt.structById.get(slot.id);
+      if (!st || st.faction !== viewer) return;
+      game.selection.setStruct(st.id);
+      if (game.audio) game.audio.ui('select');
+      dirty = true;
+    }, title);
+    b.dataset.structId = String(slot.id);
+    qStructButtons.push(b);
+    quick.append(b);
+  }
   quick.append(qBox, qMulti, qHome);
   root.appendChild(quick);
 
@@ -281,7 +302,7 @@ export function createHud(game) {
         game.actions.formation(PLAYER_FORMATIONS[(fi + 1) % PLAYER_FORMATIONS.length]);
         setTimeout(() => { dirty = true; }, 120);
       }, { title: t('hud.formation') }));
-      const rc = FACTIONS[viewer].reinforcements;
+      const rc = sideDef(viewer).reinforcements;
       if (rc && own.some((sq) => sq.members.length < unitDef(sq.type).squadSize)) {
         // the squad holds its ground; paid replacements walk up from the rear
         const rcost = { manpower: rc.manpower, supply: rc.supply };
@@ -316,7 +337,7 @@ export function createHud(game) {
           cmds.append(cmd('rally', t('hud.rally'), () => game.input.startRally(st)));
         }
         if (!st.built && def.buildable) cmds.append(cmd('cancel', t('hud.cancel'), () => { game.actions.cancelBuild(st); game.selection.clear(); }));
-        if (FACTIONS[viewer].buildList.length && (st.hp < st.maxHp || !st.built) && def.kind !== 'area') {
+        if (sideDef(viewer).buildList.length && (st.hp < st.maxHp || !st.built) && def.kind !== 'area') {
           cmds.append(cmd('repair', t('hud.repair'), () => game.actions.assistWithNearest(st)));
         }
       }
@@ -456,12 +477,14 @@ export function createHud(game) {
       if (!sq) return;
       const def = unitDef(sq.type);
       const enemy = sq.faction !== viewer;
-      const head = el('div.ih', { html: `${icon(iconForUnit(def))}<span class="nm">${t(def.nameKey)}</span>` }, el('span.cnt'), el('span.st'));
+      // Phase 5A mirror match: the same unit names on both sides — the enemy's are marked
+      const mirror = enemy && baseFaction(sq.faction) === baseFaction(viewer) ? t('side.enemy') + ' · ' : '';
+      const head = el('div.ih', { html: `${icon(iconForUnit(def))}<span class="nm">${mirror}${t(def.nameKey)}</span>` }, el('span.cnt'), el('span.st'));
       if (enemy) head.classList.add('enemy');
       const hp = el('div.bar.hp', null, el('i'));
       const rows = [head, el('div.row', { html: icon('cover', 'sm') }, hp)];
       if (!enemy && sq.ammoMax > 0) rows.push(el('div.row', { html: icon('ammo', 'sm') }, el('div.bar.ammo', null, el('i'))));
-      if (sq.faction !== 'black_grail') rows.push(el('div.row.infrow', { html: icon('infection', 'sm') }, el('div.bar.inf', null, el('i')), el('span.inft')));
+      if (!isPlagueImmune(sq.faction)) rows.push(el('div.row.infrow', { html: icon('infection', 'sm') }, el('div.bar.inf', null, el('i')), el('span.inft')));
       if (!enemy) rows.push(el('div.cov'));
       rows.push(...eliteRows(def));
       info.append(...rows);
@@ -484,7 +507,8 @@ export function createHud(game) {
     if (st) {
       const def = STRUCTURES[st.type];
       const nameKey = st.faction === 'neutral' && !def.garrison ? (st.type === 'trench' ? 'struct.neutral_trench' : 'struct.neutral_wire') : 'struct.' + st.type;
-      const head = el('div.ih', { html: `${icon(iconForStructure(st.type))}<span class="nm">${t(nameKey)}</span>` }, el('span.st'));
+      const smirror = st.faction !== viewer && st.faction !== 'neutral' && baseFaction(st.faction) === baseFaction(viewer) ? t('side.enemy') + ' · ' : '';
+      const head = el('div.ih', { html: `${icon(iconForStructure(st.type))}<span class="nm">${smirror}${t(nameKey)}</span>` }, el('span.st'));
       if (st.faction !== viewer && st.faction !== 'neutral') head.classList.add('enemy');
       info.append(head, el('div.row', null, el('div.bar.hp', null, el('i'))));
       if (st.faction === viewer && def.buildable) info.append(el('div.sdesc', { text: t('struct.' + st.type + '.desc') }));
@@ -702,7 +726,7 @@ export function createHud(game) {
         if (ev.faction === viewer) notify(ev.reason, 'warn', null, 1.5, fixFor(sim, viewer, ev));
         break;
       case EV.TRAIN_COMPLETED:
-        if (ev.faction === viewer) notify(viewer === 'black_grail' ? 'notice.unit_raised' : 'notice.unit_ready', 'good', { unit: t(unitDef(ev.unit).nameKey) });
+        if (ev.faction === viewer) notify(fdef.emergingProduction ? 'notice.unit_raised' : 'notice.unit_ready', 'good', { unit: t(unitDef(ev.unit).nameKey) });
         break;
       case EV.STRUCTURE_COMPLETED:
         if (ev.faction === viewer) notify('notice.structure_done', 'good', { struct: t('struct.' + ev.stype) }, 0.3);
@@ -779,6 +803,7 @@ export function createHud(game) {
       acc = 0;
       updateTop();
       updateInfo();
+      for (const b of qStructButtons) b.disabled = !sim.rt.structById.has(Number(b.dataset.structId));
       if (game.mode.kind === 'place') renderModebarLive();
     }
     if (p3) p3.update(dt);
@@ -786,7 +811,7 @@ export function createHud(game) {
     updateLens(dt);
     if (!prepHintShown && session.phase() === 'PREPARATION') {
       prepHintShown = true;
-      setText(hint, t(viewer === 'black_grail' ? 'hud.prep_hint_bg' : 'hud.prep_hint'));
+      setText(hint, t(fdef.prepHintKey || 'hud.prep_hint'));
       hint.classList.add('show');
       setTimeout(() => hint.classList.remove('show'), 9000);
     }

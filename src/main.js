@@ -1,6 +1,8 @@
 // Entry point: settings, localization, storage, audio, menus and match lifecycle (new war, load,
 // stress test, model gallery, pause, end screen). URL parameters allow automated / direct starts:
-//   ?autostart=1&faction=black_grail&minutes=15&seed=7&quality=high&prep=60
+//   ?autostart=1&faction=black_grail&minutes=15&seed=7&quality=high&prep=60 (Lore preset)
+//   ?autostart=1&setup=free&pf=new_antioch&ef=black_grail&role=attacker&scenario=open_battle&ai=hard
+//     (Free Setup; pf = ef makes a mirror match) · &aiai=1 (every side AI-controlled)
 //   ?stress=320 · ?view=gallery · &ff=120 (fast-forward s) · &cam=x,z,dist · &fog=0 · &debug=1 · &lang=en
 import { createGame } from './app/game.js';
 import { createHud } from './ui/hud.js';
@@ -160,12 +162,21 @@ function startFailed(opts, env, e) {
   app.appendChild(box);
 }
 
-function startMatch({ faction, warMinutes, seed, prepSeconds, controllers, lulls }) {
-  lastStart = () => startMatch({ faction, warMinutes, seed, prepSeconds, controllers, lulls });
+/**
+ * A new war. `setup` (Match Setup, Phase 5A): { mode: 'lore' | 'free', scenarioId, playerFaction,
+ * enemyFaction, playerRole }; legacy `faction` = the Lore preset played as that faction.
+ */
+function startMatch({ setup, faction, aiDifficulty, warMinutes, seed, prepSeconds, controllers, lulls, allAi }) {
+  lastStart = () => startMatch({ setup, faction, aiDifficulty, warMinutes, seed, prepSeconds, controllers, lulls, allAi });
+  const scenarioId = (setup && setup.scenarioId) || 'siege_default';
   startGame({
-    scenarioId: 'siege_default',
+    scenarioId,
     seed: seed !== undefined ? seed : (Date.now() >>> 0) % 1000000,
-    settings: { playerFaction: faction, warMinutes, prepSeconds, controllers, lulls: lulls !== undefined ? lulls : 'auto' },
+    settings: {
+      setup: setup || undefined, playerFaction: setup ? undefined : faction || 'new_antioch',
+      aiDifficulty: aiDifficulty || 'normal', allAi: !!allAi,
+      warMinutes, prepSeconds, controllers, lulls: lulls !== undefined ? lulls : 'auto',
+    },
   }, { after: urlAfter });
 }
 
@@ -174,7 +185,7 @@ function startStress(n, quality) {
   lastStart = () => startStress(n, quality);
   startGame({
     scenarioId: 'stress', seed: 7, debugOverlay: true,
-    settings: { playerFaction: 'new_antioch', stressSoldiers: n, controllers: { new_antioch: 'ai', black_grail: 'ai' } },
+    settings: { playerFaction: 'new_antioch', stressSoldiers: n, allAi: true },
   }, {
     storage: sandboxStorage,
     after: (g) => {
@@ -210,10 +221,14 @@ function flash(text) {
   setTimeout(() => n.remove(), 2600);
 }
 
-/** "Play again" after a loaded / resumed match: a fresh war with the same side and settings. */
+/** "Play again" after a loaded / resumed match: a fresh war with the same setup and settings. */
 function againLike(state) {
   const st = state.settings || {};
-  return () => startMatch({ faction: st.playerFaction, warMinutes: st.endless ? 'endless' : st.warMinutes, prepSeconds: st.prepSeconds, controllers: st.controllers, lulls: st.lulls });
+  const sides = state.sides || [];
+  const me = sides.find((s) => s.id === st.playerFaction) || sides[0];
+  const foe = sides.find((s) => s !== me);
+  const setup = me && foe ? { mode: st.setupMode || 'lore', scenarioId: state.scenarioId, playerFaction: me.faction, enemyFaction: foe.faction, playerRole: me.role } : undefined;
+  return () => startMatch({ setup, faction: setup ? undefined : st.playerFaction, aiDifficulty: st.aiDifficulty, warMinutes: st.endless ? 'endless' : st.warMinutes, prepSeconds: st.prepSeconds, lulls: st.lulls });
 }
 
 function loadSlot(slot) {
@@ -376,12 +391,19 @@ function bootFromUrl() {
   } else if (q.get('stress')) {
     startStress(Number(q.get('stress')) || 160, settings.quality);
   } else if (q.get('autostart')) {
+    const free = q.get('setup') === 'free' || q.get('pf') || q.get('role') || q.get('scenario');
     startMatch({
+      setup: free ? {
+        mode: q.get('setup') === 'lore' ? 'lore' : 'free', scenarioId: q.get('scenario') || 'siege_default',
+        playerFaction: q.get('pf') || q.get('faction') || 'new_antioch', enemyFaction: q.get('ef') || 'black_grail',
+        playerRole: q.get('role') === 'attacker' ? 'attacker' : 'defender',
+      } : undefined,
       faction: q.get('faction') || 'new_antioch',
+      aiDifficulty: q.get('ai') || 'normal',
       warMinutes: q.get('minutes') === 'endless' ? 'endless' : Number(q.get('minutes') || 30),
       seed: q.get('seed') !== null ? Number(q.get('seed')) : undefined,
       prepSeconds: q.get('prep') !== null ? Number(q.get('prep')) : undefined,
-      controllers: q.get('aiai') ? { new_antioch: 'ai', black_grail: 'ai' } : undefined,
+      allAi: !!q.get('aiai'),
     });
   } else {
     menu.showMain();

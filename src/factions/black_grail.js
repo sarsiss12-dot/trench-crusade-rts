@@ -12,7 +12,7 @@
 //  - infected ground heals the Grail and seeds infection into New Antioch soldiers
 //  - speciality leaders: Heralds of Beelzebub (fly-cloud aura), the Lord of Tumours (regen aura)
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideDef, sideBit, sideIndex, FOG_LAYERS } from '../data/factions.js';
 import { unitDef } from '../data/units.js';
 import { PESTILENCE } from '../data/specialities.js';
 import { EV } from '../core/events.js';
@@ -28,18 +28,19 @@ import { auraValue } from '../sim/auras.js';
 import { specValue } from '../sim/specialities.js';
 import {
   addInfection, pestGain, pestTier, spreadMult, reanimDelayMult, turnDelayTicks, updatePestilence,
+  plagueSides, plagueFaction, plagueImmune, isPlagueSide,
 } from './pestilence.js';
+import { enemyTarget } from '../sim/sides.js';
 
 let scratch = null;
 const PLAGUE = { kind: 'plague', infect: 0 };
-const GRAIL = 'black_grail';
 
-// Fighting Grail soldiers feed on the dead around them; work gangs (combatUnit false) do not —
-// they haul bodies to an altar / corpse mound instead (units/orders.js corpse gathering).
-function anyGrailSoldierNear(sim, x, z, r) {
+// Fighting soldiers of this plague side feed on the dead around them; work gangs (combatUnit
+// false) do not — they haul bodies to an altar / corpse mound instead (units/orders.js).
+function anyGrailSoldierNear(sim, fid, x, z, r) {
   let found = false;
   pointGridQuery(sim.rt.soldierGrid, x, z, r, (m, sq) => {
-    if (!found && sq.faction === GRAIL && m.state === 'alive' && unitDef(sq.type).combatUnit) found = true;
+    if (!found && sq.faction === fid && m.state === 'alive' && unitDef(sq.type).combatUnit) found = true;
   });
   return found;
 }
@@ -61,10 +62,20 @@ export function infectionAt(state, x, z) {
   return inf.v[cz * inf.cols + cx];
 }
 
+/** Infection at a point counted only when the cell belongs to `side`'s plague (0 otherwise). */
+export function ownInfectionAt(state, side, x, z) {
+  const inf = state.infection;
+  const cx = Math.floor(x / inf.cs), cz = Math.floor(z / inf.cs);
+  if (cx < 0 || cz < 0 || cx >= inf.cols || cz >= inf.rows) return 0;
+  const i = cz * inf.cols + cx;
+  if (inf.o && inf.o[i] !== sideIndex(side) + 1) return 0;
+  return inf.v[i];
+}
+
 /** Consecrated ground (Trench Cleric aura / aid station with Faith & Medicine): no body rises there. */
 export function consecrated(sim, x, z) {
   for (const fid in sim.rt.auras || {}) {
-    if (fid === GRAIL) continue;
+    if (isPlagueSide(sim.state, fid)) continue;
     for (const a of sim.rt.auras[fid]) {
       if (a.consecrate && dist(a.x, a.z, x, z) <= a.consecrate) return true;
     }
@@ -81,23 +92,23 @@ function gain(f, kind, amount, tick) {
 function income(sim, fid) {
   const { state } = sim;
   const f = state.factions[fid];
-  const H = FACTIONS[fid].harvest;
+  const H = sideDef(fid).harvest;
   for (const st of state.structures) {
     if (st.faction !== fid || !st.built) continue;
     const d = STRUCTURES[st.type];
     if (d.biomassRate) gain(f, 'passive', d.biomassRate, state.tick);
   }
-  const rot = pestTier(state) >= 3 ? PESTILENCE.tide.corpseRot : 1;
+  const rot = pestTier(state, fid) >= 3 ? PESTILENCE.tide.corpseRot : 1;
   // harvest corpses (uninfected ones; infected corpses are reserved for reanimation)
   for (let i = state.corpses.length - 1; i >= 0; i--) {
     const c = state.corpses[i];
     if (c.riseAt) continue;
     let rate = 0, viaMound = false;
-    if (!c.infected && anyGrailSoldierNear(sim, c.x, c.z, H.radius)) rate = H.ratePerSecond;
+    if (!c.infected && anyGrailSoldierNear(sim, fid, c.x, c.z, H.radius)) rate = H.ratePerSecond;
     else {
       const mound = c.infected ? null : moundNear(sim, fid, c.x, c.z);
       if (mound) { rate = mound.harvestRate * specValue(state, fid, 'moundHarvest', 1); viaMound = true; } // bodies near a corpse mound render down
-      else if (!c.infected && infectionAt(state, c.x, c.z) > 110) rate = 0.12 * rot; // rot seeps into infected ground
+      else if (!c.infected && ownInfectionAt(state, fid, c.x, c.z) > 110) rate = 0.12 * rot; // rot seeps into infected ground
     }
     if (rate <= 0) continue;
     const take = Math.min(c.biomass, rate);
@@ -113,9 +124,10 @@ function income(sim, fid) {
 
 function reanimate(sim, fid) {
   const { state, rt } = sim;
-  const R = FACTIONS[fid].reanimation;
-  const delay = Math.round(R.delaySeconds * TICK_RATE * reanimDelayMult(state));
-  const turnDelay = turnDelayTicks(state);
+  const R = sideDef(fid).reanimation;
+  const delay = Math.round(R.delaySeconds * TICK_RATE * reanimDelayMult(state, fid));
+  const turnDelay = turnDelayTicks(state, fid);
+  const first = plagueFaction(state);
   // schedule: turning bodies rise where they lie; other infected bodies need Grail presence or
   // festering ground. A body on consecrated ground cannot rise while it lies there (a scheduled
   // one is stopped); after R.blessSec seconds (cumulative) of consecration it is PURIFIED for good
@@ -123,24 +135,25 @@ function reanimate(sim, fid) {
   // "consecrated bodies never rise" only held inside the area). A purified body is no longer
   // infected (the Grail can still strip it for biomass).
   for (const c of state.corpses) {
-    if (!c.infected) continue;
+    // only the bodies THIS plague claimed (a mirror match has two claimants)
+    if (!c.infected || (c.plague || first) !== fid) continue;
     if (consecrated(sim, c.x, c.z)) {
       c.riseAt = 0; c.sched = 0;
       c.cons = (c.cons || 0) + 1;
       if (c.cons >= R.blessSec) {
-        c.infected = false; c.turn = 0; c.blessed = 1;
+        c.infected = false; c.plague = ''; c.turn = 0; c.blessed = 1;
         sim.events.push({ type: EV.CORPSE_PURIFIED, id: c.id, x: c.x, z: c.z, faction: c.faction });
       }
       continue;
     }
     if (c.riseAt) continue;
     if (c.turn) c.riseAt = Math.max(state.tick + 20, c.tick + turnDelay);
-    else if (anyGrailSoldierNear(sim, c.x, c.z, R.searchRadius) || infectionAt(state, c.x, c.z) > 150) c.riseAt = state.tick + delay;
+    else if (anyGrailSoldierNear(sim, fid, c.x, c.z, R.searchRadius) || ownInfectionAt(state, fid, c.x, c.z) > 150) c.riseAt = state.tick + delay;
     if (c.riseAt) c.sched = state.tick; // countdown start (world-space corpse UI)
   }
   // rise in clusters (turning bodies may rise alone: the plague does not wait for company)
   const ready = [];
-  for (const c of state.corpses) if (c.riseAt && state.tick >= c.riseAt) ready.push(c);
+  for (const c of state.corpses) if (c.riseAt && state.tick >= c.riseAt && (c.plague || first) === fid) ready.push(c);
   const used = new Set();
   for (const seed of ready) {
     if (used.has(seed.id)) continue;
@@ -158,8 +171,8 @@ function reanimate(sim, fid) {
     for (const c of cluster) { cx += c.x; cz += c.z; used.add(c.id); }
     cx /= cluster.length; cz /= cluster.length;
     const positions = cluster.map((c) => [c.x, c.z]);
-    // face toward the nearest enemy objective direction (south for the attacker)
-    const obj = state.structures.find((s) => s.objective);
+    // face toward the enemy's objective / headquarters (whatever the side's role)
+    const obj = enemyTarget(sim, fid);
     const rot = obj ? datan2(obj.x - cx, obj.z - cz) : 0;
     const sq = createSquad(state, fid, R.unit, cx, cz, rot, { size: cluster.length, positions, soldierState: 'rising' });
     for (let k = 0; k < cluster.length; k++) sq.members[k].rot = cluster[k].rot;
@@ -167,7 +180,7 @@ function reanimate(sim, fid) {
     rt.squadById.set(sq.id, sq);
     for (const m of sq.members) rt.soldierIndex.set(m.id, sq);
     state.factions[fid].stats.raised += cluster.length;
-    pestGain(sim, PESTILENCE.gain.rise * cluster.length, 'risen');
+    pestGain(sim, PESTILENCE.gain.rise * cluster.length, 'risen', fid);
     for (let k = 0; k < cluster.length; k++) {
       const c = cluster[k];
       sim.events.push({ type: EV.SOLDIER_RISING, id: sq.members[k].id, sq: sq.id, corpseId: c.id, faction: fid, x: c.x, z: c.z, fromFaction: c.faction, fromUnit: c.unit, turned: c.turn ? 1 : 0 });
@@ -177,58 +190,83 @@ function reanimate(sim, fid) {
   }
 }
 
-function updateInfection(sim, fid) {
+/**
+ * Ground infection (one grid for the match, run ONCE per step by the first plague side). Each plague
+ * side feeds its own layer (its altars / pits, the infected bodies it claimed, spread from cells it
+ * owns); a cell's owner is the layer that fed it most this step (ties: the current owner, then the
+ * lowest layer). Returns the festering cells (>= 120) per owner layer.
+ */
+function updateInfection(sim) {
   const { state } = sim;
   const inf = state.infection;
   const n = inf.cols * inf.rows;
-  if (!scratch || scratch.length !== n) scratch = new Int16Array(n);
+  const L = FOG_LAYERS;
+  if (!inf.o || inf.o.length !== n) inf.o = new Uint8Array(n);
+  const own = inf.o;
+  if (!scratch || scratch.length !== n * L) scratch = new Int16Array(n * L);
   const add = scratch;
   add.fill(0);
-  const pitR = specValue(state, fid, 'pitRadius', 1);
-  // sources: altars / plague pits
-  for (const st of state.structures) {
-    if (st.faction !== fid || !st.built) continue;
-    const src = STRUCTURES[st.type].infectionSource;
-    if (!src) continue;
-    const r = (src.radius * (st.type === 'plague_pit' ? pitR : 1)) / inf.cs;
-    const cx = Math.floor(st.x / inf.cs), cz = Math.floor(st.z / inf.cs);
-    const R = Math.ceil(r);
-    for (let dz = -R; dz <= R; dz++) {
-      for (let dx = -R; dx <= R; dx++) {
-        const d2 = dx * dx + dz * dz;
-        if (d2 > r * r) continue;
-        const x = cx + dx, z = cz + dz;
-        if (x < 0 || z < 0 || x >= inf.cols || z >= inf.rows) continue;
-        add[z * inf.cols + x] += Math.max(1, Math.round(src.rate * (1 - Math.sqrt(d2) / (r + 1))));
+  const sides = plagueSides(state);
+  const firstLayer = sides.length ? sideIndex(sides[0]) : 0;
+  for (const fid of sides) {
+    const base = sideIndex(fid) * n;
+    const pitR = specValue(state, fid, 'pitRadius', 1);
+    // sources: altars / plague pits
+    for (const st of state.structures) {
+      if (st.faction !== fid || !st.built) continue;
+      const src = STRUCTURES[st.type].infectionSource;
+      if (!src) continue;
+      const r = (src.radius * (st.type === 'plague_pit' ? pitR : 1)) / inf.cs;
+      const cx = Math.floor(st.x / inf.cs), cz = Math.floor(st.z / inf.cs);
+      const R = Math.ceil(r);
+      for (let dz = -R; dz <= R; dz++) {
+        for (let dx = -R; dx <= R; dx++) {
+          const d2 = dx * dx + dz * dz;
+          if (d2 > r * r) continue;
+          const x = cx + dx, z = cz + dz;
+          if (x < 0 || z < 0 || x >= inf.cols || z >= inf.rows) continue;
+          add[base + z * inf.cols + x] += Math.max(1, Math.round(src.rate * (1 - Math.sqrt(d2) / (r + 1))));
+        }
       }
     }
   }
-  // sources: infected corpses rot the ground
+  // sources: infected corpses rot the ground (their claimant's layer)
   for (const c of state.corpses) {
     if (!c.infected) continue;
     const x = Math.floor(c.x / inf.cs), z = Math.floor(c.z / inf.cs);
-    if (x >= 0 && z >= 0 && x < inf.cols && z < inf.rows) add[z * inf.cols + x] += 4;
+    const layer = c.plague ? sideIndex(c.plague) : firstLayer;
+    if (layer >= 0 && x >= 0 && z >= 0 && x < inf.cols && z < inf.rows) add[layer * n + z * inf.cols + x] += 4;
   }
-  // spread from dense cells + decay where nothing feeds it
+  // spread from dense cells (the owner's layer) + decay where nothing feeds it
   for (let z = 0; z < inf.rows; z++) {
     for (let x = 0; x < inf.cols; x++) {
       const i = z * inf.cols + x;
       const v = inf.v[i];
       if (v > 170) {
-        if (x > 0) add[i - 1] += 1;
-        if (x < inf.cols - 1) add[i + 1] += 1;
-        if (z > 0) add[i - inf.cols] += 1;
-        if (z < inf.rows - 1) add[i + inf.cols] += 1;
+        const b = (own[i] ? own[i] - 1 : firstLayer) * n;
+        if (x > 0) add[b + i - 1] += 1;
+        if (x < inf.cols - 1) add[b + i + 1] += 1;
+        if (z > 0) add[b + i - inf.cols] += 1;
+        if (z < inf.rows - 1) add[b + i + inf.cols] += 1;
       }
     }
   }
-  let cells = 0;
+  const cells = new Array(L).fill(0);
   for (let i = 0; i < n; i++) {
-    let v = inf.v[i] + add[i];
-    if (add[i] === 0 && v > 0) v -= 1;
+    let a = 0, best = -1, bestA = 0;
+    for (let l = 0; l < L; l++) {
+      const k = add[l * n + i];
+      if (!k) continue;
+      a += k;
+      if (k > bestA || (k === bestA && own[i] === l + 1)) { bestA = k; best = l; }
+    }
+    let v = inf.v[i] + a;
+    if (a === 0 && v > 0) v -= 1;
     v = v < 0 ? 0 : v > 255 ? 255 : v;
     inf.v[i] = v;
-    if (v >= 120) cells++;
+    if (best >= 0) own[i] = best + 1;
+    if (!v) own[i] = 0;
+    if (v >= 120 && own[i]) cells[own[i] - 1]++;
   }
   return cells;
 }
@@ -236,25 +274,29 @@ function updateInfection(sim, fid) {
 function infectionEffects(sim, fid) {
   const { state } = sim;
   const rng = state.rng.main;
-  const spread = 0.25 * spreadMult(state);
+  const spread = 0.25 * spreadMult(state, fid);
   const regen = 2 * specValue(state, fid, 'grailRegen', 1);
+  const first = plagueFaction(state);
   for (const sq of state.squads) {
     const grail = sq.faction === fid;
     const def = unitDef(sq.type);
+    // other plague-immune sides (a mirror twin) neither sicken nor heal on this plague's ground
+    if (!grail && plagueImmune(sq.faction)) continue;
     for (const m of sq.members) {
       if (m.state !== 'alive') continue;
-      const v = infectionAt(state, m.x, m.z);
+      const v = ownInfectionAt(state, fid, m.x, m.z);
       if (grail) {
         if (v >= 60 && m.hp < def.hp) m.hp = Math.min(def.hp, m.hp + regen);
         continue;
       }
-      if (v >= 160 && rngFloat(rng) < spread) addInfection(sim, sq, m, 1);
-      if (m.infection > 0) {
+      if (v >= 160 && rngFloat(rng) < spread) addInfection(sim, sq, m, 1, fid);
+      // the plague's damage belongs to whoever laid the stacks
+      if (m.infection > 0 && (m.infBy || first) === fid) {
         // plague damage over time (halved under a medic's care); the killing blow belongs to the
         // Grail (corpse is infected)
         const k = m.slow > state.tick ? 0.5 : 1;
         damageSoldier(sim, sq, m, m.infection * 1.5 * k, fid, PLAGUE, 0, 0);
-        if (m.state === 'alive' && v < 60 && rngFloat(rng) < 0.12) m.infection--;
+        if (m.state === 'alive' && infectionAt(state, m.x, m.z) < 60 && rngFloat(rng) < 0.12) m.infection--;
       }
     }
   }
@@ -272,7 +314,7 @@ function finishWounded(sim, fid) {
         if (!by && gsq.faction === fid && g.state === 'alive' && unitDef(gsq.type).combatUnit) by = g;
       });
       if (!by) continue;
-      addInfection(sim, sq, m, 3);
+      addInfection(sim, sq, m, 3, fid);
       sim.events.push({ type: EV.MELEE, attacker: by.id, sq: rt.soldierIndex.get(by.id) ? rt.soldierIndex.get(by.id).id : 0, faction: fid, weapon: 'thrall_claws', x: by.x, z: by.z, tx: m.x, tz: m.z, hit: true, target: m.id, tsq: sq.id, impact: 'flesh' });
       killSoldier(sim, sq, m, fid, 'melee', m.x - by.x, m.z - by.z, 0, 0.5, 0);
     }
@@ -313,7 +355,7 @@ function leaders(sim, fid) {
   for (const p of pulses) {
     if (tick % p.every >= 10) continue; // once per period (leaders() runs every 10 ticks)
     for (const o of state.squads) {
-      if (o.faction === fid || !FACTIONS[o.faction]) continue;
+      if (o.faction === fid || !sideDef(o.faction)) continue;
       let near = false;
       for (const a of p.areas) if (dist(o.cx, o.cz, a.x, a.z) <= (a.infectRadius || a.r) + 10) { near = true; break; }
       if (!near) continue;
@@ -323,7 +365,7 @@ function leaders(sim, fid) {
         let inside = false;
         for (const a of p.areas) if (dist(m.x, m.z, a.x, a.z) <= (a.infectRadius || a.r)) { inside = true; break; }
         if (!inside) continue;
-        addInfection(sim, o, m, 1);
+        addInfection(sim, o, m, 1, fid);
         touched = true;
       }
       if (touched && p.debuff) o.debuffUntil = tick + 30;
@@ -347,9 +389,9 @@ export const AUTO_FORAGE_R = 28;
  * drop-off) when an enemy shows up close; the player's own FORAGE order goes anywhere.
  */
 export function threatAt(sim, fid, x, z, r) {
-  const bit = 1 << FACTIONS[fid].index;
+  const bit = sideBit(fid);
   for (const e of sim.state.squads) {
-    if (e.faction === fid || !FACTIONS[e.faction] || !(e.visibleTo & bit) || !unitDef(e.type).combatUnit) continue;
+    if (e.faction === fid || !sideDef(e.faction) || !(e.visibleTo & bit) || !unitDef(e.type).combatUnit) continue;
     if (dist(e.cx, e.cz, x, z) <= r) return true;
   }
   for (const st of sim.state.structures) {
@@ -366,7 +408,7 @@ const SAFE_R = 40;
 function safeForage(sim, sq, r) {
   const fid = sq.faction;
   if (threatAt(sim, fid, sq.cx, sq.cz, SAFE_R)) return false;
-  const bit = 1 << FACTIONS[fid].index;
+  const bit = sideBit(fid);
   for (const c of sim.state.corpses) {
     if (c.infected || c.riseAt || c.biomass <= 0.01 || !(c.seenBy & bit)) continue;
     if (dist(c.x, c.z, sq.cx, sq.cz) <= r && !threatAt(sim, fid, c.x, c.z, SAFE_R)) return true;
@@ -429,7 +471,7 @@ function watchBreach(sim, fid) {
     if (n >= WAVE_THRALLS) f.stats.firstWaveTick = state.tick;
   }
   if (f.stats.breachTick >= 0) return;
-  const obj = state.structures.find((s) => s.objective);
+  const obj = enemyTarget(sim, fid);
   if (!obj) return;
   for (const sq of state.squads) {
     if (sq.faction !== fid || !unitDef(sq.type).combatUnit) continue;
@@ -450,7 +492,12 @@ export const blackGrailLogic = {
     }
     if (t % 20 === 11) reanimate(sim, fid);
     if (t % 40 === 17) {
-      f.econ.infCells = updateInfection(sim, fid); // plain state: identical after a save / load
+      // one ground step per match (the first plague side runs it for all; plain state: identical
+      // after a save / load), then each plague side applies its own ground
+      if (fid === plagueFaction(sim.state)) {
+        const cells = updateInfection(sim);
+        for (const s of plagueSides(sim.state)) sim.state.factions[s].econ.infCells = cells[sideIndex(s)] || 0;
+      }
       if (sim.state.match.phase === 'WAR') infectionEffects(sim, fid);
     }
     if (sim.state.match.phase === 'WAR' && t % 10 === 7) { finishWounded(sim, fid); leaders(sim, fid); }

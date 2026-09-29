@@ -2,6 +2,7 @@
 // audio + debug overlay, and the frame loop. UI / audio / debug factories are injected by the
 // entry point so this module stays independent of concrete DOM widgets.
 import { factionHome } from '../sim/home.js';
+import { sideFacing } from '../sim/sides.js';
 import { createSession, SPEEDS } from './session.js';
 import { createActions } from './actions.js';
 import { createRenderer } from '../render/renderer.js';
@@ -15,9 +16,13 @@ import { unitDef } from '../data/units.js';
 
 function homeView(sim, viewer) {
   const h = factionHome(sim, viewer);
-  // New Antioch looks north toward the front, the Black Grail looks south (yaw PI)
-  if (sim.state.factions[viewer].role === 'defender') return { x: h.x, z: h.z - 8, yaw: 0, dist: 80 };
-  return { x: h.x, z: h.z + 6, yaw: Math.PI, dist: 90 };
+  // Phase 5A: the camera looks toward the enemy from the side's start region (south region looks
+  // north, north region looks south: yaw PI) — whatever the faction or role
+  const f = sim.state.factions[viewer];
+  const role = f ? f.role : 'defender';
+  const dist = role === 'defender' ? 80 : 90;
+  if (sideFacing(sim, viewer) !== 0) return { x: h.x, z: h.z - 8, yaw: 0, dist };
+  return { x: h.x, z: h.z + 6, yaw: Math.PI, dist };
 }
 
 /**

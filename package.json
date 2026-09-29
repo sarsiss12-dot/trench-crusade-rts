@@ -9,7 +9,8 @@
     "test": "node tests/run.js",
     "build": "node tools/build.js",
     "test:browser": "node tools/browser_smoke.js",
-    "balance": "node tools/balance.js"
+    "balance": "node tools/balance.js",
+    "matchups": "node tools/matchups.js"
   },
   "engines": {
     "node": ">=18"

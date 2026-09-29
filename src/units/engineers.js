@@ -12,7 +12,7 @@
 import { STRUCTURES } from '../data/structures.js';
 import { unitDef, hasRole } from '../data/units.js';
 import { ENGINEERING } from '../data/economy.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideBit } from '../data/factions.js';
 import { EV } from '../core/events.js';
 import { dist } from '../core/dmath.js';
 import { TICK_RATE } from '../sim/constants.js';
@@ -132,7 +132,7 @@ export function startSanitize(sim, sq, x, z, r) {
 }
 
 function corpseInArea(sim, sq, o) {
-  const bit = 1 << FACTIONS[sq.faction].index;
+  const bit = sideBit(sq.faction);
   let best = null, bd = Infinity;
   for (const c of sim.state.corpses) {
     if (!(c.seenBy & bit)) continue;

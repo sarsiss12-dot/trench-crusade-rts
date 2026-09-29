@@ -9,7 +9,7 @@ import { t } from './i18n.js';
 import { UNITS, unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { ABILITIES } from '../data/abilities.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideDef, baseFaction, isOrganic } from '../data/factions.js';
 import { SPECIALITIES, SPEC_TIERS, PESTILENCE } from '../data/specialities.js';
 import { EV } from '../core/events.js';
 import { availableTier, specList, tierUnlocked } from '../sim/specialities.js';
@@ -30,9 +30,9 @@ function nowSec() {
 
 export function createP3Hud(game, H) {
   const { sim, viewer } = game;
-  const fdef = FACTIONS[viewer];
+  const fdef = sideDef(viewer);
   const root = H.root;
-  const bg = viewer === 'black_grail';
+  const bg = isOrganic(viewer);
 
   // ------------------------------------------------------------------ top bar additions
   let popNode = null, pestNode = null, pestBar = null, pestTier = null;
@@ -137,7 +137,7 @@ export function createP3Hud(game, H) {
   }
   function renderSpec() {
     clear(modal);
-    const tiers = SPECIALITIES[viewer] || [];
+    const tiers = SPECIALITIES[baseFaction(viewer)] || [];
     const chosen = specList(sim.state, viewer);
     const open = availableTier(sim.state, viewer);
     const box = el('div.specbox');
@@ -197,7 +197,7 @@ export function createP3Hud(game, H) {
     const d = trenchPanelData(sim, viewer, tpSeg);
     if (!d) { closeTrenchPanel(); return; }
     // Phase 4.1: positional auto reinforcement of everyone in this position ("AUTO REINFORCE ALL")
-    const reinfIds = FACTIONS[viewer].reinforcements ? d.cards.map((c) => sim.rt.squadById.get(c.id)).filter((q) => q && unitDef(q.type).combatUnit && positionOf(q)) : [];
+    const reinfIds = sideDef(viewer).reinforcements ? d.cards.map((c) => sim.rt.squadById.get(c.id)).filter((q) => q && unitDef(q.type).combatUnit && positionOf(q)) : [];
     const allOn = reinfIds.length > 0 && reinfIds.every((q) => autoReinforceOn(q) || !q.posId);
     const key = d.cards.map((c) => c.id).join(',') + '|' + reinfIds.length + (allOn ? 'A' : 'a');
     if (force || key !== tpKey) {

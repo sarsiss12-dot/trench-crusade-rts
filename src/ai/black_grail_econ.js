@@ -10,7 +10,7 @@
 import { STRUCTURES } from '../data/structures.js';
 import { unitDef } from '../data/units.js';
 import { SPECIES } from '../data/animals.js';
-import { FACTIONS, areHostile } from '../data/factions.js';
+import { areHostile, sideBit, sideIndex } from '../data/factions.js';
 import { dist } from '../core/dmath.js';
 import { isExploredAt } from '../world/fog.js';
 
@@ -18,7 +18,7 @@ export const FORAGE_RANGE = 240; // how far a gang goes for animals (it still ha
 export const HAUL_RANGE = 380;
 
 function bit(fid) {
-  return 1 << FACTIONS[fid].index;
+  return sideBit(fid);
 }
 
 function aliveIn(sq) {
@@ -73,7 +73,7 @@ export function forageSpot(sim, fid, gang) {
  */
 export function habitatSpot(sim, fid, gang, memo) {
   const { state, world } = sim;
-  const fIdx = FACTIONS[fid].index;
+  const fIdx = sideIndex(fid);
   let best = null, bd = Infinity;
   for (const h of world.habitats || []) {
     if ((memo[h.id] || 0) > state.tick) continue;

@@ -1,5 +1,6 @@
 // Squad order state machine (plain-data orders stored on squads) + throttled path requests +
 // trench post assignment + work spots. Movement integration is in units/movement.js.
+import { sideDef } from '../data/factions.js';
 import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { EV } from '../core/events.js';
@@ -485,7 +486,7 @@ export function updateOrders(sim) {
 export function corpseKind(c) {
   if (c.sp) return 'animal';
   if (c.old) return 'old';
-  if (c.faction === 'black_grail') return 'corpse';
+  if ((sideDef(c.faction) || {}).plagueImmune) return 'corpse'; // the plague's own husks
   return c.unit === 'civilians' ? 'civilian' : 'soldier';
 }
 

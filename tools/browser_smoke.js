@@ -116,6 +116,34 @@ await check('start-failure-recovers', base + '?autostart=1&seed=3&quality=balanc
     if (q !== 'low') throw new Error('retry did not switch to low quality');
   },
 });
+// Phase 5A: Match Setup (mobile portrait) — Free Setup, Black Grail DEFENDER vs New Antioch
+await check('match-setup-portrait', base, {
+  wait: 2500, viewport: { width: 390, height: 844 }, dpr: 2, touch: true,
+  act: async (page) => {
+    await page.evaluate(() => TC.menu.showNewGame());
+    await page.waitForTimeout(300);
+    const pick = (step, sel) => page.evaluate(([i, q]) => { const el = document.querySelectorAll('.setupstep')[i].querySelector(q); if (!el) throw new Error('missing ' + q); el.click(); }, [step, sel]);
+    await pick(0, '.opt.big2:nth-child(2)'); // FREE SETUP
+    await page.waitForTimeout(200);
+    if ((await page.evaluate(() => document.querySelectorAll('.card.locked').length)) < 4) throw new Error('locked planned-faction cards missing');
+    await pick(2, '.card.black_grail'); // your faction
+    await pick(3, '.card.new_antioch'); // enemy faction
+    await pick(4, '.opt.big2:nth-child(1)'); // DEFENDER
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: join(out, 'match-setup-portrait-form.png'), fullPage: true });
+    const summary = await page.evaluate(() => document.querySelector('.summary b').textContent);
+    if (!/KÂSE|GRAIL/.test(summary)) throw new Error('summary: ' + summary);
+    await page.evaluate(() => document.querySelector('.menu .mlist .big.primary').click());
+    await page.waitForFunction(() => TC.game && TC.game.sim.state.tick > 0 && TC.game.renderer.frameStats.drawCalls > 0, null, { timeout: 30000, polling: 250 });
+    const who = await page.evaluate(() => { const g = TC.game; const f = g.sim.state.factions[g.viewer]; return [g.viewer, f.role, f.region, g.sim.state.settings.setupMode]; });
+    if (who.join() !== 'black_grail,defender,south,free') throw new Error('setup not applied: ' + who.join());
+    await page.waitForTimeout(2500);
+  },
+});
+await check('reverse-na-attacker', base + '?autostart=1&setup=free&pf=new_antioch&ef=black_grail&role=attacker&seed=3&prep=20', { expectGame: true });
+await check('na-mirror', base + '?autostart=1&setup=free&pf=new_antioch&ef=new_antioch&role=attacker&seed=3&prep=20', { expectGame: true });
+await check('bg-mirror-portrait', base + '?autostart=1&setup=free&pf=black_grail&ef=black_grail&role=defender&seed=3&prep=20', { expectGame: true, viewport: { width: 390, height: 844 }, dpr: 2, touch: true });
+await check('open-battle', base + '?autostart=1&setup=free&scenario=open_battle&pf=black_grail&ef=new_antioch&role=attacker&seed=3&prep=20', { expectGame: true });
 await check('stress-160', base + '?stress=160&quality=low', { expectGame: true, wait: 8000 });
 await check('gallery', base + '?view=gallery', { expectGame: true });
 const dist = join(root, 'dist', 'index.html');

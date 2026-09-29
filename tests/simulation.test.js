@@ -58,7 +58,7 @@ test('preparation: move orders are clamped to the faction deployment zone', () =
   enqueueCommand(sim, { type: CMD.MOVE, faction: 'new_antioch', squadIds: [sq.id], x: 160, z: 100 });
   run(sim, 0.2);
   assert.equal(sq.order.t, 'move');
-  assert.ok(inZone(sim.world.zones.new_antioch, sq.order.x, sq.order.z), 'destination inside zone');
+  assert.ok(inZone(sim.state.factions.new_antioch.zone, sq.order.x, sq.order.z), 'destination inside zone');
 });
 
 test('commands for units of another faction are rejected (ownership)', () => {

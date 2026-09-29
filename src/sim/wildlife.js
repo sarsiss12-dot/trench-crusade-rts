@@ -6,7 +6,7 @@
 // every WILDLIFE.updateEvery ticks with spatial queries only.
 import { SPECIES, WILDLIFE } from '../data/animals.js';
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideBit, sideDef } from '../data/factions.js';
 import { unitDef } from '../data/units.js';
 import { PESTILENCE } from '../data/specialities.js';
 import { EV } from '../core/events.js';
@@ -16,10 +16,15 @@ import { DT, TICK_RATE } from './constants.js';
 import { isPointPassable } from '../world/nav.js';
 import { pointGridQuery } from './runtime.js';
 import { addCarcass } from './corpses.js';
-import { pestGain } from '../factions/pestilence.js';
+import { pestGain, isPlagueSide, plagueFaction } from '../factions/pestilence.js';
 import { specValue, specRule } from './specialities.js';
 
-const GRAIL = 'black_grail';
+// Phase 5A: 'the Grail' here is any side whose faction runs the plague economy (per SIDE: a mirror
+// match has two hunters; each kill credits the killer's side)
+function huntsFlesh(side) {
+  const d = sideDef(side);
+  return !!(d && d.pestilence);
+}
 
 function habitatDef(sim, id) {
   for (const h of sim.world.habitats) if (h.id === id) return h;
@@ -98,12 +103,13 @@ export function killAnimal(sim, a, byFaction, cause) {
       if (hs.id === a.hab) hs.next = Math.max(hs.next, state.tick + WILDLIFE.respawnAfterDeathSec * TICK_RATE);
     }
   }
-  if (byFaction === GRAIL) {
-    pestGain(sim, PESTILENCE.gain.animalKill, 'animals');
-    state.factions[GRAIL].stats.animalsKilled++;
+  if (isPlagueSide(state, byFaction)) {
+    pestGain(sim, PESTILENCE.gain.animalKill, 'animals', byFaction);
+    state.factions[byFaction].stats.animalsKilled++;
   }
   if (cause !== 'slaughter') {
-    const bio = def.biomass * specValue(state, GRAIL, 'corpseBiomass', 1);
+    const eater = isPlagueSide(state, byFaction) ? byFaction : plagueFaction(state);
+    const bio = def.biomass * (eater ? specValue(state, eater, 'corpseBiomass', 1) : 1);
     addCarcass(sim, a.x, a.z, a.rot, a.sp, bio, a.visibleTo);
   }
   sim.events.push({ type: EV.ANIMAL_KILLED, id: a.id, sp: a.sp, x: a.x, z: a.z, by: byFaction || '', cause: cause || '' });
@@ -139,12 +145,11 @@ const SENSE = { gx: 0, gz: 0, gd: 1e9, sx: 0, sz: 0, sd: 1e9, grail: false, gang
 function sense(sim, a) {
   const { state } = sim;
   SENSE.gd = 1e9; SENSE.sd = 1e9; SENSE.grail = false; SENSE.gang = false;
-  const pounce = specRule(state, GRAIL, 'pounce');
-  const gangR = pounce ? 4 : 9;
   pointGridQuery(sim.rt.soldierGrid, a.x, a.z, WILDLIFE.grailR, (m, sq, d2) => {
     if (m.state !== 'alive') return;
     const def = unitDef(sq.type);
-    if (sq.faction === GRAIL) {
+    if (huntsFlesh(sq.faction)) {
+      const gangR = specRule(state, sq.faction, 'pounce') ? 4 : 9;
       if (def.combatUnit) {
         if (d2 < SENSE.gd) { SENSE.gd = d2; SENSE.gx = m.x; SENSE.gz = m.z; SENSE.grail = true; }
       } else if (d2 <= gangR * gangR && d2 < SENSE.sd) { SENSE.sd = d2; SENSE.sx = m.x; SENSE.sz = m.z; SENSE.gang = true; }
@@ -213,12 +218,12 @@ export function updateWildlife(sim) {
     if ((tick + a.id) % 10 < every) sense(sim, a);
     // a Grail soldier touching a panicked / penned animal mauls it
     if ((a.panic > tick || a.st === 'penned') && (tick + a.id) % 10 < every) {
-      let mauled = false;
+      let mauled = null;
       pointGridQuery(rt.soldierGrid, a.x, a.z, 1.8, (m, sq) => {
-        if (!mauled && sq.faction === GRAIL && m.state === 'alive' && unitDef(sq.type).combatUnit) mauled = true;
+        if (!mauled && huntsFlesh(sq.faction) && m.state === 'alive' && unitDef(sq.type).combatUnit) mauled = sq.faction;
       });
       if (mauled) {
-        damageAnimal(sim, a, WILDLIFE.grailMaulDps * 0.5, GRAIL, 'maul');
+        damageAnimal(sim, a, WILDLIFE.grailMaulDps * 0.5, mauled, 'maul');
         if (state.animals[i] !== a) continue;
       }
     }
@@ -283,7 +288,7 @@ function respawn(sim) {
 
 /** Known, living animal nearest to (fx,fz) within r that `faction` may forage (Black Grail). */
 export function forageAnimal(sim, faction, fx, fz, r) {
-  const bit = 1 << FACTIONS[faction].index;
+  const bit = sideBit(faction);
   let best = null, bd = r;
   for (const a of sim.state.animals) {
     if (!(a.visibleTo & bit)) continue; // animals move: only what the faction sees right now
@@ -295,7 +300,7 @@ export function forageAnimal(sim, faction, fx, fz, r) {
 
 /** Free livestock (wild, pen-able species) a drover of `faction` knows about near (fx,fz). */
 export function herdableAnimal(sim, faction, fx, fz, r, taken) {
-  const bit = 1 << FACTIONS[faction].index;
+  const bit = sideBit(faction);
   let best = null, bd = r;
   for (const a of sim.state.animals) {
     if (a.st !== 'wild' || !SPECIES[a.sp].livestock || !(a.seenBy & bit) || a.panic > sim.state.tick) continue;

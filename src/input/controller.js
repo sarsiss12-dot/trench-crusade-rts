@@ -2,6 +2,8 @@
 // gestures to camera moves, selection and player actions. Touch-first: every action is reachable
 // with taps (no right-click assumption); mouse + keyboard add shortcuts on desktop.
 // Interaction modes: normal | place (construction) | ability | rally | repair | gather | attackMove.
+import { sideFacing } from '../sim/sides.js';
+import { baseFaction } from '../data/factions.js';
 import { createGestures } from './gestures.js';
 import { pickSquad, pickStructure, pickNodeAt, boxSelect, squadsOfTypeOnScreen } from './pick.js';
 import { allCombatSquadIds, squadIdsWithRole, consumeMulti } from './selection.js';
@@ -83,11 +85,11 @@ export function createInputController(canvas, game) {
 
   function startPlacement(stype) {
     const def = STRUCTURES[stype];
-    if (!def || !def.buildable || def.builder !== viewer) return;
+    if (!def || !def.buildable || def.builder !== baseFaction(viewer)) return;
     const linear = def.kind === 'linear';
     setMode({
       kind: 'place', stype, linear, p1: null, p2: null,
-      x: cam.tx, z: cam.tz, rot: game.session.sim.state.factions[viewer].role === 'defender' ? Math.PI : 0,
+      x: cam.tx, z: cam.tz, rot: sideFacing(game.session.sim, viewer), // toward the enemy from the side's region
       pinned: false, valid: false, reason: '', drawing: false,
     });
     if (!linear) updatePlacement();

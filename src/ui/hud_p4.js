@@ -8,7 +8,7 @@ import { el, clear, button, setText, toggleClass } from './dom.js';
 import { icon, iconForUnit } from './icons.js';
 import { t } from './i18n.js';
 import { unitDef } from '../data/units.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideDef } from '../data/factions.js';
 import { EV } from '../core/events.js';
 import { GROUP_SLOTS_UI, LONG_PRESS_MS } from '../input/control_groups.js';
 import { autoReinforceOn, positionOf } from '../factions/reinforcement.js';
@@ -19,7 +19,7 @@ import { processRadiusOf } from '../render/range_viz.js';
 
 export function createP4Hud(game, H) {
   const { sim, viewer } = game;
-  const fdef = FACTIONS[viewer];
+  const fdef = sideDef(viewer);
   const cg = game.controlGroups;
 
   // ------------------------------------------------------------------ control groups 1/2/3

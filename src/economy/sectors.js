@@ -2,10 +2,10 @@
 // quarry, scrap yard, abandoned depot, ruined hamlet). Their kind is fixed by the map; their
 // richness is rolled per match from the match seed, so the best expansion order changes from
 // match to match. Plain data in state.sectors; `sid` = the settlement built on it (0 = free).
-// Knowledge: a faction knows the sectors inside its own deployment zone (its home country); the
+// Knowledge: a side knows the sectors inside its own start zone (its home country); the
 // rest are learned by sight (seenBy bits, perception.js).
 import { SECTOR_KINDS, RICHNESS } from '../data/economy.js';
-import { FACTIONS, FACTION_ORDER } from '../data/factions.js';
+import { sideBit } from '../data/factions.js';
 import { rngFloat } from '../core/rng.js';
 import { dist } from '../core/dmath.js';
 import { inZone } from '../world/mapgen.js';
@@ -17,9 +17,9 @@ export function setupSectors(state, world) {
     const roll = rngFloat(rng);
     const rich = roll < 0.3 ? 0 : roll < 0.72 ? 1 : 2;
     let seenBy = 0;
-    for (const fid of FACTION_ORDER) {
-      const zone = world.zones[fid];
-      if (zone && inZone(zone, s.x, s.z)) seenBy |= 1 << FACTIONS[fid].index;
+    for (const sd of state.sides) {
+      const zone = state.factions[sd.id].zone;
+      if (zone && inZone(zone, s.x, s.z)) seenBy |= sideBit(sd.id);
     }
     state.sectors.push({ id: s.id, kind: s.kind, x: s.x, z: s.z, r: s.r, rich, sid: 0, seenBy });
   }

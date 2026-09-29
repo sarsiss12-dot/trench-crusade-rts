@@ -11,6 +11,8 @@
 //  drovers  : find nearby livestock, drive it alive into their pen (no per-animal orders)
 // Losses: every civilian who dies takes his share of the settlement's population with him.
 // Everything is plain state on the squad (sq.civ) + normal MOVE orders; decisions are staggered.
+import { cellOwner } from './pestilence.js';
+import { isPlagueImmune } from '../data/factions.js';
 import { STRUCTURES } from '../data/structures.js';
 import { POPULATION } from '../data/economy.js';
 import { WILDLIFE } from '../data/animals.js';
@@ -90,11 +92,11 @@ function safeHaven(sim, fid, x, z, except, needRoom) {
 
 // ------------------------------------------------------------------ setup
 
-/** The fortress quarter's population and its two working crews (farmers + porters). */
+/** The home quarter's population (starting package: fortress city 40, field HQ 26) and its two working crews. */
 export function setupCivilians(sim, fid) {
   const { state } = sim;
   const f = state.factions[fid];
-  f.population = POPULATION.baseStart;
+  f.population = f.popStart !== undefined ? f.popStart : POPULATION.baseStart; // starting package (faction + role)
   const home = state.structures.find((s) => s.faction === fid && STRUCTURES[s.type].hq);
   if (!home) return;
   spawnCrew(sim, fid, home, 5, { home: home.id });
@@ -354,7 +356,12 @@ function updateCrew(sim, sq) {
         if (hash32(m.id, 0xc011a) / 4294967296 < k.killShare) { killSoldier(sim, sq, m, '', 'collapse', 0, 0); continue; }
         const a = (j++ * 2.399963) % 6.283185307179586; // golden-angle spread around the wreck
         m.x = sq.x + dsin(a) * k.spread; m.z = sq.z + dcos(a) * k.spread; m.wx = m.x; m.wz = m.z;
-        if (infectionAt(state, m.x, m.z) > k.infectGround) m.infection = Math.max(m.infection || 0, 1);
+        if (infectionAt(state, m.x, m.z) > k.infectGround && !isPlagueImmune(sq.faction)) {
+          m.infection = Math.max(m.infection || 0, 1);
+          const inf = state.infection;
+          const i = Math.floor(m.z / inf.cs) * inf.cols + Math.floor(m.x / inf.cs);
+          m.infBy = cellOwner(state, i) || m.infBy || ''; // the ground's plague owns the stack
+        }
         survivors++;
       }
       if (!survivors) return;

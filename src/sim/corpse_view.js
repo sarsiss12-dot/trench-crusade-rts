@@ -10,8 +10,14 @@
 // reanimation" and "reanimation imminent" in the last seconds (no timer, no turn flag).
 import { TICK_RATE } from './constants.js';
 import { isCorpseKnownTo, isPointVisibleTo } from './perception.js';
+import { isPlagueSide, plagueFaction } from '../factions/pestilence.js';
 
-const GRAIL = 'black_grail';
+// Phase 5A: "the Grail viewer" = a plague side looking at a body it claimed (or a clean one); a
+// mirror twin sees the OTHER plague's bodies like any enemy would
+function ownsPlague(sim, viewer, c) {
+  if (!isPlagueSide(sim.state, viewer)) return false;
+  return !c.infected || (c.plague || plagueFaction(sim.state)) === viewer;
+}
 export const IMMINENT_SEC = 5;
 export const TWITCH_SEC = 3;
 
@@ -22,7 +28,7 @@ export const TWITCH_SEC = 3;
  */
 export function corpseView(sim, viewer, c) {
   const tick = sim.state.tick;
-  if (viewer === GRAIL) {
+  if (ownsPlague(sim, viewer, c)) {
     if (!isCorpseKnownTo(c, viewer)) return null;
     if (c.blessed) return { st: 'purified', secs: 0, p: 0 };
     if (!c.infected) return null;
@@ -46,7 +52,7 @@ export function corpseTwitching(sim, viewer, c) {
   if (!c.infected || !(c.riseAt > 0)) return false;
   const left = c.riseAt - sim.state.tick;
   if (left > TWITCH_SEC * TICK_RATE) return false;
-  return viewer === GRAIL ? isCorpseKnownTo(c, viewer) : isPointVisibleTo(sim, viewer, c.x, c.z);
+  return ownsPlague(sim, viewer, c) ? isCorpseKnownTo(c, viewer) : isPointVisibleTo(sim, viewer, c.x, c.z);
 }
 
 /** Bodies a Grail work gang / corpse mound can use (seen, not infected — infected bodies rise). */

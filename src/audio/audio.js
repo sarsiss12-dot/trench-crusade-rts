@@ -17,6 +17,7 @@ import { projectToScreen } from '../render/camera.js';
 import { isSquadVisibleTo, isAnimalVisibleTo } from '../sim/perception.js';
 import { createMusic } from './music.js';
 import { createAudioRecovery } from './recovery.js';
+import { isOrganic } from '../data/factions.js';
 
 const VOICE_SOFT = 22; // ordinary sounds stop here
 const VOICE_HARD = 34; // priority sounds may use the reserve up to here
@@ -375,7 +376,7 @@ export function createAudio(settings = {}, env = {}) {
     if (s[0] < 0.04 || !rate('cry', 0.35) || !voice(0.9, PRI.LOW)) return;
     const t0 = ctx.currentTime + 0.05;
     const bus = muffled(out(sfx, s[0] * 0.28, s[1], 0.3), s[2]);
-    const bg = faction === 'black_grail';
+    const bg = isOrganic(faction);
     const f0 = bg ? 85 + vrand() * 25 : 170 + vrand() * 60;
     const src = ctx.createOscillator();
     src.type = 'sawtooth';
@@ -611,21 +612,21 @@ export function createAudio(settings = {}, env = {}) {
         }
         break;
       case 'STRUCTURE_COMPLETED':
-        if (show) { if (ev.faction === 'black_grail') organic(game, ev.x, ev.z, false); else knocks(game, ev.x, ev.z, 3); }
+        if (show) { if (isOrganic(ev.faction)) organic(game, ev.x, ev.z, false); else knocks(game, ev.x, ev.z, 3); }
         break;
       case 'SOLDIER_RISING':
-        if (show && rate('rise', 1.2)) { cry(game, ev.x, ev.z, 'black_grail'); }
+        if (show && rate('rise', 1.2)) { cry(game, ev.x, ev.z, ev.faction || 'black_grail'); }
         break;
       case 'PHASE_CHANGED':
-        if (ev.phase === 'WAR') { bell(); horn(game.viewer === 'black_grail'); }
+        if (ev.phase === 'WAR') { bell(); horn(isOrganic(game.viewer)); }
         else if (ev.phase === 'LULL') { bell(); }
         break;
       case 'PHASE_WARNING':
         // the front going quiet: distant whistles; stirring again: a war horn
-        if (ev.phase === 'LULL') { whistleCall(); bell(); } else horn(game.viewer === 'black_grail');
+        if (ev.phase === 'LULL') { whistleCall(); bell(); } else horn(isOrganic(game.viewer));
         break;
       case 'TRAIN_COMPLETED':
-        if (ev.faction === game.viewer) horn(game.viewer === 'black_grail');
+        if (ev.faction === game.viewer) horn(isOrganic(game.viewer));
         break;
       case 'ABILITY_CAST':
         if (!show) break;
@@ -706,7 +707,7 @@ export function createAudio(settings = {}, env = {}) {
       const d = Math.hypot(sq.cx - cam.tx, sq.cz - cam.tz);
       if (d > 90) continue;
       const k = 1 - d / 90;
-      if (sq.faction === 'black_grail' && isSquadVisibleTo(sq, game.viewer)) flies += k;
+      if (isOrganic(sq.faction) && isSquadVisibleTo(sq, game.viewer)) flies += k;
       if (sq.faction === game.viewer && sq.working) dig += k;
     }
     const zoom = Math.max(0.3, Math.min(1, 60 / cam.dist));

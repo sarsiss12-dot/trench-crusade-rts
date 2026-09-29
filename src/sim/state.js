@@ -3,7 +3,10 @@
 import { STATE_VERSION, TICK_RATE } from './constants.js';
 import { createRngState } from '../core/rng.js';
 import { rotateOffset } from '../core/dmath.js';
-import { FACTIONS, FACTION_ORDER } from '../data/factions.js';
+import { FACTIONS, FOG_LAYERS } from '../data/factions.js';
+import { startingPackage } from '../data/packages.js';
+import { resolveSides } from './sides.js';
+import { AI_DIFFICULTY } from '../data/ai.js';
 import { prepSecondsFor, ENDLESS_PACE_MINUTES } from '../data/scenarios.js';
 import { createLullState } from './lull.js';
 import { createWeatherState } from './weather.js';
@@ -29,12 +32,12 @@ export function createInitialState({ scenario, settings, seed, world }) {
   // Phase 3: preparation length follows the match length (data: scenarios PREP_BY_LENGTH)
   const prepDefault = scenario.prepByLength ? prepSecondsFor(warMinutes, scenario.prepSeconds) : scenario.prepSeconds;
   const prepSeconds = settings.prepSeconds !== undefined ? settings.prepSeconds : prepDefault;
-  const playerFaction = settings.playerFaction !== undefined ? settings.playerFaction : 'new_antioch';
+  // Phase 5A: the participants come from the setup (Lore preset / Free Setup / explicit sides):
+  // SIDE ids own everything; FACTION is content; ROLE picks the start region (sim/sides.js)
+  const { sides, player } = resolveSides(scenario, settings);
+  const playerFaction = player; // legacy name: the player's SIDE id
   const controllers = {};
-  for (const fid of FACTION_ORDER) {
-    const forced = settings.controllers && settings.controllers[fid];
-    controllers[fid] = forced || (fid === playerFaction ? 'player' : 'ai');
-  }
+  for (const sd of sides) controllers[sd.id] = sd.controller;
   const state = {
     version: STATE_VERSION,
     scenarioId: scenario.id,
@@ -48,7 +51,12 @@ export function createInitialState({ scenario, settings, seed, world }) {
       lulls: settings.lulls !== undefined ? settings.lulls : 'auto',
       endless,
       rain: settings.rain !== undefined ? settings.rain : 'auto',
+      // Phase 5A: how the match was set up (Lore preset / Free Setup) and the AI difficulty
+      setupMode: settings.setup && settings.setup.mode === 'free' ? 'free' : 'lore',
+      aiDifficulty: AI_DIFFICULTY[settings.aiDifficulty] ? settings.aiDifficulty : 'normal',
     },
+    // Phase 5A: match participants in slot order { id, faction, role, region }
+    sides: sides.map((sd) => ({ id: sd.id, faction: sd.faction, role: sd.role, region: sd.region })),
     tick: 0,
     match: {
       phase: prepSeconds > 0 ? 'PREPARATION' : 'WAR',
@@ -56,8 +64,9 @@ export function createInitialState({ scenario, settings, seed, world }) {
       warEndTick: endless ? 0 : Math.round((prepSeconds + warMinutes * 60) * TICK_RATE), // 0 = no time limit
       endless: endless ? 1 : 0, warMinutes,
       winner: null, reason: null, endTick: 0,
+      victory: scenario.victory || 'siege', // Phase 5A: 'siege' | 'annihilation' (scenario contract)
       // operational reorganisation windows (seeded, hidden; never a ceasefire — sim/lull.js)
-      lull: createLullState(seed, warMinutes, scenario.mode === 'siege' ? (settings.lulls !== undefined ? settings.lulls : 'auto') : 0, endless),
+      lull: createLullState(seed, warMinutes, scenario.mode === 'siege' || scenario.mode === 'open' ? (settings.lulls !== undefined ? settings.lulls : 'auto') : 0, endless),
     },
     factions: {},
     nextId: 1,
@@ -67,12 +76,14 @@ export function createInitialState({ scenario, settings, seed, world }) {
     nodes: [],
     effects: [],
     craters: [], // persistent shell craters (sim/abilities.js addCrater, bounded)
-    fog: createFogState(world.width, world.height, FACTION_ORDER.length),
+    fog: createFogState(world.width, world.height, FOG_LAYERS),
     infection: {
       cs: INFECTION_CELL,
       cols: Math.ceil(world.width / INFECTION_CELL),
       rows: Math.ceil(world.height / INFECTION_CELL),
       v: new Uint8Array(Math.ceil(world.width / INFECTION_CELL) * Math.ceil(world.height / INFECTION_CELL)),
+      // Phase 5A: owner layer per cell (sideIndex + 1, 0 = nobody) — a mirror match has two plagues
+      o: new Uint8Array(Math.ceil(world.width / INFECTION_CELL) * Math.ceil(world.height / INFECTION_CELL)),
     },
     // Phase 4.1: procedural rain + traffic mud (sim/weather.js)
     ...createWeatherState(scenario.weather, settings.rain, world.width, world.height),
@@ -86,15 +97,23 @@ export function createInitialState({ scenario, settings, seed, world }) {
     animals: [],
     convoys: [],
   };
-  for (const fid of FACTION_ORDER) {
-    const fdef = FACTIONS[fid];
+  for (const sd of sides) {
+    const fid = sd.id;
+    const fdef = FACTIONS[sd.faction];
     const abilities = {};
     for (const a of fdef.abilities) abilities[a] = { readyTick: 0 };
+    const pkg = startingPackage(sd.faction, sd.role);
+    const region = (world.regions || {})[sd.region];
+    // per-SIDE state (legacy key "factions"): a mirror twin has its own of everything
     state.factions[fid] = {
       id: fid,
-      role: scenario.roles[fid],
+      faction: sd.faction, // content faction
+      role: sd.role, // starting strategic role
+      region: sd.region, // start region on the map
+      zone: region ? { ...region.zone } : { x0: 0, z0: 0, x1: world.width, z1: world.height },
       controller: controllers[fid],
-      resources: { ...zeroResources(fdef), ...(scenario.resources[fid] || {}) },
+      resources: { ...zeroResources(fdef), ...(pkg.resources || {}), ...((scenario.resources && scenario.resources[sd.role]) || {}) },
+      popStart: pkg.population || 0,
       stats: newStats(),
       abilities,
       population: 0, // New Antioch: civilians of the fortress quarter (settlements hold their own)
@@ -131,7 +150,7 @@ export function createSoldier(state, def, slot, x, z, rot, soldierState = 'alive
     id: allocId(state), slot, x, z, vx: 0, vz: 0, rot,
     hp: def.hp, state: soldierState, stateTick: state.tick,
     cooldown: 0, burst: 0, shots: 0, targetId: 0,
-    infection: 0, cover: 0, postId: 0, postSlot: -1, working: 0, killer: '', ready: 0,
+    infection: 0, infBy: '', cover: 0, postId: 0, postSlot: -1, working: 0, killer: '', ready: 0,
     gslot: -1, gexit: 0, // Phase 4 ruin garrison slot / leaving through a door
     // stuck recovery (units/movement.js): progress window origin, rescue detour, attempts
     wx: x, wz: z, dp: null, di: 0, dgx: 0, dgz: 0, dtry: 0, stk: 0,
@@ -221,6 +240,9 @@ export function createStructure(state, type, faction, params) {
   if (def.farm || def.pen || def.quarry) s.host = params.host || 0;
   if (params.variant) s.variant = params.variant;
   if (params.objective) s.objective = true;
+  // Phase 5A hotfix: optional fixed quick-select identity for starting production/HQ structures.
+  // Plain state so save/load keeps A/B/C/HQ bound to the same physical building without moving camera.
+  if (params.quickSlot) s.quickSlot = params.quickSlot;
   s.work = s.built ? s.workRequired : s.workRequired * s.progress;
   if (!s.built) s.hp = Math.max(1, Math.round(def.hp * Math.max(0.12, s.progress)));
   return s;

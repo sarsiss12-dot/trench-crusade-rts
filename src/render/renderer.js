@@ -16,7 +16,7 @@ import { createCraterMemory } from './craters.js';
 import { createCanvasSizer } from './viewport.js';
 import { updateCamera, viewFootprint } from './camera.js';
 import { mat4, aabbInFrustum, mat4LookAt, mat4Mul, mat4Invert, mat4Ortho, frustumPlanes, transformPoint4 } from './math3d.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideIndex } from '../data/factions.js';
 import { groundHeightAt } from '../world/ground.js';
 import { createStructGrid, structGridRebuild } from '../world/structgrid.js';
 
@@ -182,7 +182,7 @@ export function createRenderer(canvas, opts = {}) {
 
   function syncFow(instant, dt = 0) {
     const fog = r.sim.state.fog;
-    const j = FACTIONS[r.viewer] ? FACTIONS[r.viewer].index : 0;
+    const j = sideIndex(r.viewer);
     const vis = fog.vis[j], seen = fog.seen[j];
     const n = fog.cols * fog.rows;
     const k = instant ? 1 : Math.min(1, dt * 6);
@@ -203,7 +203,7 @@ export function createRenderer(canvas, opts = {}) {
     if (!mud || mud.ver === r.mudVer) return;
     r.mudVer = mud.ver;
     const fog = r.sim.state.fog;
-    const vis = fog.vis[FACTIONS[r.viewer] ? FACTIONS[r.viewer].index : 0];
+    const vis = fog.vis[sideIndex(r.viewer)];
     const d = r.mudData, v = mud.v;
     for (let j = 0; j < mud.rows; j++) {
       const fz = Math.min(fog.rows - 1, Math.floor(((j + 0.5) * mud.cs) / fog.cs));

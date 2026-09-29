@@ -108,7 +108,7 @@ function support(sim, fid) {
         for (const m of sq.members) {
           if (m.state !== 'alive' || dist(m.x, m.z, st.x, st.z) > r) continue;
           if (m.hp < hpMax) m.hp = Math.min(hpMax, m.hp + d.heal.hpPerSec * 0.5);
-          if (cure && m.infection > 0) { m.infection--; pestLoss(sim, PESTILENCE.loss.cureStack, 'cured'); }
+          if (cure && m.infection > 0) { m.infection--; pestLoss(sim, PESTILENCE.loss.cureStack, 'cured', m.infBy || undefined); }
         }
       }
     }
@@ -156,7 +156,7 @@ function medics(sim, fid) {
         }
       }
       if (best) {
-        if (best.infection <= md.cureMaxStacks) { best.infection--; pestLoss(sim, PESTILENCE.loss.cureStack, 'cured'); }
+        if (best.infection <= md.cureMaxStacks) { best.infection--; pestLoss(sim, PESTILENCE.loss.cureStack, 'cured', best.infBy || undefined); }
         best.slow = tick + Math.round(md.slowSec * TICK_RATE); // late infection: progression slowed
       }
     }

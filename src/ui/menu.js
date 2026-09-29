@@ -4,10 +4,11 @@
 import { el, clear, button } from './dom.js';
 import { icon } from './icons.js';
 import { t, formatClock, getLanguage } from './i18n.js';
-import { MATCH_LENGTH_OPTIONS, DEV_MATCH_LENGTHS, LULL_OPTIONS } from '../data/scenarios.js';
+import { MATCH_LENGTH_OPTIONS, DEV_MATCH_LENGTHS, LULL_OPTIONS, SCENARIOS } from '../data/scenarios.js';
+import { AI_DIFFICULTY } from '../data/ai.js';
 import { UNITS } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS } from '../data/factions.js';
+import { FACTIONS, FACTION_ORDER, PLANNED_FACTIONS, sideDef } from '../data/factions.js';
 import { ABILITIES } from '../data/abilities.js';
 import { SPECIALITIES } from '../data/specialities.js';
 import { SECTOR_KINDS } from '../data/economy.js';
@@ -90,36 +91,145 @@ export function createMenu(env) {
     });
   }
 
-  // ------------------------------------------------------------------ new war
+  // ------------------------------------------------------------------ new war: MATCH SETUP
+  // Phase 5A flow (one scrolling screen, numbered steps — thumb-friendly on a phone):
+  //   1 SETUP MODE (Lore / Free) · 2 SCENARIO · 3 YOUR FACTION · 4 ENEMY FACTION · 5 YOUR ROLE ·
+  //   6 AI DIFFICULTY · 7 WAR LENGTH · 8 RULES + SUMMARY + START
+  // LORE SETUP: a scenario preset fixes who defends / attacks (the classic New Antioch siege);
+  // the player only picks which side to play. FREE SETUP: any playable faction for each side
+  // (mirror matches allowed) and either role. Planned factions show as locked cards (no fake
+  // content). The setup is plain data handed to the simulation (sim/sides.js resolveSides).
   function showNewGame() {
     // Phase 4.1: 30 / 60 / 120 / 180 / ENDLESS (5 and 15 only in development builds)
     const lengths = env.dev ? [...DEV_MATCH_LENGTHS, ...MATCH_LENGTH_OPTIONS] : MATCH_LENGTH_OPTIONS;
     const saved = S.warMinutes;
-    const cfg = { faction: S.lastFaction || 'new_antioch', warMinutes: lengths.includes(saved) ? saved : 30, quality: S.quality || 'balanced', lulls: S.lulls !== undefined ? S.lulls : 'auto' };
-    show('new', (p) => {
-      p.append(header(t('menu.new_game'), showMain));
-      const cards = el('div.cards');
-      for (const fid of ['new_antioch', 'black_grail']) {
-        const role = fid === 'new_antioch' ? t('menu.role_defender') : t('menu.role_attacker');
-        const c = button('card ' + fid + (cfg.faction === fid ? ' on' : ''),
-          `<span class="cico">${icon(fid === 'new_antioch' ? 'cross' : 'grail')}</span><b>${t('faction.' + fid + '.full')}</b><em>${role}</em><span>${t(fid === 'new_antioch' ? 'menu.na_blurb' : 'menu.bg_blurb')}</span>`,
-          () => {
-            cfg.faction = fid;
-            for (const x of cards.children) x.classList.remove('on');
-            c.classList.add('on');
-          });
-        cards.appendChild(c);
+    const last = S.lastSetup || {};
+    const cfg = {
+      mode: last.mode === 'free' ? 'free' : 'lore',
+      scenarioId: SCENARIOS[last.scenarioId] ? last.scenarioId : 'siege_default',
+      playerFaction: FACTIONS[last.playerFaction] ? last.playerFaction : (FACTIONS[S.lastFaction] ? S.lastFaction : 'new_antioch'),
+      enemyFaction: FACTIONS[last.enemyFaction] ? last.enemyFaction : 'black_grail',
+      playerRole: last.playerRole === 'attacker' ? 'attacker' : 'defender',
+      aiDifficulty: AI_DIFFICULTY[last.aiDifficulty] ? last.aiDifficulty : 'normal',
+      warMinutes: lengths.includes(saved) ? saved : 30,
+      quality: S.quality || 'balanced',
+      lulls: S.lulls !== undefined ? S.lulls : 'auto',
+    };
+    const playable = FACTION_ORDER.filter((f) => FACTIONS[f]);
+    const scenariosFor = (mode) => Object.values(SCENARIOS).filter((sc) => (sc.setupModes || []).indexOf(mode) >= 0);
+    const fname = (fid) => t('faction.' + fid + '.full');
+    const roleName = (r) => t(r === 'attacker' ? 'menu.role_attacker' : 'menu.role_defender');
+    /** The resolved match: { playerFaction, playerRole, enemyFaction, enemyRole } for the summary. */
+    function resolved() {
+      const sc = SCENARIOS[cfg.scenarioId];
+      if (cfg.mode === 'lore' && sc.lore) {
+        const role = sc.lore.defender === cfg.playerFaction ? 'defender' : 'attacker';
+        const other = role === 'defender' ? 'attacker' : 'defender';
+        return { playerFaction: sc.lore[role], playerRole: role, enemyFaction: sc.lore[other], enemyRole: other };
       }
-      p.append(el('div.choice', null, el('label', { text: t('menu.faction') })), cards);
-      p.append(choice(t('menu.length'), lengths.map((m) => [m, m === 'endless' ? t('menu.endless') : t('menu.minutes', { n: m })]), cfg.warMinutes, (v) => { cfg.warMinutes = v; }));
-      p.append(choice(t('menu.lulls'), LULL_OPTIONS.map((v) => [v, t('lulls.' + v)]), cfg.lulls, (v) => { cfg.lulls = v; }));
-      p.append(choice(t('menu.quality'), ['low', 'balanced', 'high'].map((q) => [q, t('quality.' + q)]), cfg.quality, (v) => { cfg.quality = v; }));
-      p.append(el('div.mlist', null, button('big primary', icon('play') + t('menu.start'), () => {
-        S.lastFaction = cfg.faction; S.warMinutes = cfg.warMinutes; S.quality = cfg.quality; S.lulls = cfg.lulls;
-        env.saveSettings();
-        env.startMatch({ faction: cfg.faction, warMinutes: cfg.warMinutes, lulls: cfg.lulls });
-      })));
-    });
+      return {
+        playerFaction: cfg.playerFaction, playerRole: cfg.playerRole,
+        enemyFaction: cfg.enemyFaction, enemyRole: cfg.playerRole === 'attacker' ? 'defender' : 'attacker',
+      };
+    }
+
+    function step(n, label, body) {
+      return el('div.setupstep', null, el('div.stephead', { html: `<i>${n}</i><span>${label}</span>` }), body);
+    }
+
+    function factionCard(fid, on, onPick, roleText) {
+      const d = FACTIONS[fid];
+      const c = button('card ' + fid + (on ? ' on' : ''),
+        `<span class="cico">${icon(d.card.icon)}</span><b>${fname(fid)}</b>` +
+        (roleText ? `<em>${roleText}</em>` : '') +
+        `<span class="ident">${t(d.card.identityKey)}</span>` +
+        `<span class="facts"><small>${t('setup.economy')}: ${t(d.card.economyKey)}</small><small>${t('setup.style')}: ${t(d.card.styleKey)}</small><small class="ok">${t('setup.status_ready')}</small></span>`,
+        onPick);
+      return c;
+    }
+
+    function lockedCard(pf) {
+      const c = el('div.card.locked', { html: `<span class="cico">${icon('lock')}</span><b>${t(pf.nameKey)}</b><em>${t('setup.coming_soon')}</em><span class="facts"><small>${t('setup.status_locked', { phase: pf.phase })}</small></span>` });
+      c.setAttribute('aria-disabled', 'true');
+      return c;
+    }
+
+    function render() {
+      show('new', (p) => {
+        p.append(header(t('setup.title'), showMain));
+        const r = resolved();
+        // 1 SETUP MODE
+        p.append(step(1, t('setup.mode'), el('div.opts.wide', null,
+          button('opt big2' + (cfg.mode === 'lore' ? ' on' : ''), `${icon('cross')}<b>${t('setup.mode_lore')}</b><small>${t('setup.mode_lore_tip')}</small>`, () => {
+            cfg.mode = 'lore';
+            if (!scenariosFor('lore').some((sc) => sc.id === cfg.scenarioId)) cfg.scenarioId = scenariosFor('lore')[0].id;
+            render();
+          }),
+          button('opt big2' + (cfg.mode === 'free' ? ' on' : ''), `${icon('doctrine')}<b>${t('setup.mode_free')}</b><small>${t('setup.mode_free_tip')}</small>`, () => {
+            cfg.mode = 'free';
+            if (!scenariosFor('free').some((sc) => sc.id === cfg.scenarioId)) cfg.scenarioId = scenariosFor('free')[0].id;
+            render();
+          }))));
+        // 2 SCENARIO
+        const scBox = el('div.cards');
+        for (const sc of scenariosFor(cfg.mode)) {
+          const tag = sc.lore ? `<em>${t('setup.lore_preset')}</em>` : `<em>${t('setup.victory.' + sc.victory)}</em>`;
+          scBox.append(button('card scen' + (sc.id === cfg.scenarioId ? ' on' : ''),
+            `<span class="cico">${icon(sc.victory === 'siege' ? 'bastion' : 'attack')}</span><b>${t(sc.nameKey)}</b>${tag}<span>${t(sc.descKey)}</span>`,
+            () => { cfg.scenarioId = sc.id; render(); }));
+        }
+        p.append(step(2, t('setup.scenario'), scBox));
+        const sc = SCENARIOS[cfg.scenarioId];
+        if (cfg.mode === 'lore' && sc.lore) {
+          // Lore preset: roles are fixed by the scenario; the player picks WHICH side to play
+          const cards = el('div.cards');
+          for (const role of sc.slots || ['defender', 'attacker']) {
+            const fid = sc.lore[role];
+            cards.append(factionCard(fid, r.playerFaction === fid && r.playerRole === role, () => { cfg.playerFaction = fid; render(); }, roleName(role)));
+          }
+          p.append(step(3, t('setup.play_as'), cards));
+          p.append(el('p.note.left', { text: t('setup.lore_note') }));
+        } else {
+          // 3 YOUR FACTION
+          const mine = el('div.cards');
+          for (const fid of playable) mine.append(factionCard(fid, cfg.playerFaction === fid, () => { cfg.playerFaction = fid; render(); }));
+          for (const pf of PLANNED_FACTIONS) mine.append(lockedCard(pf));
+          p.append(step(3, t('setup.your_faction'), mine));
+          // 4 ENEMY FACTION (mirror allowed)
+          const foe = el('div.cards');
+          for (const fid of playable) foe.append(factionCard(fid, cfg.enemyFaction === fid, () => { cfg.enemyFaction = fid; render(); }, fid === cfg.playerFaction ? t('setup.mirror') : ''));
+          for (const pf of PLANNED_FACTIONS) foe.append(lockedCard(pf));
+          p.append(step(4, t('setup.enemy_faction'), foe));
+          // 5 YOUR ROLE: two big buttons
+          p.append(step(5, t('setup.your_role'), el('div.opts.wide', null,
+            button('opt big2' + (cfg.playerRole === 'defender' ? ' on' : ''), `${icon('bastion')}<b>${t('menu.role_defender')}</b><small>${t('setup.role_defender_tip')}</small>`, () => { cfg.playerRole = 'defender'; render(); }),
+            button('opt big2' + (cfg.playerRole === 'attacker' ? ' on' : ''), `${icon('attack')}<b>${t('menu.role_attacker')}</b><small>${t('setup.role_attacker_tip')}</small>`, () => { cfg.playerRole = 'attacker'; render(); }))));
+        }
+        // 6 AI DIFFICULTY
+        p.append(step(cfg.mode === 'lore' ? 4 : 6, t('setup.ai'), choice('', Object.keys(AI_DIFFICULTY).map((k) => [k, t('setup.ai.' + k)]), cfg.aiDifficulty, (v) => { cfg.aiDifficulty = v; })));
+        // 7 WAR LENGTH
+        p.append(step(cfg.mode === 'lore' ? 5 : 7, t('menu.length'), choice('', lengths.map((m) => [m, m === 'endless' ? t('menu.endless') : t('menu.minutes', { n: m })]), cfg.warMinutes, (v) => { cfg.warMinutes = v; render(); })));
+        // 8 RULES + SUMMARY + START
+        const rules = el('div', null,
+          choice(t('menu.lulls'), LULL_OPTIONS.map((v) => [v, t('lulls.' + v)]), cfg.lulls, (v) => { cfg.lulls = v; }),
+          choice(t('menu.quality'), ['low', 'balanced', 'high'].map((q) => [q, t('quality.' + q)]), cfg.quality, (v) => { cfg.quality = v; }));
+        p.append(step(cfg.mode === 'lore' ? 6 : 8, t('setup.rules'), rules));
+        const len = cfg.warMinutes === 'endless' ? t('menu.endless') : t('menu.minutes', { n: cfg.warMinutes });
+        const summary = t('setup.summary', {
+          pf: t('faction.' + r.playerFaction).toUpperCase(), pr: roleName(r.playerRole).toUpperCase(),
+          ef: t('faction.' + r.enemyFaction).toUpperCase(), er: roleName(r.enemyRole).toUpperCase(), len: len.toUpperCase(),
+        });
+        p.append(el('div.summary', null, el('small', { text: t(sc.nameKey) + (r.playerFaction === r.enemyFaction ? ' · ' + t('setup.mirror') : '') }), el('b', { text: summary })));
+        p.append(el('div.mlist', null, button('big primary', icon('play') + t('menu.start'), () => {
+          const setup = { mode: cfg.mode, scenarioId: cfg.scenarioId, playerFaction: r.playerFaction, enemyFaction: r.enemyFaction, playerRole: r.playerRole };
+          S.lastSetup = { ...setup, aiDifficulty: cfg.aiDifficulty };
+          S.lastFaction = r.playerFaction; S.warMinutes = cfg.warMinutes; S.quality = cfg.quality; S.lulls = cfg.lulls;
+          env.saveSettings();
+          env.startMatch({ setup, aiDifficulty: cfg.aiDifficulty, warMinutes: cfg.warMinutes, lulls: cfg.lulls });
+        })));
+      });
+    }
+    render();
   }
 
   // ------------------------------------------------------------------ load
@@ -133,7 +243,7 @@ export function createMenu(env) {
         const m = s.meta || {};
         const when = formatClock((m.tick || 0) / TICK_RATE);
         const row = el('div.save', null,
-          el('span.sn', { html: `${icon(m.faction === 'black_grail' ? 'grail' : 'cross')}<b>${s.slot === 'auto' ? t('menu.continue') : s.slot}</b>` }),
+          el('span.sn', { html: `${icon((sideDef(m.faction || 'new_antioch') || FACTIONS.new_antioch).card.icon)}<b>${s.slot === 'auto' ? t('menu.continue') : s.slot}</b>` }),
           el('span.sm', { text: t('menu.saved_at', { phase: t('phase.' + (m.phase || 'WAR')), time: when }) }),
           button('opt', icon('play'), () => env.loadSlot(s.slot), t('menu.load')),
           button('opt danger', icon('cancel'), () => { env.storage.remove(s.slot); showLoad(back); }, t('menu.delete')));
@@ -233,10 +343,11 @@ export function createMenu(env) {
   function showEnd(game, ev) {
     const viewer = game.viewer;
     const win = ev.winner === viewer;
+    const draw = !ev.winner;
     const f = game.sim.state.factions[viewer].stats;
     const dur = (game.sim.state.match.endTick || game.sim.state.tick) / TICK_RATE;
     show('end', (p) => {
-      p.append(el('div.endtitle' + (win ? '.win' : '.lose'), { text: win ? t('end.victory') : t('end.defeat') }));
+      p.append(el('div.endtitle' + (win ? '.win' : draw ? '' : '.lose'), { text: win ? t('end.victory') : draw ? t('end.draw') : t('end.defeat') }));
       p.append(el('p.reason', { text: t('end.reason.' + ev.reason) }));
       p.append(el('p.stats', { text: t('end.stats', f) }));
       p.append(el('p.stats', { text: t('end.duration', { t: formatClock(dur) }) }));

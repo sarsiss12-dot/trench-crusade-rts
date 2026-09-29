@@ -264,6 +264,68 @@ export const MIGRATIONS = {
     s.version = 5;
     return { ...save, version: 5 };
   },
+  // Phase 4.1 -> Phase 5A (FACTION / SIDE / ROLE separation):
+  //  - every save before 5A is the classic Lore preset: New Antioch = DEFENDER (south region),
+  //    Black Grail = ATTACKER (north region); state.sides is added in slot order and each per-side
+  //    state learns its faction / role / region / build zone (region data)
+  //  - objectives become side-owned ({ id, type, structureId, side, role }); victory rule 'siege'
+  //  - plague ownership: infected ground cells, infected soldiers' stacks and infected corpses
+  //    all belong to the Black Grail (the only plague side a classic match can have)
+  //  - setup mode 'lore', AI difficulty 'normal' (the old think interval)
+  // Nothing else changes: resources, units, structures, corpses, pestilence, groups (save meta),
+  // mud / weather, elites and reinforcement state are kept as they are.
+  5: (save) => {
+    const s = save.state;
+    s.settings = s.settings || {};
+    if (!s.settings.setupMode) s.settings.setupMode = 'lore';
+    if (!s.settings.aiDifficulty) s.settings.aiDifficulty = 'normal';
+    const map = mapDef(s.mapId) || {};
+    const regions = map.regions || {};
+    const W = map.width || 320, H = map.height || 576;
+    const LORE = [
+      { id: 'new_antioch', faction: 'new_antioch', role: 'defender', region: 'south', pop: 40 },
+      { id: 'black_grail', faction: 'black_grail', role: 'attacker', region: 'north', pop: 0 },
+    ];
+    if (!Array.isArray(s.sides)) {
+      s.sides = LORE.filter((sd) => s.factions && s.factions[sd.id]).map((sd) => ({ id: sd.id, faction: sd.faction, role: sd.role, region: sd.region }));
+    }
+    for (const sd of LORE) {
+      const f = s.factions && s.factions[sd.id];
+      if (!f) continue;
+      if (!f.faction) f.faction = sd.faction;
+      if (!f.role) f.role = sd.role;
+      if (!f.region) f.region = sd.region;
+      if (!f.zone) f.zone = regions[f.region] ? { ...regions[f.region].zone } : { x0: 0, z0: 0, x1: W, z1: H };
+      if (f.popStart === undefined) f.popStart = sd.pop;
+    }
+    const m = s.match || {};
+    if (!m.victory) m.victory = 'siege';
+    s.match = m;
+    const objs = [];
+    for (const o of s.objectives || []) {
+      if (o.side) { objs.push(o); continue; }
+      const side = o.defender || 'new_antioch';
+      objs.push({ id: 'defenderPrimaryObjective', type: 'siege', structureId: o.structureId || 0, side, role: 'defender' });
+    }
+    if (!objs.length) {
+      const st = (s.structures || []).find((x) => x.objective);
+      if (st) objs.push({ id: 'defenderPrimaryObjective', type: 'siege', structureId: st.id, side: st.faction, role: 'defender' });
+    }
+    s.objectives = objs;
+    const inf = s.infection;
+    if (inf && inf.v && !inf.o) {
+      const o = new Uint8Array(inf.v.length);
+      const layer = 2; // sideIndex('black_grail') + 1 in a classic match
+      for (let i = 0; i < inf.v.length; i++) if (inf.v[i]) o[i] = layer;
+      inf.o = o;
+    }
+    for (const sq of s.squads || []) {
+      for (const mm of sq.members) if (mm.infBy === undefined) mm.infBy = mm.infection > 0 ? 'black_grail' : '';
+    }
+    for (const c of s.corpses || []) if (c.plague === undefined) c.plague = c.infected ? 'black_grail' : '';
+    s.version = 6;
+    return { ...save, version: 6 };
+  },
 };
 
 export function migrateSave(save) {

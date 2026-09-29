@@ -3,7 +3,7 @@
 // units/, combat/ and sim/ modules can all use it without an import cycle.
 import { EV } from '../core/events.js';
 import { PESTILENCE } from '../data/specialities.js';
-import { pestLoss } from '../factions/pestilence.js';
+import { pestLoss, plagueSides } from '../factions/pestilence.js';
 
 export function removeCorpse(sim, c, reason) {
   const { state, rt } = sim;
@@ -18,7 +18,11 @@ export function removeCorpse(sim, c, reason) {
  * rise nor feed the Grail. Infected bodies cost the plague more momentum. byFaction gets the stat.
  */
 export function cremateCorpse(sim, c, byFaction) {
-  pestLoss(sim, c.infected ? PESTILENCE.loss.burnInfected : PESTILENCE.loss.burnCorpse, 'burned');
+  // Phase 5A per side: an infected body costs its claimant; a clean one costs every plague that
+  // is not the burner (bodies are what every hostile plague feeds on)
+  const loss = c.infected ? PESTILENCE.loss.burnInfected : PESTILENCE.loss.burnCorpse;
+  if (c.infected && c.plague) pestLoss(sim, loss, 'burned', c.plague);
+  else for (const ps of plagueSides(sim.state)) if (ps !== byFaction) pestLoss(sim, loss, 'burned', ps);
   const f = byFaction && sim.state.factions[byFaction];
   if (f) f.stats.burned++;
   removeCorpse(sim, c, 'burned');
@@ -29,7 +33,7 @@ export function addCarcass(sim, x, z, rot, sp, biomass, seenBy = 0) {
   const { state, rt } = sim;
   const c = {
     id: state.nextId++, x, z, rot, faction: 'animal', unit: '', sp,
-    pose: 0, tick: state.tick, infected: false, biomass, seenBy, riseAt: 0, soldierId: 0,
+    pose: 0, tick: state.tick, infected: false, plague: '', biomass, seenBy, riseAt: 0, soldierId: 0,
   };
   state.corpses.push(c);
   rt.corpseById.set(c.id, c);
@@ -41,7 +45,7 @@ export function addCarcass(sim, x, z, rot, sp, biomass, seenBy = 0) {
 export function addOldCorpse(state, rt, x, z, rot) {
   const c = {
     id: state.nextId++, x, z, rot, faction: 'neutral', unit: 'yeoman_rifle', old: 1,
-    pose: (x * 13 + z * 7) & 1023, tick: 0, infected: false, biomass: 5, seenBy: 0, riseAt: 0, soldierId: 0,
+    pose: (x * 13 + z * 7) & 1023, tick: 0, infected: false, plague: '', biomass: 5, seenBy: 0, riseAt: 0, soldierId: 0,
   };
   state.corpses.push(c);
   if (rt) rt.corpseById.set(c.id, c);

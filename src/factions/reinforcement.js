@@ -10,7 +10,7 @@
 // Everything here is plain state (sq.reinf) + deterministic iteration: saves / replays agree.
 import { lullBonus } from '../sim/lull.js';
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideDef } from '../data/factions.js';
 import { unitDef } from '../data/units.js';
 import { EV } from '../core/events.js';
 import { dist } from '../core/dmath.js';
@@ -81,7 +81,7 @@ export function pickSource(sim, sq) {
 
 /** Validate + register a reinforcement request. Returns null or a reject reason key. */
 export function requestReinforcement(sim, sq, auto = false) {
-  const conf = FACTIONS[sq.faction].reinforcements;
+  const conf = sideDef(sq.faction).reinforcements;
   if (!conf) return 'reinf.not_available';
   if (!unitDef(sq.type).combatUnit && !unitDef(sq.type).reinforceable) return 'reinf.not_available';
   if (missingMembers(sq) <= 0) return 'reinf.full';
@@ -154,7 +154,7 @@ function waitingMen(state, fid) {
 /** Dispatch one replacement per requesting squad per interval. */
 export function updateReinforcements(sim, fid) {
   const { state, rt } = sim;
-  const conf = FACTIONS[fid].reinforcements;
+  const conf = sideDef(fid).reinforcements;
   if (!conf) return;
   const f = state.factions[fid];
   const interval = Math.max(1, Math.round(conf.intervalTicks * specValue(state, fid, 'reinfInterval', 1)));

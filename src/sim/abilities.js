@@ -2,7 +2,7 @@
 // state.effects and are resolved deterministically by the simulation.
 import { ABILITIES } from '../data/abilities.js';
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS, areHostile } from '../data/factions.js';
+import { areHostile, sideIndex, baseFaction } from '../data/factions.js';
 import { EV } from '../core/events.js';
 import { rngFloat } from '../core/rng.js';
 import { dist, dsin, dcos } from '../core/dmath.js';
@@ -15,14 +15,14 @@ import { distanceToStructure } from '../units/orders.js';
 import { cremateCorpse } from './corpses.js';
 import { animalsBlast } from './wildlife.js';
 import { specValue, specRule, unlockedBySpec } from './specialities.js';
-import { addInfection, pestSpend, pestLoss, swarmDpsMult, swarmCooldownMult, cleanseInfection, seedInfection } from '../factions/pestilence.js';
+import { addInfection, pestSpend, pestLoss, swarmDpsMult, swarmCooldownMult, cleanseInfection, seedInfection, plagueSides } from '../factions/pestilence.js';
 
 const GARRISON_BLAST = 0.9; // blast damage taken inside a ruin garrison (data: structures garrison.blastTaken)
 
 export function validateAbility(sim, faction, abilityId, x, z) {
   const { state } = sim;
   const def = ABILITIES[abilityId];
-  if (!def || def.faction !== faction) return 'ability.invalid';
+  if (!def || def.faction !== baseFaction(faction)) return 'ability.invalid';
   const fs = state.factions[faction];
   if (!fs.abilities[abilityId]) return 'ability.invalid';
   if (!unlockedBySpec(state, faction, def)) return 'ability.spec';
@@ -31,7 +31,7 @@ export function validateAbility(sim, faction, abilityId, x, z) {
   if (def.requiresPestilence && (fs.pestilence || 0) < def.requiresPestilence - 1e-9) return 'ability.pestilence';
   if (!canAfford(fs.resources, def.cost)) return 'ability.no_resources';
   if (!Number.isFinite(x) || !Number.isFinite(z)) return 'ability.invalid';
-  const fIdx = FACTIONS[faction].index;
+  const fIdx = sideIndex(faction);
   // Heavy Artillery Doctrine: map fire on ground seen before (explored), not only in sight
   const seen = def.effect === 'barrage' && specRule(state, faction, 'artilleryExplored') ? isExploredAt(state.fog, fIdx, x, z) : false;
   if (def.requiresVision && !seen && !isVisibleAt(state.fog, fIdx, x, z)) return 'ability.no_vision';
@@ -66,7 +66,7 @@ export function abilityCooldown(sim, faction, abilityId) {
   const def = ABILITIES[abilityId];
   let cd = def.cooldown * supportMult(sim, faction, def.supportKey);
   if (abilityId === 'artillery_barrage') cd *= specValue(sim.state, faction, 'artilleryCooldown', 1);
-  if (abilityId === 'fly_swarm') cd *= swarmCooldownMult(sim.state);
+  if (abilityId === 'fly_swarm') cd *= swarmCooldownMult(sim.state, faction);
   return cd;
 }
 
@@ -106,9 +106,9 @@ export function castAbility(sim, faction, abilityId, x, z) {
   }
   if (def.effect === 'plague_cloud') {
     // the Great Pestilence spends most of the meter: no permanent snowball
-    pestSpend(sim, specValue(state, faction, 'greatCost', def.pestilenceCost));
+    pestSpend(sim, specValue(state, faction, 'greatCost', def.pestilenceCost), faction);
     fs.stats.greatPestilence++;
-    seedInfection(sim, x, z, prm.radius, def.groundInfect);
+    seedInfection(sim, x, z, prm.radius, def.groundInfect, faction);
   }
   if (def.effect === 'tide') {
     for (const sq of state.squads) {
@@ -138,7 +138,7 @@ function plagueCloudTick(sim, e, def) {
       if (dx * dx + dz * dz > r2) continue;
       // the cloud sickens up to maxStacks — the rest is the infection's own course (medics, clerics,
       // leaving the cloud and clean ground still save a squad caught in it)
-      if (doInfect && m.infection < (def.maxStacks || INFECTION_MAX)) addInfection(sim, sq, m, 1);
+      if (doInfect && m.infection < (def.maxStacks || INFECTION_MAX)) addInfection(sim, sq, m, 1, e.faction);
       damageSoldier(sim, sq, m, def.dps * 0.5, e.faction, PLAGUE_CLOUD, 0, 0);
     }
     sq.debuffUntil = state.tick + 14;
@@ -150,7 +150,7 @@ function swarmTick(sim, e, def) {
   const { state } = sim;
   const r2 = e.radius * e.radius;
   const doInfect = (state.tick - e.start) % Math.round(def.infectInterval * TICK_RATE) < 10;
-  const dps = def.dps * swarmDpsMult(state);
+  const dps = def.dps * swarmDpsMult(state, e.faction);
   for (const sq of state.squads) {
     if (!areHostile(e.faction, sq.faction)) continue;
     if (dist(sq.cx, sq.cz, e.x, e.z) > e.radius + 12) continue;
@@ -160,7 +160,7 @@ function swarmTick(sim, e, def) {
       const dx = m.x - e.x, dz = m.z - e.z;
       if (dx * dx + dz * dz > r2) continue;
       touched = true;
-      if (doInfect) addInfection(sim, sq, m, 1);
+      if (doInfect) addInfection(sim, sq, m, 1, e.faction);
       damageSoldier(sim, sq, m, dps * 0.5, e.faction, SWARM, 0, 0); // ignores cover
     }
     if (touched) sq.debuffUntil = state.tick + 14;
@@ -210,7 +210,7 @@ export function explode(sim, faction, def, x, z, ability = '') {
       const dd = d || 1;
       const hp0 = m.hp;
       damageSoldier(sim, sq, m, dmg, faction, BLAST, (m.x - x) / dd, (m.z - z) / dd, 0, force);
-      if (def.infect && !friendly) addInfection(sim, sq, m, def.infect); // viscera shot: diseased offal
+      if (def.infect && !friendly) addInfection(sim, sq, m, def.infect, faction); // viscera shot: diseased offal
       if (def.gunStat && !friendly && state.factions[faction]) {
         const gs = state.factions[faction].stats;
         gs.gunDmg = (gs.gunDmg || 0) + Math.max(0, hp0 - Math.max(0, m.hp));
@@ -283,7 +283,7 @@ export function updateEffects(sim) {
       if (state.tick >= e.next && !e.done) {
         e.done = 1;
         purgeTick(sim, e, def);
-        pestLoss(sim, def.pestilenceDrain, 'purge');
+        for (const ps of plagueSides(state)) if (ps !== e.faction) { pestLoss(sim, def.pestilenceDrain, 'purge', ps); break; }
       }
       if (state.tick >= e.end) { state.effects.splice(i, 1); continue; }
     } else if (e.kind === 'tide') {

@@ -8,7 +8,7 @@ import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { COVER_TYPES, COVER_IDS } from '../data/cover.js';
 import { isSquadVisibleTo, isStructureVisibleTo, isNodeKnownTo, isSoldierVisibleTo, visibleCentroid, isPointVisibleTo, isSectorKnownTo } from '../sim/perception.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideDef, isPlagueImmune } from '../data/factions.js';
 import { exitPoint } from '../sim/production.js';
 import { TICK_RATE } from '../sim/constants.js';
 import { createRangeViz } from './range_viz.js';
@@ -176,7 +176,7 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     const pdef = pl && STRUCTURES[pl.stype];
     const econPlacing = !!(pdef && (pdef.requiresSector || pdef.requiresSettlement || pdef.requiresSectorKind));
     const settlementSel = !!(sst && STRUCTURES[sst.type] && STRUCTURES[sst.type].settlement);
-    const prepEcon = state.match.phase === 'PREPARATION' && FACTIONS[viewer] && FACTIONS[viewer].population;
+    const prepEcon = state.match.phase === 'PREPARATION' && sideDef(viewer) && sideDef(viewer).population;
     if (econPlacing || settlementSel || prepEcon || frame.showSectors) {
       for (const sec of state.sectors || []) {
         if (!isSectorKnownTo(sec, viewer)) continue;
@@ -473,7 +473,7 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     // infection (visible sickness): a sickly pip bar with the share of infected soldiers
     let inf = 0;
     for (const m of sq.members) if (m.state === 'alive' && m.infection > 0 && (own || isSoldierVisibleTo(sim, sq, m, renderer.viewer))) inf++;
-    if (inf && sq.faction !== 'black_grail') {
+    if (inf && !isPlagueImmune(sq.faction)) {
       const s = 5 * dpr;
       bar(x0 + w + 2 * dpr, y0, s * 2, h, 0.55, 0.62, 0.16, 1, inf / alive, 0);
     }
@@ -531,8 +531,9 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     const hover = frame.hover || null;
 
     // deployment zone during preparation
-    if (state.match.phase === 'PREPARATION' && world.zones[viewer]) {
-      zoneOutline(world.zones[viewer], [0.86, 0.76, 0.48], 0.45 + 0.15 * Math.sin(t * 2.5));
+    const vzone = state.factions[viewer] && state.factions[viewer].zone;
+    if (state.match.phase === 'PREPARATION' && vzone) {
+      zoneOutline(vzone, [0.86, 0.76, 0.48], 0.45 + 0.15 * Math.sin(t * 2.5));
     }
 
     // selection rings, attack-target rings, route lines

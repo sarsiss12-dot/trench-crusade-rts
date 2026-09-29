@@ -9,6 +9,7 @@ import { canAfford, pay, refund } from '../economy/economy.js';
 import { createSquad } from './state.js';
 import { setOrder } from '../units/orders.js';
 import { unlockedBySpec, specHas, unitCost, unitTrainTime, unitSquadSize, unitMaxSquads } from './specialities.js';
+import { baseFaction, sideDef } from '../data/factions.js';
 
 export const MAX_QUEUE = 5;
 
@@ -25,7 +26,7 @@ export function canTrain(sim, faction, st, unitType) {
   const def = STRUCTURES[st.type];
   if (!def.trains || def.trains.indexOf(unitType) < 0) return 'train.invalid';
   const u = unitDef(unitType);
-  if (u.faction !== faction || !u.cost) return 'train.invalid';
+  if (u.faction !== baseFaction(faction) || !u.cost) return 'train.invalid';
   const state = sim.state;
   // speciality-gated units / trainers, structure-gated units (flamer teams need a workshop)
   if (!unlockedBySpec(state, faction, u)) return 'train.spec';
@@ -78,7 +79,7 @@ export function updateProduction(sim) {
     st.queue.shift();
     exitPoint(st, P);
     const u = unitDef(item.unit);
-    const emerging = st.faction === 'black_grail';
+    const emerging = !!(sideDef(st.faction) || {}).emergingProduction;
     const size = unitSquadSize(state, st.faction, item.unit);
     const sq = createSquad(state, st.faction, item.unit, P[0], P[1], st.rot, { soldierState: emerging ? 'rising' : 'alive', size });
     state.squads.push(sq);

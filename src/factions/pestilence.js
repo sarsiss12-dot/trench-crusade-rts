@@ -9,8 +9,15 @@
 //  most of the meter, so it never snowballs permanently.
 // Also home of addInfection(): the single entry point for infection stacks (auras / specialities /
 // statistics apply uniformly, whatever the source: blades, swarm, ground, heralds, clouds).
+//
+// Phase 5A — PER SIDE: every meter call names the plague SIDE it belongs to (a Black Grail mirror
+// match has two separate meters). Infection stacks remember who laid them (soldier m.infBy), an
+// infected corpse remembers who claimed it (corpse c.plague) and every infected ground cell has an
+// owner layer (state.infection.o: sideIndex + 1, 0 = nobody) — so reanimation, harvest, territory
+// credit, cures and burning always hit the right side. Omitting the side falls back to the first
+// plague side (single-plague matches, tests).
 import { PESTILENCE } from '../data/specialities.js';
-import { FACTIONS } from '../data/factions.js';
+import { sideDef, sideIndex } from '../data/factions.js';
 import { STRUCTURES } from '../data/structures.js';
 import { EV } from '../core/events.js';
 import { rngFloat } from '../core/rng.js';
@@ -18,11 +25,43 @@ import { dist } from '../core/dmath.js';
 import { INFECTION_MAX, TICK_RATE } from '../sim/constants.js';
 import { specValue } from '../sim/specialities.js';
 
-const GRAIL = 'black_grail';
+/** Does this side own a Pestilence meter (faction data flag)? */
+export function isPlagueSide(state, side) {
+  const d = side && sideDef(side);
+  return !!(d && d.pestilence && state.factions[side]);
+}
 
-/** The faction owning the Pestilence meter (data flag), or null. */
+/** Plague sides of the match, in slot order. */
+export function plagueSides(state) {
+  const out = [];
+  for (const s of state.sides || []) if (isPlagueSide(state, s.id)) out.push(s.id);
+  if (!state.sides) for (const id in state.factions) if (isPlagueSide(state, id)) out.push(id);
+  return out;
+}
+
+/** The first plague side (single-plague convenience), or null. */
 export function plagueFaction(state) {
-  for (const fid in FACTIONS) if (FACTIONS[fid].pestilence && state.factions[fid]) return fid;
+  for (const s of state.sides || []) if (isPlagueSide(state, s.id)) return s.id;
+  if (!state.sides) for (const id in state.factions) if (isPlagueSide(state, id)) return id;
+  return null;
+}
+
+function ps(state, side) {
+  return side && isPlagueSide(state, side) ? side : side ? null : plagueFaction(state);
+}
+
+/** Soldiers of this side cannot carry infection stacks (faction data flag). */
+export function plagueImmune(side) {
+  const d = sideDef(side);
+  return !!(d && d.plagueImmune);
+}
+
+/** The side whose plague layer owns ground cell i (null when nobody). */
+export function cellOwner(state, i) {
+  const o = state.infection.o;
+  const layer = o ? o[i] - 1 : -1;
+  if (layer < 0) return o ? null : plagueFaction(state);
+  for (const s of state.sides || []) if (sideIndex(s.id) === layer) return s.id;
   return null;
 }
 
@@ -32,9 +71,9 @@ export function pestTierOf(value) {
   return t;
 }
 
-/** Current tier index of the plague faction (0 when none). */
-export function pestTier(state) {
-  const fid = plagueFaction(state);
+/** Current tier index of a plague side (0 when none). */
+export function pestTier(state, side) {
+  const fid = ps(state, side);
   return fid ? pestTierOf(state.factions[fid].pestilence || 0) : 0;
 }
 
@@ -60,8 +99,8 @@ export function pestPace(state, value) {
 }
 
 /** Meter gain; `src` tags the statistic (stats.pestBy: what fed the plague). */
-export function pestGain(sim, amount, src = 'other') {
-  const fid = plagueFaction(sim.state);
+export function pestGain(sim, amount, src = 'other', side) {
+  const fid = ps(sim.state, side);
   if (!fid || amount <= 0) return;
   const f = sim.state.factions[fid];
   const before = f.pestilence || 0;
@@ -72,8 +111,8 @@ export function pestGain(sim, amount, src = 'other') {
 }
 
 /** Meter loss; `src` tags the statistic (stats.pestLostBy). */
-export function pestLoss(sim, amount, src = 'other') {
-  const fid = plagueFaction(sim.state);
+export function pestLoss(sim, amount, src = 'other', side) {
+  const fid = ps(sim.state, side);
   if (!fid || amount <= 0) return;
   const f = sim.state.factions[fid];
   const before = f.pestilence || 0;
@@ -83,57 +122,59 @@ export function pestLoss(sim, amount, src = 'other') {
 }
 
 /** Spend meter (Great Pestilence). */
-export function pestSpend(sim, amount) {
-  pestLoss(sim, amount, 'spent');
+export function pestSpend(sim, amount, side) {
+  pestLoss(sim, amount, 'spent', side);
 }
 
 // ------------------------------------------------------------------ tier effects (read by plague systems)
 
-export function spreadMult(state) {
-  const t = pestTier(state);
+export function spreadMult(state, side) {
+  const fid = ps(state, side);
+  const t = pestTier(state, fid);
   let k = t >= 1 ? PESTILENCE.festering.spread : 1;
-  const fid = plagueFaction(state);
   if (fid) k *= specValue(state, fid, 'infectSpread', 1);
   return k;
 }
 
-export function reanimDelayMult(state) {
-  const t = pestTier(state);
-  const fid = plagueFaction(state);
+export function reanimDelayMult(state, side) {
+  const fid = ps(state, side);
+  const t = pestTier(state, fid);
   let k = t >= 2 ? PESTILENCE.outbreak.reanimDelay : 1;
   if (fid) k *= specValue(state, fid, 'reanimDelay', 1);
   return k;
 }
 
-export function swarmDpsMult(state) {
-  return pestTier(state) >= 2 ? PESTILENCE.outbreak.swarmDps : 1;
+export function swarmDpsMult(state, side) {
+  return pestTier(state, ps(state, side)) >= 2 ? PESTILENCE.outbreak.swarmDps : 1;
 }
 
-export function claimBonus(state) {
-  return pestTier(state) >= 2 ? PESTILENCE.outbreak.claimBonus : 0;
+export function claimBonus(state, side) {
+  return pestTier(state, ps(state, side)) >= 2 ? PESTILENCE.outbreak.claimBonus : 0;
 }
 
-export function swarmCooldownMult(state) {
-  const fid = plagueFaction(state);
-  let k = pestTier(state) >= 3 ? PESTILENCE.tide.swarmCooldown : 1;
+export function swarmCooldownMult(state, side) {
+  const fid = ps(state, side);
+  let k = pestTier(state, fid) >= 3 ? PESTILENCE.tide.swarmCooldown : 1;
   if (fid) k *= specValue(state, fid, 'swarmCooldown', 1);
   return k;
 }
 
-export function turnDelayTicks(state) {
-  const k = (pestTier(state) >= 3 ? PESTILENCE.tide.turnDelay : 1) * reanimDelayMult(state);
+export function turnDelayTicks(state, side) {
+  const fid = ps(state, side);
+  const k = (pestTier(state, fid) >= 3 ? PESTILENCE.tide.turnDelay : 1) * reanimDelayMult(state, fid);
   return Math.round(PESTILENCE.turnDelaySec * TICK_RATE * k);
 }
 
 // ------------------------------------------------------------------ infection entry point
 
 /**
- * Add n infection stacks to soldier m of squad sq (never to the plague's own side). Clerics'
+ * Add n infection stacks to soldier m of squad sq (never to a plague-immune faction). Clerics'
  * auras and the Faith speciality resist stacks (resistance, never immunity); every stack that
- * lands feeds the Pestilence meter. Returns the stacks actually added.
+ * lands feeds the Pestilence meter of `by` (the infecting side; the soldier remembers it as
+ * m.infBy). Returns the stacks actually added.
  */
-export function addInfection(sim, sq, m, n) {
-  if (sq.faction === GRAIL || n <= 0) return 0;
+export function addInfection(sim, sq, m, n, by) {
+  if (n <= 0 || plagueImmune(sq.faction)) return 0;
   if (m.state !== 'alive' && m.state !== 'joining' && m.state !== 'wounded') return 0;
   const { state } = sim;
   let resist = specValue(state, sq.faction, 'infectResist', 1) * auraResist(sim, m.x, m.z, sq.faction);
@@ -145,7 +186,11 @@ export function addInfection(sim, sq, m, n) {
     m.infection++;
     added++;
   }
-  if (added) pestGain(sim, added * (sq.type === 'civilians' ? PESTILENCE.gain.civilianStack : PESTILENCE.gain.soldierStack), 'stacks');
+  if (added) {
+    const src = ps(state, by);
+    if (src) m.infBy = src;
+    pestGain(sim, added * (sq.type === 'civilians' ? PESTILENCE.gain.civilianStack : PESTILENCE.gain.soldierStack), 'stacks', src || m.infBy);
+  }
   return added;
 }
 
@@ -170,9 +215,10 @@ export function infectionCellAt(state, x, z) {
   return cz * inf.cols + cx;
 }
 
-/** Scour infected ground (fire, sanitation, purge): lowers cells within r; feeds Pestilence loss. */
+/** Scour infected ground (fire, sanitation, purge): lowers cells within r; the owners lose momentum. */
 export function cleanseInfection(sim, x, z, r, amount) {
   const inf = sim.state.infection;
+  let lost = null;
   const R = Math.ceil(r / inf.cs);
   const cx = Math.floor(x / inf.cs), cz = Math.floor(z / inf.cs);
   let cleaned = 0;
@@ -186,17 +232,24 @@ export function cleanseInfection(sim, x, z, r, amount) {
       const v = inf.v[i];
       if (!v) continue;
       const nv = v > amount ? v - amount : 0;
-      if (v >= 60 && nv < 60) cleaned++;
+      if (v >= 60 && nv < 60) {
+        cleaned++;
+        const owner = cellOwner(sim.state, i);
+        if (owner) { if (!lost) lost = {}; lost[owner] = (lost[owner] || 0) + 1; }
+      }
       inf.v[i] = nv;
+      if (!nv && inf.o) inf.o[i] = 0;
     }
   }
-  if (cleaned) pestLoss(sim, cleaned * PESTILENCE.loss.cleanCell, 'cleansed');
+  // deterministic order: the match's side order
+  if (lost) for (const s of plagueSides(sim.state)) if (lost[s]) pestLoss(sim, lost[s] * PESTILENCE.loss.cleanCell, 'cleansed', s);
   return cleaned;
 }
 
-/** Plague burst on the ground (Great Pestilence). */
-export function seedInfection(sim, x, z, r, amount) {
+/** Plague burst on the ground (Great Pestilence) — the ground becomes `side`'s. */
+export function seedInfection(sim, x, z, r, amount, side) {
   const inf = sim.state.infection;
+  const layer = inf.o ? sideIndex(ps(sim.state, side) || '') + 1 : 0;
   const R = Math.ceil(r / inf.cs);
   const cx = Math.floor(x / inf.cs), cz = Math.floor(z / inf.cs);
   for (let dz = -R; dz <= R; dz++) {
@@ -208,6 +261,7 @@ export function seedInfection(sim, x, z, r, amount) {
       const i = gz * inf.cols + gx;
       const v = inf.v[i] + Math.round(amount * (1 - d / (r + 1)));
       inf.v[i] = v > 255 ? 255 : v;
+      if (layer > 0 && inf.v[i]) inf.o[i] = layer;
     }
   }
 }
@@ -221,7 +275,7 @@ export function seedInfection(sim, x, z, r, amount) {
 export function updatePestilence(sim, fid, infectedCells) {
   const { state } = sim;
   const f = state.factions[fid];
-  if (!FACTIONS[fid].pestilence || state.match.phase !== 'WAR') return;
+  if (!isPlagueSide(state, fid) || state.match.phase !== 'WAR') return;
   const G = PESTILENCE.gain;
   let pits = 0;
   for (const st of state.structures) {
@@ -233,21 +287,22 @@ export function updatePestilence(sim, fid, infectedCells) {
   if (gain > 0) {
     // territory / pits sustain the meter but do not count as "success" for the idle drain
     const last = f.pestLastGain;
-    pestGain(sim, gain, 'ground');
+    pestGain(sim, gain, 'ground', fid);
     f.pestLastGain = last;
   }
   // long plague failure: no infection / infected dead / rising for a while -> the meter drains
   const L = PESTILENCE.loss;
   if (state.tick - (f.pestLastGain || 0) > L.idleAfterSec * TICK_RATE && state.tick % (10 * TICK_RATE) < TICK_RATE) {
-    pestLoss(sim, L.idleDecayPer10s * specValue(state, fid, 'pestDecay', 1), 'idle');
+    pestLoss(sim, L.idleDecayPer10s * specValue(state, fid, 'pestDecay', 1), 'idle', fid);
   }
 }
 
 /** A plague structure / altar lost: the plague loses momentum. */
 export function onGrailStructureLost(sim, st) {
-  if (st.faction !== GRAIL || !st.built) return;
+  if (!isPlagueSide(sim.state, st.faction) || !st.built) return;
   const L = PESTILENCE.loss;
-  if (st.type === 'grail_altar') pestLoss(sim, L.altarDestroyed, 'structures');
-  else if (st.type === 'plague_pit') pestLoss(sim, L.pitDestroyed, 'structures');
-  else pestLoss(sim, L.structDestroyed, 'structures');
+  const s = st.faction;
+  if (st.type === 'grail_altar') pestLoss(sim, L.altarDestroyed, 'structures', s);
+  else if (st.type === 'plague_pit') pestLoss(sim, L.pitDestroyed, 'structures', s);
+  else pestLoss(sim, L.structDestroyed, 'structures', s);
 }

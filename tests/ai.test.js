@@ -15,7 +15,7 @@ test('Black Grail AI: waits/deploys in preparation, assaults immediately when WA
   run(sim, 5.5);
   assert.equal(sim.state.match.phase, 'PREPARATION');
   // no BG squad left its deployment zone during preparation
-  for (const sq of sim.state.squads) if (sq.faction === 'black_grail') assert.ok(sq.z <= sim.world.zones.black_grail.z1 + 1);
+  for (const sq of sim.state.squads) if (sq.faction === 'black_grail') assert.ok(sq.z <= sim.state.factions.black_grail.zone.z1 + 1);
   run(sim, 3.5); // WAR + 3 seconds
   assert.equal(sim.state.match.phase, 'WAR');
   // (Phase 4: the commander follows the waves instead of leading them — not part of the assault order)

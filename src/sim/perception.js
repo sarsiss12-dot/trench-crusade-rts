@@ -5,7 +5,7 @@
 // picking, VFX, audio) via the filter functions below — nothing leaks from behind the fog.
 import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
-import { FACTIONS, FACTION_ORDER } from '../data/factions.js';
+import { FOG_LAYERS, sideBit, sideIndex } from '../data/factions.js';
 import { TERRAIN_TYPES } from '../data/terrain_types.js';
 import { EV } from '../core/events.js';
 import { clearVisible, stampVision, fogIndex, isVisibleAt, isExploredAt } from '../world/fog.js';
@@ -13,10 +13,12 @@ import { cellIndex } from '../world/terrain.js';
 import { dsin, dcos } from '../core/dmath.js';
 import { hash32 } from '../core/rng.js';
 
-const ALL_BITS = (1 << FACTION_ORDER.length) - 1;
+const ALL_BITS = (1 << FOG_LAYERS) - 1;
 
+/** Visibility bit of an owner SIDE (neutral: every bit — neutral things are public). */
 export function factionBit(fid) {
-  return FACTIONS[fid] ? 1 << FACTIONS[fid].index : ALL_BITS;
+  const b = sideBit(fid);
+  return b || ALL_BITS;
 }
 
 function squadPresent(sq) {
@@ -87,48 +89,49 @@ export function updateVision(sim) {
   for (let j = 0; j < sources.length; j++) sources[j].length = 0;
   for (const sq of state.squads) {
     if (!squadPresent(sq)) continue;
-    const j = FACTIONS[sq.faction].index;
+    const j = sideIndex(sq.faction);
+    if (j < 0) continue;
     const r = unitDef(sq.type).vision;
     // anchor-centric vision plus the squad's actual spread (centroid)
     stampVision(fog, j, sq.cx, sq.cz, r);
     sources[j].push(sq.cx, sq.cz, r);
   }
   for (const st of state.structures) {
-    const f = FACTIONS[st.faction];
-    if (!f) continue;
+    const fj = sideIndex(st.faction);
+    if (fj < 0) continue;
     const def = STRUCTURES[st.type];
     const r = st.built ? def.vision || 10 : 10;
     if (r <= 0) continue;
-    stampVision(fog, f.index, st.x, st.z, r);
-    sources[f.index].push(st.x, st.z, r);
+    stampVision(fog, fj, st.x, st.z, r);
+    sources[fj].push(st.x, st.z, r);
   }
   for (const sq of state.squads) {
-    const own = FACTIONS[sq.faction].index;
-    let bits = 1 << own;
-    for (let j = 0; j < FACTION_ORDER.length; j++) {
+    const own = sideIndex(sq.faction);
+    let bits = own < 0 ? 0 : 1 << own;
+    for (let j = 0; j < FOG_LAYERS; j++) {
       if (j !== own && squadDetectedBy(sim, sq, j)) bits |= 1 << j;
     }
     sq.visibleTo = bits;
   }
   for (const st of state.structures) {
-    const f = FACTIONS[st.faction];
-    if (!f) { st.visibleTo = ALL_BITS; st.seenBy = ALL_BITS; continue; }
-    let bits = 1 << f.index;
-    for (let j = 0; j < FACTION_ORDER.length; j++) {
-      if (j !== f.index && structureSeenBy(fog, st, j)) bits |= 1 << j;
+    const fj = sideIndex(st.faction);
+    if (fj < 0) { st.visibleTo = ALL_BITS; st.seenBy = ALL_BITS; continue; }
+    let bits = 1 << fj;
+    for (let j = 0; j < FOG_LAYERS; j++) {
+      if (j !== fj && structureSeenBy(fog, st, j)) bits |= 1 << j;
     }
     st.visibleTo = bits;
     st.seenBy |= bits;
   }
   for (const c of state.corpses) {
-    for (let j = 0; j < FACTION_ORDER.length; j++) if (isVisibleAt(fog, j, c.x, c.z)) c.seenBy |= 1 << j;
+    for (let j = 0; j < FOG_LAYERS; j++) if (isVisibleAt(fog, j, c.x, c.z)) c.seenBy |= 1 << j;
   }
   for (const n of state.nodes) {
-    for (let j = 0; j < FACTION_ORDER.length; j++) if (isExploredAt(fog, j, n.x, n.z)) n.seenBy |= 1 << j;
+    for (let j = 0; j < FOG_LAYERS; j++) if (isExploredAt(fog, j, n.x, n.z)) n.seenBy |= 1 << j;
   }
   // Phase 3: animals / convoys are seen like units (live bits) and remembered (seenBy); sectors
   // are learned by exploring them
-  const F = FACTION_ORDER.length;
+  const F = FOG_LAYERS;
   for (const a of state.animals || []) {
     let bits = 0;
     for (let j = 0; j < F; j++) if (isVisibleAt(fog, j, a.x, a.z)) bits |= 1 << j;
@@ -136,7 +139,7 @@ export function updateVision(sim) {
     a.seenBy |= bits;
   }
   for (const c of state.convoys || []) {
-    let bits = 1 << FACTIONS[c.faction].index;
+    let bits = sideBit(c.faction);
     for (let j = 0; j < F; j++) if (isVisibleAt(fog, j, c.x, c.z)) bits |= 1 << j;
     c.visibleTo = bits;
     c.seenBy |= bits;
@@ -148,7 +151,7 @@ export function updateVision(sim) {
   const cr = state.craters;
   if (cr) {
     for (const c of cr) {
-      for (let j = 0; j < FACTION_ORDER.length; j++) if (isVisibleAt(fog, j, c.x, c.z)) c.seenBy |= 1 << j;
+      for (let j = 0; j < FOG_LAYERS; j++) if (isVisibleAt(fog, j, c.x, c.z)) c.seenBy |= 1 << j;
     }
   }
 }
@@ -208,8 +211,8 @@ export function isSectorKnownTo(sec, viewer) {
 }
 
 export function isPointVisibleTo(sim, viewer, x, z) {
-  const f = FACTIONS[viewer];
-  return !!f && isVisibleAt(sim.state.fog, f.index, x, z);
+  const j = sideIndex(viewer);
+  return j >= 0 && isVisibleAt(sim.state.fog, j, x, z);
 }
 
 /**
@@ -219,10 +222,10 @@ export function isPointVisibleTo(sim, viewer, x, z) {
  */
 export function isSoldierVisibleTo(sim, sq, m, viewer) {
   if (sq.faction === viewer) return true;
-  const f = FACTIONS[viewer];
-  if (!f) return true;
-  if (m.state === 'dying') return isVisibleAt(sim.state.fog, f.index, m.x, m.z);
-  return (sq.visibleTo & (1 << f.index)) !== 0 && soldierDetectedBy(sim, m, f.index);
+  const j = sideIndex(viewer);
+  if (j < 0) return true;
+  if (m.state === 'dying') return isVisibleAt(sim.state.fog, j, m.x, m.z);
+  return (sq.visibleTo & (1 << j)) !== 0 && soldierDetectedBy(sim, m, j);
 }
 
 /** Centroid of the members of sq the viewer can see (false when none). Writes out[0..1]. */
