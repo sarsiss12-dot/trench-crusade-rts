@@ -31,12 +31,14 @@ const DEATH_SECONDS = 1.35;
 export const ACCENTS = {
   new_antioch: [0.42, 0.1, 0.08],
   black_grail: [0.52, 0.55, 0.24],
+  iron_sultanate: [0.58, 0.28, 0.1],
 };
 // Phase 5A mirror matches: the twin side wears a different cloth accent (same faction models /
 // silhouettes — only the banner / sash colour tells the two armies apart)
 export const MIRROR_ACCENTS = {
   new_antioch: [0.14, 0.2, 0.34],
   black_grail: [0.38, 0.2, 0.34],
+  iron_sultanate: [0.12, 0.35, 0.4],
 };
 
 export function accentFor(side) {
@@ -684,4 +686,3 @@ export function createUnitRenderer(gl, program, opts) {
 
   return { update, draw, onEvent, syncCorpses, exportCorpses, importCorpses, muzzleOf, visualOf, bucketsView: () => buckets, stats, models, corpses, visuals, limbs };
 }
-

@@ -11,7 +11,7 @@
 //    (areHostile) is simply "different side".
 //  - ROLE (attacker / defender): only the starting strategic position (scenario data).
 
-export const FACTION_ORDER = ['new_antioch', 'black_grail'];
+export const FACTION_ORDER = ['new_antioch', 'black_grail', 'iron_sultanate'];
 
 export const FACTIONS = {
   new_antioch: {
@@ -75,12 +75,29 @@ export const FACTIONS = {
     hudResources: ['biomass', 'corpses'], prepHintKey: 'hud.prep_hint_bg', // HUD presentation
     stress: { fixed: [{ unit: 'plague_knight', per: 60 }, { unit: 'corpse_guard', per: 45 }], fill: 'grail_thrall', tail: 'corpse_guard' },
   },
+  iron_sultanate: {
+    id: 'iron_sultanate', index: 2, nameKey: 'faction.iron_sultanate',
+    lore: { status: 'canon', ref: 'The Iron Sultanate — an independent power protected by the Great Iron Wall; Azebs, Janissaries, Sappers and Jabirean Alchemists are official roster names' },
+    accent: [0.66, 0.38, 0.2], uiColor: '#a86134',
+    economy: 'compact_fortress', logic: 'iron_sultanate', ai: 'iron_sultanate',
+    resources: ['material', 'supply', 'manpower'],
+    buildList: ['sultanate_bulwark', 'sultanate_redoubt', 'sapper_post'],
+    buildTabs: ['defense', 'support'],
+    abilities: [],
+    usesAmmo: true,
+    reinforcements: { manpower: 1, supply: 5, intervalTicks: 34, autoReserve: { supply: 40 } },
+    home: { hq: ['sultanate_citadel', 'sultanate_field_hq'], front: -28 },
+    terrainSpeed: {},
+    card: { icon: 'sultanate', identityKey: 'setup.is.identity', economyKey: 'setup.is.economy', styleKey: 'setup.is.style' },
+    visual: { organic: false },
+    prepHintKey: 'hud.prep_hint_is',
+    stress: { fixed: [{ unit: 'janissary', per: 55 }, { unit: 'jabirean_alchemist', per: 90 }], fill: 'azeb' },
+  },
 };
 
 // Factions that are PLANNED but not implemented: shown locked ("coming soon") in Match Setup.
 // No data, no fake implementation — adding one means adding its full FACTIONS entry + content.
 export const PLANNED_FACTIONS = [
-  { id: 'iron_sultanate', nameKey: 'faction.iron_sultanate', icon: 'lock', phase: '05B' },
   { id: 'heretic_legion', nameKey: 'faction.heretic_legion', icon: 'lock', phase: '05C' },
 ];
 

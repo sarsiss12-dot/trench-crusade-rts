@@ -79,6 +79,8 @@ canvas.minimap { height: min(30vh, calc(190px * var(--ui))); aspect-ratio: 320 /
 }
 .quick .q i { font-style: normal; font-size: 0.72em; color: var(--dim); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quick .q.on, .cmd.on { background: #3a2f1c; border-color: var(--accent); color: #f3e3bb; }
+.quick .q.structure-slot b { font: 800 calc(14px * var(--ui)) var(--serif); color: var(--accent); line-height: 1; }
+.quick .q.structure-slot i { font-size: 0.56em; }
 .bg .quick .q.on, .bg .cmd.on { background: #2c3019; border-color: var(--accent-bg); }
 
 .hud-bottom {
@@ -235,8 +237,10 @@ pre.debug {
 .card span:last-child { color: var(--dim); font-size: 0.82em; }
 .card.new_antioch .cico { color: var(--accent); }
 .card.black_grail .cico { color: var(--accent-bg); }
+.card.iron_sultanate .cico { color: #c77b45; }
 .card.on.new_antioch { border-color: var(--accent); background: #2e2517; }
 .card.on.black_grail { border-color: var(--accent-bg); background: #23261a; }
+.card.on.iron_sultanate { border-color: #a86134; background: #2c2119; }
 /* Phase 5A match setup */
 .setupstep { margin: 12px 0 2px; }
 .stephead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: #eadcb6; font-family: var(--serif); letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.92em; }
@@ -294,7 +298,10 @@ pre.debug {
 /* ------------------------------------------------------------------ small / portrait screens */
 @media (max-height: 430px) {
   .bm .d { display: none; }
-  :root { --btn: calc(42px * var(--ui)); }
+  :root { --btn: calc(44px * var(--ui)); }
+  /* Phase 05B: A/B/C/HQ add real controls; use two thumb-sized columns in landscape. */
+  .quick { display: grid; grid-template-columns: repeat(2, calc(50px * var(--ui))); }
+  .cgroups { right: calc(22px + 100px * var(--ui) + var(--safe-r)); }
   .res { gap: 7px; }
   .selinfo { padding: 4px 8px; }
   .hint { bottom: calc(96px * var(--ui) + var(--safe-b)); }
@@ -434,7 +441,10 @@ pre.debug {
 .quick .q.tog i { white-space: normal; line-height: 1.05; font-size: 0.6em; text-align: center; }
 .banner.lull { color: #b9c9d6; }
 .phase.lull { border-color: #7e93a6; }
-@media (max-height: 420px) { .cgroups .cg { min-height: calc(34px * var(--ui)); } }
+@media (max-height: 430px) {
+  .cgroups { right: calc(22px + 100px * var(--ui) + var(--safe-r)); }
+  .cgroups .cg { min-height: calc(34px * var(--ui)); }
+}
 
 /* Phase 4.1: "why can't I?" — the fix line under a refusal */
 .notice.why { display: flex; flex-direction: column; gap: 2px; }

@@ -4,6 +4,7 @@
 import { createNav, rebuildNavDynamic } from '../world/nav.js';
 import { createStructGrid, structGridRebuild } from '../world/structgrid.js';
 import { ensureOccupancy } from '../construction/trench.js';
+import { FOG_LAYERS } from '../data/factions.js';
 
 export function createPointGrid(width, height, cs) {
   const cols = Math.ceil(width / cs), rows = Math.ceil(height / cs);
@@ -68,7 +69,7 @@ export function createRuntime(sim) {
     soldierGrid: createPointGrid(world.width, world.height, 2),
     corpseGrid: createPointGrid(world.width, world.height, 4),
     structVersion: 0,
-    visionSources: [[], []],
+    visionSources: Array.from({ length: FOG_LAYERS }, () => []),
     pathWork: 0, // A* expansions spent this tick (see PATH_WORK_PER_TICK)
     perf: { tickMs: 0, aiMs: 0, pathMs: 0 },
   };

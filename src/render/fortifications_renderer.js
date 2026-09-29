@@ -6,6 +6,7 @@ import { buildTrench, buildSandbags, buildWire } from './models/fortifications.j
 import { WALL_BUILDERS } from './models/walls.js';
 import { baseHeightAt } from '../world/terrain.js';
 import { isStructureKnownTo } from '../sim/perception.js';
+import { STRUCTURES } from '../data/structures.js';
 
 // every linear structure type with a segment-built mesh
 const FORT_BUILDERS = { trench: buildTrench, sandbags: buildSandbags, wire: buildWire, ...WALL_BUILDERS };
@@ -34,7 +35,8 @@ export function buildFortMesh(structures, world, viewer, filter) {
   for (const s of structures) {
     if (filter && !filter(s)) continue;
     if (viewer && !isStructureKnownTo(s, viewer) && s.faction !== 'neutral') continue;
-    const build = FORT_BUILDERS[s.type];
+    const def = STRUCTURES[s.type];
+    const build = FORT_BUILDERS[s.type] || (def && FORT_BUILDERS[def.model]);
     if (build) build(mb, s, ground);
   }
   return mb.finish();
@@ -48,7 +50,8 @@ export function createFortificationRenderer(gl, program, world, sim) {
   function signature(list) {
     let s = '';
     for (const x of list) {
-      if (!FORT_BUILDERS[x.type]) continue;
+      const def = STRUCTURES[x.type];
+      if (!FORT_BUILDERS[x.type] && !(def && FORT_BUILDERS[def.model])) continue;
       s += x.id + ':' + Math.floor(x.progress * 10) + ':' + Math.floor((x.hp / x.maxHp) * 5) + ',';
     }
     return s;

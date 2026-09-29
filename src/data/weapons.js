@@ -123,4 +123,23 @@ export const WEAPONS = {
     ammoPerShot: 1, muzzle: 'mg', tracer: 'mg', sound: 'mg', impact: 'bullet',
     lore: { status: 'abstraction', note: 'Settlement militia machine gun (Fortified Settlements speciality)' },
   },
+  azeb_rifle: {
+    id: 'azeb_rifle', kind: 'rifle', range: 47, damage: 36, reload: 2.45, reloadJitter: 0.3,
+    accNear: 0.7, accFar: 0.29, fireWhileMoving: false, structureMult: 0.08, ammoPerShot: 1,
+    muzzle: 'rifle', tracer: 'rifle', sound: 'rifle', impact: 'bullet',
+    lore: { status: 'canon-inspired', note: 'Azeb firearm loadout; exact weapon statistics are gameplay abstractions' },
+  },
+  janissary_rifle: {
+    id: 'janissary_rifle', kind: 'rifle', range: 54, damage: 48, reload: 2.2, reloadJitter: 0.2,
+    burst: 2, burstInterval: 0.18, accNear: 0.78, accFar: 0.38, fireWhileMoving: false, structureMult: 0.1, ammoPerShot: 1,
+    muzzle: 'rifle', tracer: 'rifle', sound: 'rifle', impact: 'bullet',
+    lore: { status: 'canon-inspired', note: 'Janissary disciplined-fire abstraction; exact armament is not asserted as canon' },
+  },
+  alchemical_projector: {
+    id: 'alchemical_projector', kind: 'flame', range: 18, damage: 22, reload: 1.8, reloadJitter: 0.15,
+    accNear: 0.9, accFar: 0.75, fireWhileMoving: false, structureMult: 0.35, ammoPerShot: 1,
+    splash: 2.2, burnSec: 2, burnDps: 4, corpseBurnR: 2.2, cleanse: 55, organicMult: 1.8,
+    muzzle: 'flame', tracer: 'flame', sound: 'flame', impact: 'fire',
+    lore: { status: 'abstraction', note: 'Jabirean battlefield reagent projector — gameplay abstraction, not a claimed canon weapon' },
+  },
 };

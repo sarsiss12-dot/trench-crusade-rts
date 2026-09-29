@@ -18,6 +18,8 @@ import { TICK_RATE } from '../sim/constants.js';
 const LORE_SOURCES = [
   ['Trench Crusade — The Principality of New Antioch (official lore)', 'https://www.trenchcrusade.com/lore/the-principality-of-new-antioch/'],
   ['Trench Crusade — The Cult of the Black Grail (official lore)', 'https://www.trenchcrusade.com/lore/the-cult-of-the-black-grail/'],
+  ['Trench Crusade — Iron Sultanate (official lore and roster)', 'https://www.trenchcrusade.com/lore/'],
+  ['Trench Crusade — Warbands of Trench Crusade (official rules PDF)', 'https://www.trenchcrusade.com/app/uploads/2026/02/Warbands-of-Trench-Crusade.pdf'],
   ['Trench Companion — New Antioch warband', 'https://trench-companion.com/compendium/warbands/new-antioch'],
   ['Trench Companion — Cult of the Black Grail warband', 'https://trench-companion.com/compendium/warbands/cult-of-the-black-grail'],
 ];

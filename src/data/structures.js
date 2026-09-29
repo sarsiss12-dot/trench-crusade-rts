@@ -297,6 +297,56 @@ export const STRUCTURES = {
     emplacement: 'belcher_gas', arc: 360,
     organic: true, model: 'belcher_nest',
   },
+  // ---- Phase 05B: Iron Sultanate ---------------------------------------------------------------
+  sultanate_citadel: {
+    id: 'sultanate_citadel', faction: 'iron_sultanate', kind: 'building', nameKey: 'struct.sultanate_citadel',
+    lore: { status: 'canon-inspired', ref: 'Compact Sultanate fortified command post; faction and fortress doctrine are canon, this RTS structure is an abstraction' },
+    footprint: { w: 20, d: 16 }, hp: 7600, blocks: true, vision: 60, buildable: false,
+    dropOff: true, resupplyRadius: 40, reinforceRadius: 42, reinforceSource: true,
+    supplyRate: 0.5, materialRate: 0.22, manpowerRate: 0.025,
+    trains: ['azeb', 'janissary', 'sultanate_sapper', 'jabirean_alchemist'], canBeObjective: true,
+    hq: true, hub: true, fortAnchor: true, anchorRadius: 76, model: 'bastion',
+  },
+  sultanate_field_hq: {
+    id: 'sultanate_field_hq', faction: 'iron_sultanate', kind: 'building', nameKey: 'struct.sultanate_field_hq',
+    lore: { status: 'abstraction', ref: 'Mobile expeditionary command post for an attacking Sultanate force — gameplay abstraction' },
+    footprint: { w: 14, d: 10 }, hp: 4800, blocks: true, vision: 52, buildable: false,
+    dropOff: true, resupplyRadius: 36, reinforceRadius: 38, reinforceSource: true,
+    supplyRate: 0.46, materialRate: 0.18, manpowerRate: 0.02,
+    trains: ['azeb', 'janissary', 'sultanate_sapper', 'jabirean_alchemist'], canBeObjective: true,
+    hq: true, hub: true, fortAnchor: true, anchorRadius: 68, model: 'depot',
+  },
+  sapper_post: {
+    id: 'sapper_post', faction: 'iron_sultanate', kind: 'building', nameKey: 'struct.sapper_post',
+    lore: { status: 'abstraction', ref: 'Forward sapper workshop and stores — gameplay abstraction using the canon Sultanate Sapper role' },
+    footprint: { w: 9, d: 7 }, hp: 1500, blocks: true, vision: 30, buildable: true, builder: 'iron_sultanate',
+    cost: { material: 110, supply: 30 }, work: 75, cat: 'support',
+    materialRate: 0.18, supplyRate: 0.2, trains: ['sultanate_sapper'],
+    hub: true, fortAnchor: true, anchorRadius: 58, model: 'workshop',
+  },
+  sultanate_redoubt: {
+    id: 'sultanate_redoubt', faction: 'iron_sultanate', kind: 'building', nameKey: 'struct.sultanate_redoubt',
+    lore: { status: 'abstraction', ref: 'Compact prepared strongpoint expressing Sultanate area-control doctrine — gameplay abstraction' },
+    footprint: { w: 6, d: 6 }, hp: 2700, blocks: true, vision: 58, buildable: true, builder: 'iron_sultanate',
+    cost: { material: 135, supply: 35 }, work: 90, cat: 'defense', heavyDefense: true,
+    weapon: 'pillbox_mg', arc: 220, crew: 2, blastResist: 0.45, model: 'pillbox',
+  },
+  sultanate_bulwark: {
+    id: 'sultanate_bulwark', faction: 'iron_sultanate', kind: 'linear', nameKey: 'struct.sultanate_bulwark',
+    lore: { status: 'abstraction', ref: 'Field-sized modular fortification; not the Great Iron Wall itself' },
+    width: 1.5, minLen: 3, maxLen: 12, hp: 2300, buildable: true, builder: 'iron_sultanate',
+    costPerM: { material: 4.2, supply: 0.5 }, workPerM: 4.7, blocks: false,
+    cover: 'fortified', coverRadius: 2, moveMultEnemy: 0.35, moveMultFriendly: 0.55, pathCostMult: 3.5,
+    cat: 'defense', heavyDefense: true, blastResist: 0.4, model: 'fortified_wall',
+  },
+  iron_wall_section: {
+    id: 'iron_wall_section', faction: 'scenario', kind: 'linear', nameKey: 'struct.iron_wall_section',
+    lore: { status: 'canon-inspired', ref: 'A local battlefield sector inspired by the canon Great Iron Wall; scale and segment behaviour are RTS abstractions' },
+    width: 2.4, minLen: 4, maxLen: 40, hp: 6200, buildable: false, workPerM: 0,
+    blocks: true, cover: 'fortified', coverRadius: 2.6, blastResist: 0.3,
+    scenarioFeature: { family: 'iron_wall', segment: true, gateReady: true, destructible: true },
+    model: 'fortified_wall',
+  },
   // ---- Phase 4: ruin garrisons (neutral map features, occupied by whoever holds them) -----------
   // The walls are the unique world mesh (render/models/structures.js buildRuin); these records carry
   // hit points, occupancy and the garrison rules. Geometry: world/ruin_geometry.js.

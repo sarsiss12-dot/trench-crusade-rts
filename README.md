@@ -7,7 +7,7 @@
 HTML5 + JavaScript (native ES modules) + WebGL2 + Web Audio ile yazılmış, **harici model / doku / ses dosyası
 kullanmayan** (her şey prosedürel), Android öncelikli, masaüstünde de oynanan bir kuşatma RTS'i.
 
-> **Faz 05A:** fraksiyon ≠ saldıran / savunan. Aşağıdaki "savunan / saldıran" etiketleri **Yeni Antakya Kuşatması**
+> **Faz 05B:** fraksiyon ≠ saldıran / savunan. Aşağıdaki "savunan / saldıran" etiketleri **Yeni Antakya Kuşatması**
 > lore ön ayarıdır; Maç Kurulumu'nda (Serbest Kurulum) her fraksiyon her iki rolü oynar, ayna maçlar da mümkündür.
 > Kavramlar: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -17,6 +17,8 @@ kullanmayan** (her şey prosedürel), Android öncelikli, masaüstünde de oynan
 - **Kara Kâse (klasik ön ayarda saldıran):** işçi → maden → kışla yoktur; hayvanları avlar, cesetleri biyokütleye çevirir, enfekte
   ölüleri düştükleri yerde yeniden kaldırır, Beelzebub sunaklarından ucuz Köle sürüleri yetiştirir, vebayı toprağa
   yayar, veba ölçeğini doldurup Büyük Veba'yı salar, sinek sürüsü salar.
+- **Demir Sultanlık:** kompakt karargâh ve değerli tahkimat düğümleri kurar; Azeb perdesinin arkasında Sultanlık
+  İstihkâmcılarıyla mevzi hazırlar, Yeniçerileri kontrollü karşı taarruz için saklar, Cabirî Simyagerlerle vebaya karşı koyar.
 - Akış: **HAZIRLIK** (hasar yok, konuşlanma bölgeleri, tahkimat) → **SAVAŞ** (süre veri ile ayarlı: 5–180 dk)
   → zafer / yenilgi (kuşatma: savunanın birincil karargâhı düşerse saldıran; süre dolarsa, saldıran tükenirse ya da
   savunan saldıranın üssünü yakıp ordusunu dağıtırsa savunan kazanır; Açık Muharebe: imha).
@@ -29,12 +31,12 @@ Gereksinim yok (sıfır bağımlılık). Node.js ≥ 18 yalnızca geliştirme su
 
 ```bash
 node tools/serve.js            # http://localhost:8080  (aynı ağdaki telefon için LAN adresi de yazdırılır)
-npm test                       # = node tests/run.js      — 279 Node testi
+npm test                       # = node tests/run.js      — 294 Node testi
 npm run build                  # = node tools/build.js    — dist/index.html (tek dosya, çevrimdışı çalışır)
 npm run balance                # = node tools/balance.js  — AI'ya karşı AI deterministik maçlar + Faz 3 denge ölçümleri
                                #   (--seeds 1,2,…  --minutes 15  --verbose  --json çıktı.json)
-npm run matchups               # = node tools/matchups.js — Faz 05A: klasik / ters rol / ayna eşleşmeleri, AI'ya karşı AI (--setups --seeds --minutes)
-npm run test:browser           # = node tools/browser_smoke.js — (Playwright varsa) 9 gerçek tarayıcı kontrolü
+npm run matchups               # = node tools/matchups.js — Faz 05B: klasik / ters rol / ayna eşleşmeleri, AI'ya karşı AI (--setups --seeds --minutes)
+npm run test:browser           # = node tools/browser_smoke.js — (Playwright + Chromium varsa) 15 + build gerçek tarayıcı kontrolü
 node tools/showcase.js [ad]    # (Playwright varsa) Faz 2 + Faz 3 görsel sahneleri → test-output/showcase-*.png
                                #   Faz 3: p3_settlement, p3_units, p3_flame, p3_plague, p3_hud, p3_convoy
 ```
@@ -64,8 +66,9 @@ WebGL bağlamı kaybolursa maç aynı simülasyon durumu, sis hafızası ve cese
 | **Basılı tut** (seçim varken): saldırarak ilerle | `A` saldırarak ilerle · `S` dur · `F` düzen · `R` döndür / takviye iste |
 | **Yön verme:** hedefe çift dokun, ikinci dokunuşu bırakmadan sürükle → ok çıkar, bırakınca manga gider ve o yöne bakar | **Sağ sürükle:** hedef + bakış yönü |
 | **Tümü** düğmesi: yaşayan + oyuncuya ait + `combatUnit === true` | `B` inşa · `Boşluk` üs · `P` duraklat · `[` `]` hız |
-| **Kutu** kipi (sağ panel): tek parmak sürükleme = kutu seçimi | `Esc` iptal / seçimi bırak · `F1` hata ayıklama |
-| **Çoklu** kipi: dokunuşlar seçime ekler/çıkarır · **✕** seçimi kaldır | |
+| **Alan Seçimi** (kesik kutu): tek sürükleme = kutu seçimi; bırakınca otomatik kapanır, sonraki sürükleme kameradır | `Esc` iptal / seçimi bırak · `F1` hata ayıklama |
+| **Çoklu Seçim** (kişiler +): dokunuşlar seçime ekler/çıkarır; düğmeye yeniden basılana dek açık kalır | |
+| **A/B/C:** üç başlangıç Sunağını; **HQ:** ana karargâhı seçer, üretim panelini açar; kamera hiç hareket etmez | `1/2/3` asker kontrol grupları değişmedi |
 | **Mini harita:** dokun / sürükle = kamerayı taşı | |
 | **Yetenek:** ilk dokunuş alanı gösterir, alanın içine ikinci dokunuş onaylar | Yetenek: imleç alanı gösterir, tık onaylar |
 | **İki parmaktan bir parmağa** geçince yalnızca kamera kayar (yanlışlıkla emir yok) | |
@@ -280,13 +283,34 @@ Yeni fraksiyon **eklenmedi**; "Yeni Antakya = savunan, Kara Kâse = saldıran" v
   soyutlaması) + ikmal deposu + tarla + kısa siper; Kara Kâse savunan = sunaklar + höyük + iç organ yuvası.
 - **Maç Kurulumu (mobil):** KURULUM (Lore / Serbest) → SENARYO → FRAKSİYONUN → DÜŞMAN → ROLÜN (iki büyük düğme) →
   YAPAY ZEKÂ (kolay / normal / zor = yalnız düşünme hızı) → SÜRE → KURALLAR + ÖZET ("YENİ ANTAKYA SALDIRAN — KARA
-  KÂSE SAVUNAN · 30 DK") → BAŞLAT. Iron Sultanate / Heretic Legion kilitli "Yakında / uygulanmadı" kartları.
+  KÂSE SAVUNAN · 30 DK") → BAŞLAT. Faz 05A'da Iron Sultanate / Heretic Legion kilitliydi; Faz 05B'de Demir
+  Sultanlık açıldı, yalnız Heretic Legion "Yakında / uygulanmadı" olarak kilitli kaldı.
 - **AI = fraksiyon doktrini + stratejik rol katmanı** (`data/ai.js STRATEGY`): Yeni Antakya saldıran erken, büyük
   vurucu gruplarla hedefe yürür ve bulduğunu vurur; Kara Kâse savunan evin önünde toplanır, kapıdaki düşmanı karşılar,
   ölçtüğü düşmanı açıkça aşınca ya da savaşın geç evresinde taşar.
 - **Açık Muharebe** (ikincil senaryo): kale yok, imha ile biter.
 - **Kayıt sürümü 6** + v5→v6 göçü (eski kayıtlar = Yeni Antakya savunan / Kara Kâse saldıran; hiçbir şey kaybolmaz).
 - Ayrıntı: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Denge: AI'ya karşı AI ölçümü; **insan testi yapılmadı**.
+
+## 2g. Faz 05B — Demir Sultanlık, Kara Kâse cephesi ve mobil seçim
+
+- **Demir Sultanlık oynanabilir:** Azeb, Yeniçeri, Sultanlık İstihkâmcısı ve Cabirî Simyager; savunan için kompakt
+  Hisar + tabya + siper duvarı, saldıran için ileri karargâh; ortak kaynak altyapısı üzerinde kompakt tahkimat
+  ekonomisi ve role göre savunma / kontrollü ilerleme AI'ı.
+- **Demir Duvar Kesimi:** normal inşa menüsünde değildir. `scenario.features` içindeki `iron_wall_sector`
+  senaryosunun yerel, yıkılabilir iki parçasıdır; kapı / segment verisi geleceğe hazırdır. Duvar üstü gezinme,
+  merdiven, kapı ve tam kuşatma sistemi bu fazda uygulanmadı.
+- **Kara Kâse üs çekirdeği:** üç başlangıç Sunağı komşu başına 41,76 m; Ceset Yığını orta eksende; savunan paketinde
+  yaklaşımı örten çalışan İç Organ Yuvası. Thrall hızı yalnızca `2.78 → 3.35`; HP / hasar / zırh / bedel değişmedi.
+- **Yapı hızlı seçimi:** başlangıç paketi `quickSlot` metadatası ile Kara Kâse `A/B/C`, Yeni Antakya ve Demir
+  Sultanlık `HQ`. Yalnız oyuncunun SIDE'ı görünür; sonradan yapılan sunak slot çalamaz; seçim kameraya erişmez.
+- **Mobil seçim durumları ayrıldı:** Alan Seçimi tek kullanımlı (`OFF → ON → kutu biter → OFF`); Çoklu Seçim
+  kalıcıdır (`OFF → ON → dokunuşlar → ON → düğme → OFF`). Alan seçimi bittiği anda normal kamera sürüklemesi döner.
+- **Köprü veba cephesi:** kaynak yarıçapı su üzerinden karşı kıyıyı boyayamaz; enfeksiyon gerçek köprü hücrelerinde
+  eşik sonrası hücre hücre ilerler (varsayılan güçlü kaynak testinde 81–83 sn), arınma zinciri keser. Ceset ve savaşan
+  veba birimleri küçük destek verir; her SIDE'ın sahiplik katmanı ayrıdır.
+- **Kayıt sürümü 7:** v6 kayıtlarında sis dizileri üç katmana genişletilir ve başlangıç yapı slotları paket
+  koordinatlarından göç ettirilir. v5 ve daha eski kayıtlar bütün göç zincirinden geçmeye devam eder.
 
 ## 3. Mimari
 
@@ -384,7 +408,10 @@ src/
 
 ## 5. Testler
 
-`npm test` — 279 test (Node, sıfır bağımlılık; Faz 05A: `tests/phase5a.test.js` 23 — test matrisi A–O: klasik,
+`npm test` — 294 test (Node, sıfır bağımlılık; Faz 05B: `tests/phase5b.test.js` 15 — kompakt Kara Kâse üssü,
+A/B/C + HQ kamera değişmezliği, one-shot Alan Seçimi, sticky Çoklu Seçim, arazi bağlantılı köprü vebası + purge +
+SIDE sahipliği, Demir Sultanlık eşleşme / üretim / AI / deterministik kayıt matrisi ve 480 asker stresi; Faz 05A:
+`tests/phase5a.test.js` 23 — test matrisi A–O: klasik,
 ters rol, NA / BG ayna, savunanın karşı saldırısı, süresiz, Lore / Serbest kurulum, v5→v6 göçü = canlı durum,
 kayıt/yükleme determinizmi, 480 ayna stres, AI yalnız komutla, ayna maçta sis / mercek / kontrol grubu güvenliği,
 çekirdekte fraksiyon adı karşılaştırması yasağı; Faz 4.1: `tests/phase41.test.js` 24 — tüm kaynak modüllerinin
@@ -409,9 +436,11 @@ dönüş, çok mangalı siper kapasitesi + kart verisi, sis filtresi (yerleşim,
 yayılması, AI yiyecek araması, determinizm (yaşayan dünya + iki AI + kayıt/yükleme), v2→v3 göçü. Düzeltilen her hata
 için bir regresyon testi eklendi.
 
-`npm run test:browser` — başsız Chromium (GPU yoksa SwiftShader) ile 9 kontrol: menü, Yeni Antakya, dikey telefonda
-Kara Kâse, dokunmatik seç + ilerle, **GPU bağlamı kaybından dönüş**, **başlatma hatasından kurtarma paneli**, stres
-160, model galerisi ve tek dosya build'i; hiçbir konsol hatası olmamalı. Ekran görüntüleri `test-output/`.
+`npm run test:browser` — başsız Chromium (GPU yoksa SwiftShader) ile 15 kontrol + build mevcutsa tek dosya kontrolü:
+menü, Yeni Antakya, dikey telefonda Kara Kâse ve Demir Sultanlık, yapı hızlı seçiminde kamera değişmezliği,
+dokunmatik seç + ilerle, **GPU bağlamı kaybından dönüş**, **başlatma hatasından kurtarma paneli**, mobil maç kurulumu,
+ters rol, ayna maçlar, açık muharebe, stres 160, model galerisi ve tek dosya build'i; hiçbir konsol hatası olmamalı.
+Ekran görüntüleri `test-output/`.
 
 ## 6. Performans önlemleri
 

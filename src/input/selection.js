@@ -127,17 +127,25 @@ export function squadIdsWithRole(sim, viewer, role) {
   return ids.sort((a, b) => a - b);
 }
 
-/** The MULTI-SELECT quick button's visible state: explicit ON label + class (Phase 4 mobile UX). */
+/** The sticky tap-by-tap MULTI SELECT button's visible state. */
 export function multiSelectView(multiOn) {
   return { on: !!multiOn, labelKey: multiOn ? 'hud.multi_on' : 'hud.multi_short', icon: 'multi' };
 }
 
-/**
- * MULTI-SELECT is ONE-SHOT (Phase 4.1): one additive tap or one box, then back to normal
- * selection. Returns true when the mode was consumed.
- */
-export function consumeMulti(ui) {
-  if (!ui || !ui.multi) return false;
-  ui.multi = false;
+/** Button transitions are explicit so AREA and sticky MULTI can never consume one another. */
+export function toggleAreaSelect(ui) {
+  ui.areaSelect = !ui.areaSelect;
+  return ui.areaSelect;
+}
+
+export function toggleMultiSelect(ui) {
+  ui.multiSelect = !ui.multiSelect;
+  return ui.multiSelect;
+}
+
+/** Area Select is the one-shot mode; completion consumes only that state. */
+export function completeAreaSelect(ui) {
+  if (!ui || !ui.areaSelect) return false;
+  ui.areaSelect = false;
   return true;
 }

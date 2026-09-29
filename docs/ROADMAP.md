@@ -56,15 +56,21 @@ korunur, kayıt sürümü gerekiyorsa artırılır ve göç yazılır.
   imha); AI = fraksiyon doktrini + stratejik rol katmanı + zorluk; mobil Maç Kurulumu (Lore / Serbest, ayna maç,
   kilitli "Yakında" kartları); Açık Muharebe senaryosu; kayıt sürümü 6 + v5 göçü. Ayrıntı: `docs/ARCHITECTURE.md`.
 
-## Faz 05B — Iron Sultanate (yalnızca kaynakla doğrulanmış içerik)
-- Taraf verisi, çekirdek birimler (resmî listeden), ekonomi farkı, fraksiyon doktrini + `STRATEGY` rol katmanı,
-  iki rol için başlangıç paketi. Iron Wall bir SENARYO özelliği olarak (`scenario.features`), Grand Cannon / ileri
-  karakol / istihkâmcı / sur katmanları ancak resmî kaynak doğrulamasından sonra. Kanon olmayan hiçbir şey kanon diye
-  sunulmaz.
+## Faz 05B — Iron Sultanate + cephe / seçim cilası ✅
+- Demir Sultanlık: Azeb, Yeniçeri, Sultanlık İstihkâmcısı, Cabirî Simyager; kompakt ortak-kaynak ekonomisi;
+  attacker/defender paketleri; role göre strateji + yalnız komut hattını kullanan AI; Free Setup ve ayna maç.
+- Iron Wall sıradan bina değil: `iron_wall_sector` senaryosunda yerel iki segment + gelecekte kapı / segment yıkımı
+  için metadata. Tam sur savaşı ertelendi.
+- Kara Kâse: 41,76 m aralıklı kompakt üç sunak, merkez Ceset Yığını, savunanda Viscera Nest; Thrall 3.35;
+  köprü girişine kaynak kuran AI ve 30–90 sn bandında terrain-aware köprü veba sürünmesi.
+- Veri odaklı `HQ/A/B/C` yapı seçimi (kamera invariant); tek kullanımlı Alan Seçimi ve kalıcı Çoklu Seçim ayrı state.
+- Sis/runtime 3 katmana genellendi; kayıt sürümü 7 + v6 göçü; 05B eşleşme / köprü / seçim / stres regresyon matrisi.
 
 ## Faz 05C — Heretic Legion
 - Taraf verisi ve çekirdek birimler (resmî liste), savaş kampları (HQ etiketi), Heretic tankı ancak doğrulanırsa;
   mevcut seçkin / aura / takviye sistemleriyle uyum; üç taraflı eşleşmelerde sis katmanı ve AI rol ataması.
+- Demir Duvar için tam kapı, merdiven, duvar üstü gezinme / çatışma ve kuşatma silahları; doğrulanmamış Salt Tank ve
+  benzeri araçlar kaynak bulunana dek yalnız TODO.
 
 ## Faz 05D — Yeraltı
 - Yeraltı katmanı (tüneller: çamurdan etkilenmez), Burrower / Countermine. Çok oyunculu (lockstep: komutlar zaten

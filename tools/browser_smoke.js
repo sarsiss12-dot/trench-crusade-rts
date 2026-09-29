@@ -67,6 +67,18 @@ async function check(name, url, opts = {}) {
 await check('menu', base, { wait: 2500 });
 await check('new-antioch', base + '?autostart=1&seed=3&prep=20', { expectGame: true });
 await check('black-grail-portrait', base + '?autostart=1&faction=black_grail&seed=3&prep=20', { expectGame: true, viewport: { width: 390, height: 844 }, dpr: 2, touch: true });
+await check('iron-sultanate-portrait', base + '?autostart=1&setup=free&pf=iron_sultanate&ef=black_grail&role=defender&seed=3&prep=20', { expectGame: true, viewport: { width: 390, height: 844 }, dpr: 2, touch: true });
+await check('structure-quick-camera-invariant', base + '?autostart=1&faction=black_grail&seed=3&prep=60', {
+  expectGame: true, touch: true, viewport: { width: 844, height: 390 }, dpr: 2,
+  act: async (page) => {
+    await page.waitForSelector('.structure-slot[data-slot="A"]');
+    const before = await page.evaluate(() => { const c = TC.game.camera; return [c.x, c.z, c.tx, c.tz, c.yaw, c.dist]; });
+    await page.tap('.structure-slot[data-slot="A"]');
+    const result = await page.evaluate(() => { const g = TC.game, c = g.camera, s = g.sim.rt.structById.get(g.selection.struct); return { camera: [c.x, c.z, c.tx, c.tz, c.yaw, c.dist], slot: s && s.quickSlot, type: s && s.type }; });
+    if (JSON.stringify(result.camera) !== JSON.stringify(before)) throw new Error('structure quick-select moved the camera');
+    if (result.slot !== 'A' || result.type !== 'grail_altar') throw new Error('A did not select its authored altar');
+  },
+});
 await check('touch-select-move', base + '?autostart=1&seed=3&prep=60', {
   expectGame: true, touch: true, viewport: { width: 844, height: 390 }, dpr: 2,
   act: async (page) => {
@@ -125,7 +137,7 @@ await check('match-setup-portrait', base, {
     const pick = (step, sel) => page.evaluate(([i, q]) => { const el = document.querySelectorAll('.setupstep')[i].querySelector(q); if (!el) throw new Error('missing ' + q); el.click(); }, [step, sel]);
     await pick(0, '.opt.big2:nth-child(2)'); // FREE SETUP
     await page.waitForTimeout(200);
-    if ((await page.evaluate(() => document.querySelectorAll('.card.locked').length)) < 4) throw new Error('locked planned-faction cards missing');
+    if ((await page.evaluate(() => document.querySelectorAll('.card.locked').length)) < 2) throw new Error('locked planned-faction cards missing');
     await pick(2, '.card.black_grail'); // your faction
     await pick(3, '.card.new_antioch'); // enemy faction
     await pick(4, '.opt.big2:nth-child(1)'); // DEFENDER

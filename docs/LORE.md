@@ -17,6 +17,7 @@ Oyun içinde **Ana menü → Evren Notları** ekranı bu tabloyu doğrudan veril
 |---|---|---|---|
 | Yeni Antakya Prensliği | canon | Cehennem Kapısı'nın gölgesindeki kale-şehir; "sekiz büyük kuşatmaya" dayanmış, "Avrupa ve Afrika'nın Kılıcı ve Kalkanı"; "topçu taburları Yeni Antakya'nın gururu" | Lojistik ekonomisi (malzeme / ikmal / insan gücü / erzak), cephane ve takviye mekanikleri |
 | Kara Kâse Tarikatı | canon | Beelzebub, veba, cehennem sinekleri; enfekte ölüler "ayağa kalkar"; Sinek Tarikatı (Order of the Fly); kurbanların kalıntılarından sinek biçiminde sunaklar | Biyokütle / ceset ekonomisi, enfeksiyon ızgarası, yeniden kaldırma kuralları, sayılar |
+| Demir Sultanlık | canon | Resmî lore ve savaş grubu listesinde Great Iron Wall, Azeb, Janissary, Sappers ve Jabirean Alchemist | Kompakt ekonomi, tahkimat düğümleri, role göre başlangıç paketleri ve kontrollü karşı taarruz doktrini RTS soyutlamasıdır |
 
 ## Birimler
 
@@ -39,6 +40,10 @@ Oyun içinde **Ana menü → Evren Notları** ekranı bu tabloyu doğrudan veril
 | Tümörler Lordu (Lord of Tumours) | canon | Kara Kâse lideri | İyileştirme / öfke aurası soyutlamadır |
 | Siviller | abstraction | Yeni Antakya kalabalık bir kale-şehirdir (kanon) | Yerleşim iş ekipleri, sığınma, tahliye tamamen oynanış soyutlaması |
 | Hayvanlar (koyun, keçi, domuz, sığır, katır, köpek) | abstraction / canon-inspired | Sıradan hayvanlar; köpekler evrende geçer | Fantastik yaratık yok; sürü, kaçma, ağıl soyutlamadır |
+| Azeb | canon | Resmî Demir Sultanlık birimi | 8 kişilik temel piyade / perde rolü, tüfek ve bütün sayılar soyutlama |
+| Janissary | canon | Resmî Demir Sultanlık seçkini | 5 kişilik karşı-taarruz mangası, silah ve sayılar soyutlama |
+| Sultanlık İstihkâmcısı (Sapper) | canon | Sappers resmî Sultanlık listesinde | İnşa, onarım, hurda toplama ve sanitasyon rolleri soyutlama |
+| Cabirî Simyager (Jabirean Alchemist) | canon | Resmî Demir Sultanlık birimi | İki kişilik yakın destek ve veba temizleyen projektör soyutlama |
 
 ## Yapılar ve yetenekler
 
@@ -110,22 +115,34 @@ olarak işaretlidir; kuralın kendisi (bonuslar, açtıkları) yine oyun soyutla
 | Varlık | Durum | Doğrulanan | Proje yorumu |
 |---|---|---|---|
 | Sahra Karargâhı (`field_hq`) | abstraction | Yeni Antakya'nın surlarından uzakta sefer yürüttüğü resmî lore'da var; siper savaşının ileri komuta noktaları tarihî | Taarruzda başlayan Yeni Antakya tarafının HQ'su; oyun soyutlaması, kanon yapı adı değil |
-| Iron Sultanate / Heretic Legion (kilitli kartlar) | canon (isimler) | Resmî Trench Crusade fraksiyonları | Faz 05A'da **içerik yok**: yalnızca "Yakında / uygulanmadı" kartı. Birim / yapı / Iron Wall vb. ancak 05B / 05C'de kaynakla |
+| Iron Sultanate / Heretic Legion (05A kilitli kartları) | canon (isimler) | Resmî Trench Crusade fraksiyonları | Tarihsel 05A durumu: içerik yoktu. Iron Sultanate 05B'de açıldı; Heretic Legion 05C için hâlâ kilitli |
 | "Yeni Antakya Kuşatması" lore ön ayarı | abstraction | Yeni Antakya'nın kuşatmaları resmî lore'da var | Bir senaryo ön ayarıdır; tek olası savaş değildir. Ters rol ve ayna maçlar oyun kurgusudur, kanon olay iddiası değil |
 | Fraksiyon kimlik satırları (kurulum kartları) | abstraction | — | Bu oyundaki fraksiyonların oynanış tarifi; lore iddiası değil |
+
+## Faz 05B eklemeleri
+
+| Varlık | Durum | Doğrulanan | Proje yorumu |
+|---|---|---|---|
+| Sultanlık Hisarı / İleri Karargâh | canon-inspired / abstraction | Demir Sultanlık ve Great Iron Wall kanon | Bu bina adları, ekonomi akışları ve HQ davranışı RTS soyutlaması |
+| İstihkâmcı Ocağı / Sultanlık Tabiyası / Siper Duvarı | abstraction | Sappers ve Sultanlık tahkimat kimliği kanon | Bina biçimleri, maliyetler ve makineli mevzi davranışı oyun tasarımı |
+| Demir Duvar Kesimi | canon-inspired | Great Iron Wall kanon | Haritadaki iki yerel segment ölçek soyutlaması; bütün duvarı temsil etmez |
+| Köprü veba sürünmesi | abstraction | Kara Kâse'nin veba ve çürüme kimliği kanon | Hücre eşikleri, 30–90 sn hedefi, purge ile zincir kesme oynanış kuralı |
+| Salt Tank / özel araçlar | uygulanmadı | Bu fazda doğrulanmış kaynak bulunmadı | Kanon diye eklenmedi; TODO olarak kaldı |
 
 ## Bilinçli olarak eklenmeyenler
 
 Tanklar, alev makineli tanklar, Communicant'lar, Hounds / Fly Thrall gibi birimler resmî kaynaklarda var ancak henüz
 uygulanmadı (bkz. `ROADMAP.md`). Amalgam, Herald of Beelzebub, Lord of Tumours, Combat Medic, Trench Cleric ve
-Lieutenant Faz 3'te, Sniper Priest Faz 4.1'de eklendi. Iron Sultanate (05B) ve Heretic Legion (05C) için Faz 05A yalnızca
-mimariyi hazırladı; içerik yok. `scenario.techEra` alanı ileride yıl/teknoloji ön ayarları için
+Lieutenant Faz 3'te, Sniper Priest Faz 4.1'de, Demir Sultanlık temeli Faz 05B'de eklendi. Heretic Legion Faz 05C'de
+kalır. `scenario.techEra` alanı ileride yıl/teknoloji ön ayarları için
 ayrıldı; kaynakla doğrulanmadan içerik eklenmeyecek.
 
 ## Kaynaklar
 
 - [Trench Crusade — The Principality of New Antioch (resmî lore)](https://www.trenchcrusade.com/lore/the-principality-of-new-antioch/)
 - [Trench Crusade — The Cult of the Black Grail (resmî lore)](https://www.trenchcrusade.com/lore/the-cult-of-the-black-grail/)
+- [Trench Crusade — Lore: Book V / Iron Sultanate (resmî)](https://www.trenchcrusade.com/lore/)
+- [Trench Crusade — Warbands of Trench Crusade (resmî kurallar PDF)](https://www.trenchcrusade.com/app/uploads/2026/02/Warbands-of-Trench-Crusade.pdf)
 - [Trench Crusade — Black Grail Faction Overview](https://www.trenchcrusade.com/trench-wire/gaming/black-grail-faction-overview/)
 - [Trench Companion — New Antioch warband](https://trench-companion.com/compendium/warbands/new-antioch)
 - [Trench Companion — Cult of the Black Grail warband](https://trench-companion.com/compendium/warbands/cult-of-the-black-grail)

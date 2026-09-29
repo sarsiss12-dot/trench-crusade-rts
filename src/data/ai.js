@@ -27,8 +27,12 @@ export const STRATEGY = {
     attacker: { firstStrikeMin: 4, cooldownMin: 1.5, minCombat: 8, group: 8, baseAfter: 0, probe: 0.95, strikeMin: 6, reach: 1000, pressOn: true, keepHome: 4 },
   },
   black_grail: {
-    attacker: { holdHome: false, sallyRatio: 0 },
-    defender: { holdHome: true, sallyRatio: 1.6 },
+    attacker: { holdHome: false, sallyRatio: 0, bridgePlague: true },
+    defender: { holdHome: true, sallyRatio: 1.6, bridgePlague: false },
+  },
+  iron_sultanate: {
+    defender: { holdHome: true, firstPushSec: 150, waveSize: 4, reserve: 4, buildPlan: 'sultanate' },
+    attacker: { holdHome: false, firstPushSec: 35, waveSize: 7, reserve: 2, buildPlan: 'sultanate' },
   },
 };
 

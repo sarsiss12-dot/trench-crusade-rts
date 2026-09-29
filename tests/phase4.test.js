@@ -143,7 +143,9 @@ test('positional auto reinforcement: open field OFF, trench ON by default, playe
   cmd(sim, CMD.ENTER_TRENCH, NA, { squadIds: [dug.id], sid: seg.id });
   run(sim, 12);
   assert.equal(dug.order.t, 'hold_trench', 'precondition: in the trench');
-  for (const sq of [field, dug]) for (let i = 0; i < 3; i++) killSoldier(sim, sq, sq.members[i], BG, 'rifle', 0, 1);
+  // This is a reinforcement lifecycle test, not a plague/reanimation test: attribute the staged
+  // losses to the owning side so infected corpses cannot create a new combat during the wait.
+  for (const sq of [field, dug]) for (let i = 0; i < 3; i++) killSoldier(sim, sq, sq.members[i], NA, 'rifle', 0, 1);
   field.lastHitTick = dug.lastHitTick = -100000;
   const size = UNITS.yeoman_rifle.squadSize;
   const requested = (sq) => !!sq.reinf || sq.members.length >= size;
@@ -156,7 +158,7 @@ test('positional auto reinforcement: open field OFF, trench ON by default, playe
   assert.ok(run(sim, 0.2).some((e) => e.type === EV.COMMAND_REJECTED && e.reason === 'autoreinf.no_position'));
   // player OFF: kept while the squad stays in the position; walkers already out keep walking
   run(sim, 40);
-  for (let i = 0; i < 2; i++) { const m = dug.members.find((x) => x.state === 'alive'); killSoldier(sim, dug, m, BG, 'rifle', 0, 1); }
+  for (let i = 0; i < 2; i++) { const m = dug.members.find((x) => x.state === 'alive'); killSoldier(sim, dug, m, NA, 'rifle', 0, 1); }
   run(sim, 3);
   dug.lastHitTick = -100000;
   cmd(sim, CMD.SET_AUTO_REINFORCE, NA, { squadIds: [dug.id], on: 0 });
@@ -781,4 +783,3 @@ test('fog: hidden gun fire, hidden shell bursts, reinforcements, garrisons, alar
   // lull warnings are for everyone (both sides feel the front go quiet)
   assert.equal(vis({ type: EV.PHASE_WARNING, phase: 'LULL' }, BG), SHOW.ALL);
 });
-

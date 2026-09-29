@@ -2,7 +2,7 @@
 // ELITES (no abilities, no caps, non-stacking auras, union coverage), positional auto
 // reinforcement, altar / Thrall / work gang speeds and contexts, starting corpse mound and its
 // 22 m area, corpse states + purification, placement rotation (drag / confirm / cancel) and firing
-// arc, one-shot multi-select, fog-safe resource lens, endless war + defender counterattack, rain /
+// arc, sticky tap multi-select, fog-safe resource lens, endless war + defender counterattack, rain /
 // traffic mud, save v4 -> v5 migration, AI through commands only, module load guard.
 import { readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
@@ -28,7 +28,7 @@ import { encodeState, decodeState, serializeSave, deserializeSave } from '../src
 import { STATE_VERSION, TICK_RATE } from '../src/sim/constants.js';
 import { createSession } from '../src/app/session.js';
 import { createActions } from '../src/app/actions.js';
-import { createSelection, consumeMulti } from '../src/input/selection.js';
+import { createSelection } from '../src/input/selection.js';
 import { createControlGroups } from '../src/input/control_groups.js';
 import { createInputController } from '../src/input/controller.js';
 import { createCamera, updateCamera, projectToScreen } from '../src/render/camera.js';
@@ -168,9 +168,9 @@ test('altar 0.14 biomass/s with no diminishing returns; one corpse mound stands 
   assert.ok(STRUCTURES.grail_altar.dropOff, 'altars stay drop-offs');
 });
 
-test('speeds: Thrall ~2.78; work gang 3.6, 6.2 only while hunting on a forage order, 4.2 hauling — never chasing enemies', () => {
+test('speeds: Thrall 3.35; work gang 3.6, 6.2 only while hunting on a forage order, 4.2 hauling — never chasing enemies', () => {
   const th = UNITS.grail_thrall.speed;
-  assert.ok(th >= 2.75 && th <= 2.8, 'thrall ' + th);
+  assert.ok(th >= 3.3 && th <= 3.45, 'thrall ' + th);
   const def = UNITS.thrall_gang;
   const sq = (order, extra = {}) => ({ order, carry: 0, melee: false, engaged: false, target: null, ...extra });
   assert.equal(moveSpeed(sq({ t: 'move', x: 0, z: 0 }), def), 3.6, 'plain move / scouting');
@@ -341,16 +341,18 @@ test('placement: tap pins the ghost, a drag around it turns it freely (camera st
   assert.ok(cam.tx !== cx || cam.tz !== cz, 'far drag pans');
 });
 
-test('multi-select is ONE-SHOT: one additive tap, then back to normal selection', () => {
+test('tap multi-select is STICKY: additive taps keep it on until the button toggles it off', () => {
   const { sim, game, tap } = controllerFixture();
   const rifles = sim.state.squads.filter((q) => q.faction === NA && q.type === 'yeoman_rifle');
   const [a, b] = rifles;
   game.selection.set([a.id]);
-  game.ui.multi = true;
+  game.ui.multiSelect = true;
   tap(b.cx, b.cz);
   assert.ok(game.selection.has(a.id) && game.selection.has(b.id), 'added');
-  assert.equal(game.ui.multi, false, 'switched back off');
-  assert.equal(consumeMulti(game.ui), false);
+  assert.equal(game.ui.multiSelect, true, 'remains on after a unit tap');
+  tap(b.cx, b.cz);
+  assert.ok(!game.selection.has(b.id), 'second tap removes the selected unit');
+  assert.equal(game.ui.multiSelect, true, 'still on after removal');
   void sim;
 });
 

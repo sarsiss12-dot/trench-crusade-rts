@@ -1,6 +1,6 @@
 // Simulation constants. The simulation runs at a fixed tick rate; rendering interpolates.
 
-export const STATE_VERSION = 6;
+export const STATE_VERSION = 7;
 export const TICK_RATE = 20;
 export const DT = 1 / TICK_RATE;
 

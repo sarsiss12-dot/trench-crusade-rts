@@ -35,6 +35,7 @@ export function generateWorld(map, seed) {
     plans: {
       fortify: { region: 'south', items: map.fortifyPlan || [] },
       organic: { region: 'north', items: map.organicPlan || [] },
+      sultanate: { region: 'south', items: map.sultanatePlan || [] },
     },
     // Phase 3 (static map data; per-match richness / animals live in GameState)
     sectors: map.sectors || [], habitats: map.habitats || [], oldDead: [],

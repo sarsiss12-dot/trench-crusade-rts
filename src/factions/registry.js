@@ -4,10 +4,12 @@
 import { sideDef } from '../data/factions.js';
 import { newAntiochLogic } from './new_antioch.js';
 import { blackGrailLogic } from './black_grail.js';
+import { ironSultanateLogic } from './iron_sultanate.js';
 
 const LOGIC = {
   new_antioch: newAntiochLogic,
   black_grail: blackGrailLogic,
+  iron_sultanate: ironSultanateLogic,
 };
 
 export function factionLogic(fid) {

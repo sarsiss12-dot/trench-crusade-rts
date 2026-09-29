@@ -216,7 +216,7 @@ export function createP3Hud(game, H) {
       const list = el('div.tplist');
       for (const c of d.cards) {
         const card = button('tpcard', `${icon(c.icon)}<span class="n">${t(c.nameKey)}</span><span class="cnt"></span><div class="bar hp"><i></i></div><div class="bar ammo"><i></i></div><div class="bar inf"><i></i></div>`, () => {
-          if (game.ui.multi) { game.selection.toggle(c.id); game.ui.multi = false; } // one-shot
+          if (game.ui.multiSelect) game.selection.toggle(c.id); // sticky until the player toggles it off
           else game.selection.set([c.id]);
           if (game.audio) game.audio.ui('select');
         }, t(c.nameKey));

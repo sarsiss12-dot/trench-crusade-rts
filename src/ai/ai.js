@@ -7,12 +7,14 @@ import { sideDef, sideIndex } from '../data/factions.js';
 import { AI_DIFFICULTY } from '../data/ai.js';
 import { blackGrailAI } from './black_grail_ai.js';
 import { newAntiochAI } from './new_antioch_ai.js';
+import { ironSultanateAI } from './iron_sultanate_ai.js';
 
 export const AI_INTERVAL = 10; // ticks between strategic thinks (staggered per faction)
 
 const AIS = {
   black_grail: blackGrailAI,
   new_antioch: newAntiochAI,
+  iron_sultanate: ironSultanateAI,
 };
 
 export function aiModuleFor(fid) {

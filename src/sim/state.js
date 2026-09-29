@@ -240,6 +240,9 @@ export function createStructure(state, type, faction, params) {
   if (def.farm || def.pen || def.quarry) s.host = params.host || 0;
   if (params.variant) s.variant = params.variant;
   if (params.objective) s.objective = true;
+  // Starting-package selection shortcut. Authored metadata is copied onto that exact structure;
+  // later buildings never infer or steal a slot.
+  if (params.quickSlot) s.quickSlot = params.quickSlot;
   s.work = s.built ? s.workRequired : s.workRequired * s.progress;
   if (!s.built) s.hp = Math.max(1, Math.round(def.hp * Math.max(0.12, s.progress)));
   return s;

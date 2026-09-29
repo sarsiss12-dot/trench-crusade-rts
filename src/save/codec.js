@@ -7,6 +7,10 @@ import { createRngState } from '../core/rng.js';
 import { newStats } from '../sim/state.js';
 import { createWeatherState } from '../sim/weather.js';
 import { mapDef } from '../data/maps.js';
+import { startingPackage } from '../data/packages.js';
+import { placeInRegion } from '../sim/sides.js';
+import { FOG_LAYERS } from '../data/factions.js';
+import { dist } from '../core/dmath.js';
 
 export const SAVE_FORMAT = 'trench-crusade-rts-save';
 export const SAVE_VERSION = STATE_VERSION;
@@ -325,6 +329,32 @@ export const MIGRATIONS = {
     for (const c of s.corpses || []) if (c.plague === undefined) c.plague = c.infected ? 'black_grail' : '';
     s.version = 6;
     return { ...save, version: 6 };
+  },
+  // Phase 5A -> Phase 05B: the third faction expands fog capacity and starting-package structure
+  // shortcuts become persistent entity metadata. Assignment is package-authored (type + transformed
+  // position), never "the first three structures on the map".
+  6: (save) => {
+    const s = save.state;
+    const map = mapDef(s.mapId);
+    const cells = s.fog.cols * s.fog.rows;
+    while (s.fog.vis.length < FOG_LAYERS) s.fog.vis.push(new Uint8Array(cells));
+    while (s.fog.seen.length < FOG_LAYERS) s.fog.seen.push(new Uint8Array(cells));
+    for (const sd of s.sides || []) {
+      const pkg = startingPackage(sd.faction, sd.role);
+      for (const item of pkg.structures) {
+        if (!item.quickSlot) continue;
+        const p = placeInRegion(map, item, pkg.authored, sd.region);
+        let best = null, bd = Infinity;
+        for (const st of s.structures || []) {
+          if (st.faction !== sd.id || st.type !== item.type || st.quickSlot) continue;
+          const d = dist(st.x, st.z, p.x, p.z);
+          if (d < bd) { bd = d; best = st; }
+        }
+        if (best && bd <= 40) best.quickSlot = item.quickSlot;
+      }
+    }
+    s.version = 7;
+    return { ...save, version: 7 };
   },
 };
 

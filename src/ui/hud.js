@@ -18,7 +18,7 @@ import { isSquadAlive } from '../sim/state.js';
 import { isCorpseKnownTo, isStructureVisibleTo, isSoldierVisibleTo } from '../sim/perception.js';
 import { canAfford } from '../economy/economy.js';
 import { trenchSlotCount, trenchCoverStrength, trenchNetwork, networkCapacity } from '../construction/trench.js';
-import { allCombatSquadIds, squadIdsWithRole, multiSelectView } from '../input/selection.js';
+import { allCombatSquadIds, squadIdsWithRole, multiSelectView, toggleAreaSelect, toggleMultiSelect } from '../input/selection.js';
 import { unitCost, unlockedBySpec } from '../sim/specialities.js';
 import { structureCost } from '../construction/construction.js';
 import { createP3Hud } from './hud_p3.js';
@@ -27,6 +27,7 @@ import { fixFor, requirementText } from './reasons.js';
 import { lensItems, netPerMinute } from './lens.js';
 import { mudLevelAt, mudSpeedAt } from '../sim/weather.js';
 import { MUD_LEVELS } from '../data/weather.js';
+import { structureQuickSlots, selectStructureShortcut } from '../input/structure_shortcuts.js';
 
 function costText(cost) {
   if (!cost) return '';
@@ -93,11 +94,18 @@ export function createHud(game) {
   const qEng = fdef.buildList.length ? button('q', icon(bg ? 'gang' : 'engineer') + `<i>${t(bg ? 'hud.gangs' : 'hud.engineers')}</i>`, () => selectIds(squadIdsWithRole(sim, viewer, 'builder')), t(bg ? 'hud.gangs' : 'hud.engineers')) : null;
   // box / multi-select modes carry a label and an explicit ON state (Phase 4: the old multi-select
   // glyph was read as a "copy" button)
-  const qBox = button('q tog', icon('box') + `<i>${t('hud.box_short')}</i>`, () => { game.ui.boxMode = !game.ui.boxMode; refreshToggles(); }, t('hud.box'));
-  const qMulti = button('q tog', icon('multi') + `<i>${t('hud.multi_short')}</i>`, () => { game.ui.multi = !game.ui.multi; refreshToggles(); }, t('hud.multi_tip'));
+  const qBox = button('q tog area-select', icon('box') + `<i>${t('hud.box_short')}</i>`, () => { toggleAreaSelect(game.ui); refreshToggles(); }, t('hud.box'));
+  const qMulti = button('q tog multi-select', icon('multi') + `<i>${t('hud.multi_short')}</i>`, () => { toggleMultiSelect(game.ui); refreshToggles(); }, t('hud.multi_tip'));
   const qHome = button('q', icon('home'), () => game.home(), t('hud.home'));
   quick.append(qAll);
   if (qEng) quick.append(qEng);
+  const quickStructures = structureQuickSlots(sim.state, viewer);
+  for (const slot of ['HQ', 'A', 'B', 'C']) {
+    if (!quickStructures[slot]) continue;
+    const b = button('q structure-slot', `<b>${slot}</b><i>${t(slot === 'HQ' ? 'hud.hq_short' : 'hud.altar_short')}</i>`, () => selectStructureShortcut(game, slot), t('hud.structure_quick', { slot }));
+    b.dataset.slot = slot;
+    quick.append(b);
+  }
   quick.append(qBox, qMulti, qHome);
   root.appendChild(quick);
 
@@ -106,10 +114,10 @@ export function createHud(game) {
     if (game.audio) game.audio.ui('select');
   }
   function refreshToggles() {
-    toggleClass(qBox, 'on', game.ui.boxMode);
-    const mv = multiSelectView(game.ui.multi);
+    toggleClass(qBox, 'on', game.ui.areaSelect);
+    const mv = multiSelectView(game.ui.multiSelect);
     toggleClass(qMulti, 'on', mv.on);
-    setText(qBox.querySelector('i'), game.ui.boxMode ? t('hud.on') : t('hud.box_short'));
+    setText(qBox.querySelector('i'), game.ui.areaSelect ? t('hud.on') : t('hud.box_short'));
     setText(qMulti.querySelector('i'), t(mv.labelKey));
     dirty = true;
   }
@@ -765,10 +773,11 @@ export function createHud(game) {
   let acc = 0;
   let lastSelVersion = -1;
   let prepHintShown = false;
-  let lastMulti = false;
+  let lastMulti = false, lastArea = false;
   function update(dt) {
-    // multi-select is one-shot: the input layer switches it off after one tap / box
-    if (!!game.ui.multi !== lastMulti) { lastMulti = !!game.ui.multi; refreshToggles(); }
+    if (!!game.ui.multiSelect !== lastMulti || !!game.ui.areaSelect !== lastArea) {
+      lastMulti = !!game.ui.multiSelect; lastArea = !!game.ui.areaSelect; refreshToggles();
+    }
     const key = selectionKey();
     if (key !== lastKey || dirty || game.selection.version !== lastSelVersion) {
       lastKey = key;
@@ -836,6 +845,8 @@ export function createHud(game) {
     onModeChanged() { dirty = true; if (game.mode.kind !== 'normal') { buildOpen = false; } },
     onSpeedChanged: refreshSpeed,
     onGroupsChanged() { if (p4) p4.onGroupsChanged(); },
+    onSelectionModesChanged: refreshToggles,
+    markDirty() { dirty = true; },
     toggleBuildMenu,
     showBanner,
   };

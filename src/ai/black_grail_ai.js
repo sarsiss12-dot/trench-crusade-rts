@@ -417,6 +417,21 @@ export const blackGrailAI = {
         if (d < sd) { sd = d; site = st; }
       }
       if (site) { busy.add(site.id); aiIssue(sim, { type: CMD.ASSIST_BUILD, faction: fid, squadIds: [g.id], sid: site.id }); continue; }
+      // Phase 05B: an attacking horde deliberately establishes the authored bridge-entry plague
+      // node. Infection still traverses the bridge cell-by-cell; this only supplies its near end.
+      const strategy = roleStrategy(sim, fid);
+      if (!placedNow && strategy.bridgePlague && state.match.phase === 'WAR' && state.tick - (state.match.prepEndTick || 0) > 20 * 45) {
+        const item = planFor(sim, fid, 'organic').find((it) => it.type === 'plague_pit' && it.frontline);
+        const cost = STRUCTURES.plague_pit.cost.biomass;
+        if (item && !planDone(sim, fid, item) && (f.resources.biomass || 0) >= cost + 10) {
+          const params = { x: item.x, z: item.z, rot: item.rot || 0 };
+          if (validatePlacement(sim, fid, 'plague_pit', params).ok) {
+            aiIssue(sim, { type: CMD.BUILD, faction: fid, squadIds: [g.id], stype: 'plague_pit', ...params });
+            placedNow = true;
+          }
+        }
+        if (placedNow) continue;
+      }
       // 2a) Phase 4 organic defences: one Viscera Cannon nest, then one Belcher nest over the altar
       //     approaches, once the war is two minutes old and the biomass is there (with a reserve)
       if (!placedNow && state.match.phase === 'WAR' && state.tick - (state.match.prepEndTick || 0) > 20 * 120) {

@@ -60,7 +60,7 @@ test('5A §1/§22: core code has no faction-id literals outside data / presentat
   const offenders = [];
   for (const f of core) {
     const src = readFileSync(f, 'utf8');
-    for (const m of src.matchAll(/(===|!==)\s*'(new_antioch|black_grail)'/g)) offenders.push(f.split('/src/')[1] + ': ' + m[0]);
+    for (const m of src.matchAll(/(===|!==)\s*'(new_antioch|black_grail|iron_sultanate)'/g)) offenders.push(f.split('/src/')[1] + ': ' + m[0]);
   }
   assert.equal(offenders.length, 0, offenders.join('; '));
 });
@@ -349,14 +349,16 @@ test('5A G: Lore Setup: the preset decides the roles; the player picks which sid
   assert.equal(sim.state.settings.playerFaction, BG);
 });
 
-test('5A H: Free Setup: any faction for either side, either role; mirror ids are deterministic', () => {
+test('5A H/5B: Free Setup: any playable faction for either side, either role; mirror ids are deterministic', () => {
   const sc = SCENARIOS.siege_default;
   const r = resolveSides(sc, { setup: { mode: 'free', playerFaction: BG, enemyFaction: NA, playerRole: 'defender' } });
   assert.deepEqual(r.sides.map((s) => [s.id, s.faction, s.role, s.region]), [[BG, BG, 'defender', 'south'], [NA, NA, 'attacker', 'north']]);
   const m = resolveSides(sc, { setup: { mode: 'free', playerFaction: NA, enemyFaction: NA, playerRole: 'attacker' } });
   assert.deepEqual(m.sides.map((s) => s.id), [NA, NA2]);
   assert.equal(m.player, NA2, 'the player holds the attacker slot = the twin id');
-  assert.throws(() => resolveSides(sc, { setup: { mode: 'free', playerFaction: 'iron_sultanate', enemyFaction: NA, playerRole: 'attacker' } }));
+  const is = resolveSides(sc, { setup: { mode: 'free', playerFaction: 'iron_sultanate', enemyFaction: NA, playerRole: 'attacker' } });
+  assert.deepEqual(is.sides.map((s) => [s.faction, s.role]), [[NA, 'defender'], ['iron_sultanate', 'attacker']]);
+  assert.throws(() => resolveSides(sc, { setup: { mode: 'free', playerFaction: 'heretic_legion', enemyFaction: NA, playerRole: 'attacker' } }));
   const sim = createSimulation({ scenarioId: 'siege_default', seed: 1, settings: { setup: { mode: 'free', playerFaction: NA, enemyFaction: NA, playerRole: 'attacker' }, aiDifficulty: 'hard', prepSeconds: 0 } });
   assert.equal(sim.state.settings.setupMode, 'free');
   assert.equal(sim.state.settings.aiDifficulty, 'hard');
@@ -398,14 +400,14 @@ function canon(v) {
   return v;
 }
 
-test('5A I: save v5 -> v6: a classic Phase 4.1 save becomes NA defender / BG attacker, nothing lost', () => {
-  assert.equal(STATE_VERSION, 6);
+test('5A I/5B: save v5 -> current: a classic Phase 4.1 save becomes NA defender / BG attacker, nothing lost', () => {
+  assert.equal(STATE_VERSION, 7);
   const sim = createSimulation({ scenarioId: 'siege_default', seed: 21, settings: { playerFaction: NA, prepSeconds: 20, warMinutes: 30, controllers: { [NA]: 'ai', [BG]: 'ai' } } });
   run(sim, 20 + 200);
   const v5 = downgradeToV5(sim.state);
   const hdr = JSON.parse(serializeSave(sim.state));
   const loaded = deserializeSave(JSON.stringify({ ...hdr, version: 5, state: JSON.parse(encodeState(v5)) })).state;
-  assert.equal(loaded.version, 6);
+  assert.equal(loaded.version, STATE_VERSION);
   assert.deepEqual(loaded.sides, sim.state.sides);
   // the migrated state IS the live state (resources, units, structures, corpses, pestilence,
   // infection owners, stacks, mud / weather, elites, reinforcement)

@@ -64,7 +64,7 @@ export const TR_P41 = {
   'gun.traverse': 'Hedef atış yayının dışında',
   // info card / selection
   'hud.close_card': 'Seçimi kapat',
-  'hud.multi_tip': 'Çoklu seçim (tek seferlik): bir dokunuş ya da bir kutu seçimi ekler, sonra normale döner',
+  'hud.multi_tip': 'Tek tek çoklu seçim: kapatana kadar dokunduğun mangaları seçime ekler / çıkarır',
   // resource lens
   'lens.title': '{res} merceği', 'lens.close': 'Kapat', 'lens.income': 'Gelir: {v}/dk', 'lens.none': 'Haritada bilinen kaynak noktası yok',
   'lens.src.depot': 'Depo', 'lens.src.field': 'Tarla', 'lens.src.settlement': 'Yerleşim', 'lens.src.heap': 'Hurda yığını', 'lens.src.altar': 'Sunak',
@@ -164,7 +164,7 @@ export const EN_P41 = {
   'build.bad_facing': 'The gun faces the wrong way: no target in its sector',
   'gun.traverse': 'Target outside the firing arc',
   'hud.close_card': 'Clear selection',
-  'hud.multi_tip': 'Multi-select (one-shot): one tap or one box adds to the selection, then it switches back',
+  'hud.multi_tip': 'Tap multi-select: adds/removes tapped squads until you switch it off',
   'lens.title': '{res} lens', 'lens.close': 'Close', 'lens.income': 'Income: {v}/min', 'lens.none': 'No known source on the map',
   'lens.src.depot': 'Depot', 'lens.src.field': 'Field', 'lens.src.settlement': 'Settlement', 'lens.src.heap': 'Scrap heap', 'lens.src.altar': 'Altar',
   'lens.src.mound': 'Corpse mound', 'lens.src.corpse': 'Corpse', 'lens.src.animal': 'Animal', 'lens.src.sector': 'Sector',

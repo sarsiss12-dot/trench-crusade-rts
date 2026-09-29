@@ -6,7 +6,7 @@ import { sideFacing } from '../sim/sides.js';
 import { baseFaction } from '../data/factions.js';
 import { createGestures } from './gestures.js';
 import { pickSquad, pickStructure, pickNodeAt, boxSelect, squadsOfTypeOnScreen } from './pick.js';
-import { allCombatSquadIds, squadIdsWithRole, consumeMulti } from './selection.js';
+import { allCombatSquadIds, squadIdsWithRole, completeAreaSelect } from './selection.js';
 import { corpseView } from '../sim/corpse_view.js';
 import { pickGround, panCamera, zoomAt, cameraPitch, worldPerPixel } from '../render/camera.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -29,7 +29,7 @@ export function createInputController(canvas, game) {
   const sim = game.session.sim;
   const viewer = game.session.viewer;
   const keys = new Set();
-  const ui = game.ui; // shared UI toggles { boxMode, multi, attackMove }
+  const ui = game.ui; // shared UI toggles { areaSelect (one-shot), multiSelect (sticky), attackMove }
   let pxScale = 1; // device px per CSS px
 
   const ground = (x, z) => game.renderer.groundAt(x, z);
@@ -257,13 +257,12 @@ export function createInputController(canvas, game) {
 
   function normalTap(sx, sy, info) {
     const own = game.selection.ownSquads(sim, viewer);
-    const additive = info.shift || info.ctrl || ui.multi;
+    const additive = info.shift || info.ctrl || ui.multiSelect;
     const hit = pickSquad(sim, viewer, cam, ground, sx, sy, radiusPx());
     if (hit) {
       const sq = hit.sq;
       if (sq.faction === viewer) {
         game.selection.tapOwn(sq.id, additive);
-        consumeMulti(ui); // one-shot: the next tap selects normally again
         if (game.audio) game.audio.ui('select');
       } else if (own.length && !ui.inspect) {
         game.actions.attack('squad', sq.id, sq.cx, sq.cz);
@@ -406,7 +405,7 @@ export function createInputController(canvas, game) {
   const FACE_MIN = 2.5; // world metres: shorter drags give a plain move
   const handlers = {
     wantsFace(x, y, info) {
-      if (game.mode.kind !== 'normal' || ui.boxMode) return false;
+      if (game.mode.kind !== 'normal' || ui.areaSelect) return false;
       if (!game.selection.ownSquads(sim, viewer).length) return false;
       if (!groundAt(x, y)) return false;
       // a double tap on an own squad keeps selecting its type
@@ -445,7 +444,7 @@ export function createInputController(canvas, game) {
       game.frame.faceArrow = null;
     },
     wantsBox(info) {
-      return game.mode.kind === 'normal' && (ui.boxMode || (info.type === 'mouse' && info.shift));
+      return game.mode.kind === 'normal' && (ui.areaSelect || (info.type === 'mouse' && info.shift));
     },
     onTap(x, y, info) {
       if (info.button === 2) {
@@ -466,7 +465,7 @@ export function createInputController(canvas, game) {
     onLongPress(x, y) {
       // long press = attack-move for a selection in normal mode; anything else lets the press
       // continue as a drag (pan, trench drawing, ghost move, box) or a slow tap
-      if (game.mode.kind !== 'normal' || ui.boxMode) return false;
+      if (game.mode.kind !== 'normal' || ui.areaSelect) return false;
       const own = game.selection.ownSquads(sim, viewer);
       const g = groundAt(x, y);
       if (!own.length || !g) return false;
@@ -547,8 +546,9 @@ export function createInputController(canvas, game) {
     onBoxEnd(x0, y0, x1, y1) {
       if (game.hud) game.hud.hideBox();
       const ids = boxSelect(sim, viewer, cam, ground, x0, y0, x1, y1);
-      game.selection.applyBox(ids, ui.multi || keys.has('Shift'), ui.multi);
-      if (ids.length) consumeMulti(ui); // one-shot
+      game.selection.applyBox(ids, ui.multiSelect || keys.has('Shift'), ui.multiSelect);
+      completeAreaSelect(ui); // one-shot even for an empty box: the next drag is camera pan
+      if (game.hud && game.hud.onSelectionModesChanged) game.hud.onSelectionModesChanged();
       if (ids.length && game.audio) game.audio.ui('select');
     },
     onPinchStart() {

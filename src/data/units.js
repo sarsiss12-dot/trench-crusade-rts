@@ -137,7 +137,7 @@ export const UNITS = {
     },
     // Phase 3 swarm identity: cheap, slow, weak alone, many to a squad (performance-bounded)
     combatUnit: true, roles: ['horde'], squadSize: 12,
-    hp: 58, armor: 0.15, speed: 2.78, vision: 36, radius: 0.44, // Phase 4: weaker alone (62 -> 58); 4.1: +20% speed (2.3 -> 2.78)
+    hp: 58, armor: 0.15, speed: 3.35, vision: 36, radius: 0.44, // Phase 05B: mobility only (2.78 -> 3.35)
     weapon: null, melee: 'thrall_claws', ammoPerSoldier: 0,
     // canon-inspired: "strengthened by proximity to other Thralls" (other Grail squads count half)
     hordeBonus: { radius: 16, perSquad: 0.07, other: 0.5, max: 0.28 },
@@ -229,6 +229,44 @@ export const UNITS = {
     // pressure on enemies right next to him. Same-kind auras never stack.
     elite: { role: 'horde_lord', passive: 'tumour_court' },
     aura: { kind: 'tumour', radius: 14, regen: 2, meleeBonus: 0.15, infectRadius: 5, infectEverySec: 4 },
+  },
+  // ---- Phase 05B: Iron Sultanate playable foundation -------------------------------------------
+  azeb: {
+    id: 'azeb', faction: 'iron_sultanate', nameKey: 'unit.azeb', descKey: 'unit.azeb.desc',
+    lore: { status: 'canon', ref: 'Azeb — Iron Sultanate infantry (official roster); squad composition and statistics are RTS abstractions' },
+    combatUnit: true, roles: ['line', 'screen'], squadSize: 8,
+    hp: 92, armor: 0.05, speed: 3.0, vision: 44, radius: 0.42,
+    weapon: 'azeb_rifle', melee: 'bayonet', ammoPerSoldier: 16,
+    formation: 'line', spacing: 1.65, canGarrison: true, heavy: false, corpseBiomass: 12,
+    model: 'na_yeoman', icon: 'rifle', cost: { manpower: 8, supply: 42 }, trainTime: 24,
+  },
+  janissary: {
+    id: 'janissary', faction: 'iron_sultanate', nameKey: 'unit.janissary', descKey: 'unit.janissary.desc',
+    lore: { status: 'canon', ref: 'Janissary — elite Iron Sultanate infantry (official roster); weapon mix and squad statistics are RTS abstractions' },
+    combatUnit: true, roles: ['line', 'elite', 'counterattack'], squadSize: 5,
+    hp: 165, armor: 0.25, speed: 2.75, vision: 48, radius: 0.47,
+    weapon: 'janissary_rifle', melee: 'plague_blade', ammoPerSoldier: 22,
+    formation: 'line', spacing: 1.9, canGarrison: true, heavy: false, corpseBiomass: 15,
+    model: 'na_heavy', icon: 'guard', cost: { manpower: 5, supply: 105, material: 55 }, trainTime: 36,
+  },
+  sultanate_sapper: {
+    id: 'sultanate_sapper', faction: 'iron_sultanate', nameKey: 'unit.sultanate_sapper', descKey: 'unit.sultanate_sapper.desc',
+    lore: { status: 'canon', ref: 'Sultanate Sapper — Iron Sultanate specialist (official roster); construction and repair rules are gameplay abstractions' },
+    combatUnit: false, roles: ['builder', 'gatherer', 'repairer', 'sanitizer'], squadSize: 5,
+    hp: 105, armor: 0.1, speed: 2.9, vision: 40, radius: 0.44,
+    weapon: 'auto_shotgun', melee: 'entrenching_tool', ammoPerSoldier: 10,
+    buildRate: 1.15, gatherRate: 1.4, carryCapacity: 8, gathers: 'salvage',
+    formation: 'cluster', spacing: 1.6, canGarrison: true, heavy: false, corpseBiomass: 12,
+    model: 'na_engineer', icon: 'engineer', cost: { manpower: 5, material: 45 }, trainTime: 25,
+  },
+  jabirean_alchemist: {
+    id: 'jabirean_alchemist', faction: 'iron_sultanate', nameKey: 'unit.jabirean_alchemist', descKey: 'unit.jabirean_alchemist.desc',
+    lore: { status: 'canon', ref: 'Jabirean Alchemist — Iron Sultanate specialist (official roster); battlefield support effect is a gameplay abstraction' },
+    combatUnit: true, roles: ['support', 'plague_counter'], squadSize: 2,
+    hp: 115, armor: 0.12, speed: 2.8, vision: 45, radius: 0.44,
+    weapon: 'alchemical_projector', melee: 'trench_club', ammoPerSoldier: 12,
+    formation: 'line', spacing: 1.8, canGarrison: true, heavy: false, corpseBiomass: 14,
+    model: 'na_flamer', icon: 'flame', cost: { manpower: 3, supply: 95, material: 35 }, trainTime: 31,
   },
 };
 

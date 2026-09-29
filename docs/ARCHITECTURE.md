@@ -1,7 +1,8 @@
-# Mimari — Fraksiyon / Taraf / Rol / Senaryo / Harita (Faz 05A)
+# Mimari — Fraksiyon / Taraf / Rol / Senaryo / Harita (Faz 05B)
 
-Faz 05A'nın tek amacı, "Yeni Antakya = savunan, Kara Kâse = saldıran" varsayımını çekirdekten sökmekti.
-Yeni fraksiyon **eklenmedi**. Bu belge, kodun bugün kullandığı beş kavramı ve aralarındaki sınırı tanımlar.
+Faz 05A "Yeni Antakya = savunan, Kara Kâse = saldıran" varsayımını çekirdekten söktü. Faz 05B bu sözleşmeyi
+üçüncü oynanabilir fraksiyon **Demir Sultanlık** ve ayna eşleşmesiyle doğrular. Bu belge kodun kullandığı beş kavramı
+ve aralarındaki sınırı tanımlar.
 
 | Kavram | Tanım | Kodda |
 |---|---|---|
@@ -19,7 +20,8 @@ Yeni fraksiyon **eklenmedi**. Bu belge, kodun bugün kullandığı beş kavramı
 - `baseFaction(id)` → içerik fraksiyonu (saf, önbellekli). `sideDef(id)` → fraksiyon tanımı.
 - `areHostile(a, b)` → **taraf** farklıysa düşman (nötr hiç kimsenin düşmanı değil). Ayna maçta iki taraf düşmandır.
 - `sideIndex(id)` / `sideBit(id)` → sis/görüş katmanı. İlk taraf fraksiyonun indeksini alır; ikiz, fraksiyonun
-  kullanmadığı en düşük katmanı alır. `FOG_LAYERS = 2` (iki taraflı maç). Saf fonksiyon → kayıt/yükleme güvenli.
+  kullanmadığı en düşük katmanı alır. `FOG_LAYERS = FACTION_ORDER.length` (05B'de 3); runtime görüş kaynakları ve
+  kayıt göçü de bu sayıyı kullanır. Saf fonksiyon → kayıt/yükleme güvenli.
 - `contentIndex(id)` → içerik indeksi (ör. navigasyondaki fraksiyona özgü arazi hızı tabloları).
 
 `state.factions` anahtar adı kayıt uyumluluğu için korundu; **taraf** başına durumdur ve şunları da taşır:
@@ -40,7 +42,8 @@ siege_default: {
 ```
 
 Senaryo **hiçbir yerde fraksiyon adı** ile hedef, kaynak veya birlik tanımlamaz; hepsi rol ile anahtarlanır.
-`features` senaryo özelliği içindir (ileride ör. Iron Wall) — **fraksiyon özelliği değildir**; Faz 05A'da boştur.
+`features` senaryo özelliği içindir — **fraksiyon özelliği değildir**. `iron_wall_sector`, rol sahibini ve
+`requiresFaction` koşulunu veriyle çözer; normal fraksiyon inşa listesine Demir Duvar eklemez.
 `open_battle` (ikincil) aynı haritada kale olmadan **imha** kuralıyla oynanır.
 
 ## 3. Başlangıç paketleri
@@ -56,6 +59,12 @@ aitse o tarafın birincil karargâhı hedef olur — fraksiyonu ne olursa olsun.
 | Yeni Antakya saldıran | **Sahra Karargâhı** (oyun soyutlaması), ikmal deposu, 1 tarla, 2 siper, aynı kuvvet, daha az nüfus |
 | Kara Kâse saldıran | 3 sunak, ön ceset höyüğü, sürü (klasik başlangıç) |
 | Kara Kâse savunan | 3 sunak (birincil ortada), höyük, iç organ yuvası, evin önünde sürü |
+| Demir Sultanlık savunan | Hisar, İstihkâmcı Ocağı, tabya, iki siper duvarı; Azeb perdesi + sınırlı Yeniçeri / Simyager |
+| Demir Sultanlık saldıran | İleri Karargâh, İstihkâmcı Ocağı, daha hafif siper duvarı; hareketli sefer kuvveti |
+
+Başlangıç paketlerindeki `quickSlot` kalıcı entity metadatasıdır: `HQ`, `A`, `B`, `C`. UI yapı türü ya da harita
+sırası tahmin etmez; `structureQuickSlots(state, side)` yalnız o SIDE'ın etiketli, yaşayan yapılarını döndürür.
+`selectStructureShortcut` yalnız selection durumunu değiştirir ve kamera nesnesi almaz.
 
 ## 4. Bölgeler, planlar, şeritler
 
@@ -88,6 +97,8 @@ aitse o tarafın birincil karargâhı hedef olur — fraksiyonu ne olursa olsun.
 ## 7. AI: doktrin + stratejik rol
 
 - **Fraksiyon doktrini** (`new_antioch_ai.js`, `black_grail_ai.js`): fraksiyon nasıl savaşır.
+- Demir Sultanlık doktrini (`iron_sultanate_ai.js`): Azeb perdesi, İstihkâmcı planı, Yeniçeri rezervi ve kontrollü
+  karşı taarruz. Her inşa / üretim / hareket normal `aiIssue → enqueueCommand` hattından geçer.
 - **Stratejik rol katmanı** (`data/ai.js STRATEGY[faction][role]`): aynı doktrin ne zaman / ne kadar
   taarruza döner. Yeni Antakya saldıran erken ve güçlü vurucu gruplar kurar, hedefe ulaşınca bir sonrakine geçer;
   Kara Kâse savunan evin önünde toplanır, kapıdaki düşmana karşılık verir, gördüğü düşmanı açıkça aşınca ya da savaş
@@ -100,18 +111,17 @@ aitse o tarafın birincil karargâhı hedef olur — fraksiyonu ne olursa olsun.
 `{ mode, playerFaction, enemyFaction, playerRole }`) → eski ayar (`playerFaction` + senaryo lore ön ayarı).
 UI yalnız bu düz veriyi üretir. Planlanan fraksiyonlar (`PLANNED_FACTIONS`) kilitli kart olarak görünür.
 
-## 9. Gelecek fraksiyon eklemek (05B / 05C)
+## 9. Yeni fraksiyon sözleşmesi
 
 Yeni bir fraksiyon için gereken **yalnızca veri + kendi modülleri**:
 `FACTIONS[id]` (kart, kaynaklar, ekonomi bayrakları), birim/yapı verisi, `PACKAGES[id].attacker|defender`,
 `STRATEGY[id]`, `factions/<id>.js` mantık modülü + `ai/<id>_ai.js` doktrini, `registry` kaydı, i18n.
-Çekirdekte `if (faction === …)` gerekmez. Açık bırakılan kancalar (uygulanmadı):
+Çekirdekte `if (faction === …)` gerekmez. Demir Sultanlık bu sözleşmenin çalışan üçüncü uygulamasıdır. Açık bırakılan kancalar:
 
-- Iron Sultanate: `scenario.features` (Iron Wall senaryo özelliği), HQ etiketi olan ileri karakol yapıları,
-  yapı katmanları için mevcut lineer yapı sistemi.
 - Heretic Legion: savaş kampı HQ'su (`hq` etiketi), yeraltı için ileride ayrı bir katman (05D; bugün kod yok).
 
 ## 10. Bilinçli olarak yapılmayanlar
 
-Iron Sultanate / Heretic Legion içeriği, Iron Wall, Grand Cannon, Heretic tankı, yeraltı/tünel/Burrower, çok
-oyunculu ağ, diplomasi. Üç ve daha fazla taraflı maç: veri modeli hazır (taraf listesi), sis katmanı sayısı 2.
+Heretic Legion, tam Demir Duvar kuşatması (kapı / merdiven / duvar üstü savaş), Grand Cannon, doğrulanmamış Salt
+Tank ve gelecek araçlar, yeraltı/tünel/Burrower, çok oyunculu ağ, diplomasi. Maç sözleşmesi bugün iki SIDE üretir;
+faction/fog kapasitesi üç oynanabilir içerik kimliğini ve ayna tarafları destekler.

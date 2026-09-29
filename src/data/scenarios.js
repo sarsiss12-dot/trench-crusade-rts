@@ -62,6 +62,27 @@ export const SCENARIOS = {
     techEra: null,
     tuning: { bgStartBiomassPerMinute: 0 },
   },
+  // Phase 05B: a local Iron Wall sector. The feature is scenario data, not a build-menu item.
+  // Full wall-top navigation, gates, ladders and siege machinery remain Phase 05C+ work.
+  iron_wall_sector: {
+    id: 'iron_wall_sector', mode: 'siege', nameKey: 'scenario.iron_wall_sector', descKey: 'scenario.iron_wall_sector.desc', map: 'antioch_outskirts',
+    mapSeed: 7331, prepSeconds: 75, warMinutes: 30, prepByLength: true,
+    setupModes: ['lore', 'free'],
+    lore: { defender: 'iron_sultanate', attacker: 'black_grail' },
+    slots: ['defender', 'attacker'],
+    roles: { defender: { region: 'south' }, attacker: { region: 'north' } },
+    objectives: [{ id: 'defenderPrimaryObjective', type: 'primary_hq', owner: 'defender' }],
+    victory: 'siege', durations: 'all',
+    features: [{
+      id: 'iron_wall_sector', kind: 'structure_group', owner: 'defender', requiresFaction: 'iron_sultanate', authored: 'south',
+      items: [
+        { type: 'iron_wall_section', x1: 112, z1: 464, x2: 144, z2: 462 },
+        { type: 'iron_wall_section', x1: 176, z1: 462, x2: 208, z2: 464 },
+      ],
+    }],
+    weather: { type: 'overcast', rain: 'auto' }, techEra: null,
+    tuning: { bgStartBiomassPerMinute: 0 },
+  },
   stress: {
     id: 'stress', mode: 'stress', nameKey: 'scenario.stress', map: 'antioch_outskirts',
     mapSeed: 7331, prepSeconds: 0, warMinutes: 30,

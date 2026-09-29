@@ -55,7 +55,11 @@ if (isMain) {
   const port = Number(args.find((a, i) => /^\d+$/.test(a) && args[i - 1] !== '--root')) || 8080;
   createStaticServer(root).listen(port, '0.0.0.0', () => {
     console.log(`Trench Crusade RTS dev server: http://localhost:${port}/  (root ${root})`);
-    for (const list of Object.values(networkInterfaces())) {
+    // Some sandboxed runtimes deny network-interface enumeration even though
+    // localhost serving works. Keep the development server available there.
+    let interfaces = {};
+    try { interfaces = networkInterfaces(); } catch { /* localhost URL above is sufficient */ }
+    for (const list of Object.values(interfaces)) {
       for (const a of list || []) if (a.family === 'IPv4' && !a.internal) console.log(`  LAN (phone): http://${a.address}:${port}/`);
     }
   });

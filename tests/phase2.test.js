@@ -44,7 +44,7 @@ test('HOME is faction-aware: living HQ first, then the next HQ, then the faction
   destroyStructure(sim, central, 'new_antioch');
   const bg2 = factionHome(sim, 'black_grail');
   assert.equal(bg2.source, 'hq');
-  assert.approx(bg2.x, 95, 0.01);
+  assert.approx(bg2.x, 122, 0.01);
   // all altars gone -> faction anchor, still on the Grail side
   for (const s of structs(sim, 'grail_altar')) destroyStructure(sim, s, 'new_antioch');
   const bg3 = factionHome(sim, 'black_grail');

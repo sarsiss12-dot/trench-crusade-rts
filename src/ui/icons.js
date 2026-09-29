@@ -119,6 +119,7 @@ export const ICONS = {
   bug: S(`<ellipse cx="12" cy="13" rx="4.5" ry="6" ${st}/><path ${st} d="M12 7 v12 M7.5 11 h-4 M20.5 11 h-4 M7.5 16 h-4 M20.5 16 h-4 M9 5 l-2 -2 M15 5 l2 -2"/>`),
   cross: S(`<path ${st} stroke-width="2.4" d="M12 3 v18 M6 8 h12"/>`),
   grail: S(`<path ${st} d="M6 4 h12 c0 6 -3 9 -6 9 s-6 -3 -6 -9 z M12 13 v5 M8 21 h8 M9 18 h6"/>`),
+  sultanate: S(`<path ${st} d="M4 20 h16 M6 20 v-9 h12 v9 M8 11 v-4 h2 v2 h4 v-2 h2 v4 M10 20 v-5 h4 v5 M12 3 v4"/>`),
 };
 
 export function icon(name, cls = '') {
@@ -132,7 +133,7 @@ export function iconForUnit(def) {
 }
 
 export function iconForStructure(id) {
-  const map = { grail_altar: 'altar', supply_depot: 'depot', field_hq: 'depot', field: 'food', observation_post: 'observation_post', ruin_house: 'garrison', ruin_chapel: 'garrison', viscera_nest: 'organic_gun', belcher_nest: 'belcher' };
+  const map = { grail_altar: 'altar', supply_depot: 'depot', field_hq: 'depot', sultanate_citadel: 'sultanate', sultanate_field_hq: 'depot', field: 'food', observation_post: 'observation_post', ruin_house: 'garrison', ruin_chapel: 'garrison', viscera_nest: 'organic_gun', belcher_nest: 'belcher' };
   if (!ICONS[map[id] || id]) return 'build';
   return map[id] || id;
 }

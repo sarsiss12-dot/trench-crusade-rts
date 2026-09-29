@@ -59,7 +59,9 @@ export function createGame(env, opts) {
     env, settings, canvas, renderer, session, sim, viewer, camera,
     selection: createSelection(),
     mode: { kind: 'normal' },
-    ui: { boxMode: false, multi: false, attackMove: false, inspect: false, menuOpen: false },
+    // Two distinct lifecycles: Area Select is consumed after one box; Multi Select stays on until
+    // the player presses its button again.
+    ui: { areaSelect: false, multiSelect: false, attackMove: false, inspect: false, menuOpen: false },
     frame: { dt: 0, visDt: 0, alpha: 1, selection: null, selectedStruct: 0, hover: null, placement: null, abilityTarget: null, debug: { paths: false }, uiScale: 1 },
     pointer: null,
     hud: null, minimap: null, audio: null, debug: null,

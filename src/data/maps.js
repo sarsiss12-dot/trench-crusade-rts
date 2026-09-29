@@ -134,6 +134,8 @@ export const MAPS = {
     pads: [
       [160, 524, 16], [100, 550, 8.7], [95, 58, 6.2], [162, 40, 6.2], [232, 62, 6.2], [160, 176, 4.4],
       [160, 62, 9], [88, 528, 6.2], [262, 502, 6.2], [160, 462, 4.4],
+      [122, 62, 6.2], [162, 50, 6.2], [202, 62, 6.2], [162, 86, 4.4],
+      [122, 524, 6.2], [162, 536, 6.2], [202, 524, 6.2], [162, 500, 4.4], [162, 478, 4.2],
     ],
     // open ground kept free of props (the classic fortress fields)
     clearings: [[50, 534, 20], [268, 536, 20]],
@@ -228,6 +230,9 @@ export const MAPS = {
     ],
     // Black Grail organic doctrine (work gangs; BUILD pipeline) — authored for the NORTH region.
     organicPlan: [
+      // Bridge-entry plague node: attacker AI prioritises it so infection advances with the army.
+      // Region reflection places the equivalent node on the south entry for a reversed side.
+      { type: 'plague_pit', x: 162, z: 224, rot: 0, frontline: true },
       { type: 'corpse_mound', x: 160, z: 200, rot: 0 },
       { type: 'fly_nest', x: 150, z: 212, rot: 0 },
       // Phase 4 organic defences covering the altar approaches
@@ -238,6 +243,15 @@ export const MAPS = {
       { type: 'corpse_mound', x: 120, z: 160, rot: 0 },
       { type: 'bone_barricade', x1: 150, z1: 222, x2: 160, z2: 222 },
       { type: 'bone_barricade', x1: 110, z1: 222, x2: 120, z2: 222 },
+    ],
+    // Iron Sultanate doctrine: a compact second belt rather than settlement/trench sprawl.
+    sultanatePlan: [
+      { type: 'sultanate_bulwark', x1: 124, z1: 468, x2: 142, z2: 466 },
+      { type: 'sultanate_bulwark', x1: 178, z1: 466, x2: 196, z2: 468 },
+      { type: 'sultanate_redoubt', x: 160, z: 454, rot: 3.141592653589793 },
+      { type: 'sapper_post', x: 126, z: 510, rot: 3.141592653589793 },
+      { type: 'sultanate_bulwark', x1: 146, z1: 452, x2: 160, z2: 451 },
+      { type: 'sultanate_bulwark', x1: 160, z1: 451, x2: 174, z2: 452 },
     ],
   },
 };

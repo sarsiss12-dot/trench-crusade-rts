@@ -102,6 +102,7 @@ function addStructure(sim, owner, sd, extra) {
   } else {
     s = createStructure(state, sd.type, owner, {
       x: sd.x, z: sd.z, rot: sd.rot || 0, built: true, objective: !!extra.objective,
+      quickSlot: sd.quickSlot,
     });
   }
   state.structures.push(s);
@@ -123,6 +124,18 @@ export function setupScenario(sim, scenario) {
     }
   }
   for (const sd of world.map.structures) addStructure(sim, sd.faction, sd, {});
+  // Scenario features are authored by ROLE, optionally gated by the faction holding that role.
+  // They are battlefield rules, never normal faction build-list entries (e.g. an Iron Wall sector).
+  for (const feature of scenario.features || []) {
+    if (!feature || feature.kind !== 'structure_group') continue;
+    const holder = state.sides.find((s) => s.role === feature.owner);
+    if (!holder || (feature.requiresFaction && holder.faction !== feature.requiresFaction)) continue;
+    const region = state.factions[holder.id].region;
+    for (const item of feature.items || []) {
+      const p = placeInRegion(world, item, feature.authored || region, region);
+      addStructure(sim, holder.id, p, {});
+    }
+  }
   for (const nd of world.map.nodes) state.nodes.push(createNode(state, nd.type, nd.x, nd.z, nd.amount));
   // bodies of older battles (low-value biomass; they never rise and never decay) — not in the
   // pure battle benchmark (stress), which stays comparable between phases

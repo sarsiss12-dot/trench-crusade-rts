@@ -315,7 +315,7 @@ test('combat Thrall: cheap per body, 10-12 to a squad, horde bonus grows but is 
     assert.less(per(t), per(u), 'thrall cheaper per body than ' + u.id);
   }
   assert.less(t.hp, UNITS.yeoman_rifle.hp, 'weak alone');
-  assert.less(t.speed, UNITS.yeoman_rifle.speed, 'slow');
+  assert.equal(t.speed, 3.35, 'Phase 05B mobility tuning; combat stats stay otherwise unchanged');
   assert.ok(t.hordeBonus.max <= 0.3 && t.hordeBonus.max > 0, 'bonus capped (not exponential)');
   // in the sim: a lone squad has no bonus; a crowd has more, but never above the cap
   const sim = makeSim();

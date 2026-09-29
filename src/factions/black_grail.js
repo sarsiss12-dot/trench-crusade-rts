@@ -31,9 +31,39 @@ import {
   plagueSides, plagueFaction, plagueImmune, isPlagueSide,
 } from './pestilence.js';
 import { enemyTarget } from '../sim/sides.js';
+import { TERRAIN } from '../data/terrain_types.js';
 
 let scratch = null;
 const PLAGUE = { kind: 'plague', infect: 0 };
+
+function infectionTerrain(sim, inf, cx, cz) {
+  const t = sim.world.terrain;
+  const x = (cx + 0.5) * inf.cs, z = (cz + 0.5) * inf.cs;
+  const tx = Math.max(0, Math.min(t.cols - 1, Math.floor(x / t.cell)));
+  const tz = Math.max(0, Math.min(t.rows - 1, Math.floor(z / t.cell)));
+  return t.types[tz * t.cols + tx];
+}
+
+function infectionPassable(sim, inf, cx, cz) {
+  const ty = infectionTerrain(sim, inf, cx, cz);
+  return ty !== TERRAIN.DEEP && ty !== TERRAIN.ROCK;
+}
+
+function bridgeCell(sim, inf, cx, cz) {
+  return infectionTerrain(sim, inf, cx, cz) === TERRAIN.BRIDGE;
+}
+
+/** A radial source may feed a cell only along connected terrain; it cannot paint the far bank. */
+function sourceConnected(sim, inf, ax, az, bx, bz) {
+  const steps = Math.max(Math.abs(bx - ax), Math.abs(bz - az));
+  if (!steps) return infectionPassable(sim, inf, ax, az);
+  for (let k = 0; k <= steps; k++) {
+    const x = Math.round(ax + ((bx - ax) * k) / steps);
+    const z = Math.round(az + ((bz - az) * k) / steps);
+    if (!infectionPassable(sim, inf, x, z)) return false;
+  }
+  return true;
+}
 
 // Fighting soldiers of this plague side feed on the dead around them; work gangs (combatUnit
 // false) do not — they haul bodies to an altar / corpse mound instead (units/orders.js).
@@ -225,6 +255,7 @@ function updateInfection(sim) {
           if (d2 > r * r) continue;
           const x = cx + dx, z = cz + dz;
           if (x < 0 || z < 0 || x >= inf.cols || z >= inf.rows) continue;
+          if (!sourceConnected(sim, inf, cx, cz, x, z)) continue;
           add[base + z * inf.cols + x] += Math.max(1, Math.round(src.rate * (1 - Math.sqrt(d2) / (r + 1))));
         }
       }
@@ -237,17 +268,35 @@ function updateInfection(sim) {
     const layer = c.plague ? sideIndex(c.plague) : firstLayer;
     if (layer >= 0 && x >= 0 && z >= 0 && x < inf.cols && z < inf.rows) add[layer * n + z * inf.cols + x] += 4;
   }
-  // spread from dense cells (the owner's layer) + decay where nothing feeds it
+  // Plague units fighting on a bridge lightly feed the cell beneath them. Structures remain the
+  // main source; this only lets the front crawl behind an advancing army.
+  for (const fid of sides) {
+    const layer = sideIndex(fid);
+    for (const sq of state.squads) {
+      if (sq.faction !== fid || !unitDef(sq.type).combatUnit || !sq.members.some((m) => m.state === 'alive')) continue;
+      const x = Math.floor(sq.cx / inf.cs), z = Math.floor(sq.cz / inf.cs);
+      if (x >= 0 && z >= 0 && x < inf.cols && z < inf.rows && bridgeCell(sim, inf, x, z)) add[layer * n + z * inf.cols + x] += 2;
+    }
+  }
+  // Terrain-aware spread. Ordinary land creep remains slow. A bridge/ford is a narrow connected
+  // propagation line: once fed above 70 it advances ~one 8 m cell per 6-10 seconds. Deep water is
+  // never a neighbour, so infection cannot teleport across the river.
   for (let z = 0; z < inf.rows; z++) {
     for (let x = 0; x < inf.cols; x++) {
       const i = z * inf.cols + x;
       const v = inf.v[i];
-      if (v > 170) {
+      const hereBridge = bridgeCell(sim, inf, x, z);
+      if (v > (hereBridge ? 70 : 170)) {
         const b = (own[i] ? own[i] - 1 : firstLayer) * n;
-        if (x > 0) add[b + i - 1] += 1;
-        if (x < inf.cols - 1) add[b + i + 1] += 1;
-        if (z > 0) add[b + i - inf.cols] += 1;
-        if (z < inf.rows - 1) add[b + i + inf.cols] += 1;
+        const feed = (nx, nz, ni) => {
+          if (!infectionPassable(sim, inf, nx, nz)) return;
+          const crossing = hereBridge || bridgeCell(sim, inf, nx, nz);
+          add[b + ni] += crossing ? 28 : 1;
+        };
+        if (x > 0) feed(x - 1, z, i - 1);
+        if (x < inf.cols - 1) feed(x + 1, z, i + 1);
+        if (z > 0) feed(x, z - 1, i - inf.cols);
+        if (z < inf.rows - 1) feed(x, z + 1, i + inf.cols);
       }
     }
   }
