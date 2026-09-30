@@ -4,6 +4,7 @@
 // (discovered heaps / sectors, bodies it has seen, animals in sight). Enemy economy never shows.
 import { STRUCTURES } from '../data/structures.js';
 import { isNodeKnownTo, isSectorKnownTo, isCorpseKnownTo, isAnimalVisibleTo, isConvoyVisibleTo } from '../sim/perception.js';
+import { economyViewItems, usesResourceSectors } from '../sim/economy_view.js';
 
 export const LENS_MAX = 80;
 
@@ -37,7 +38,7 @@ export function lensItems(sim, viewer, res) {
   }
   if (res === 'material') {
     for (const n of state.nodes) if (n.amount > 0 && isNodeKnownTo(n, viewer)) push(n.x, n.z, 'heap');
-    for (const sec of state.sectors) if ((sec.kind === 'quarry' || sec.kind === 'scrap') && isSectorKnownTo(sec, viewer)) push(sec.x, sec.z, 'sector', sec.r);
+    if (usesResourceSectors(viewer)) for (const sec of state.sectors) if ((sec.kind === 'quarry' || sec.kind === 'scrap') && isSectorKnownTo(sec, viewer)) push(sec.x, sec.z, 'sector', sec.r);
   }
   if (res === 'food') {
     for (const sec of state.sectors) if ((sec.kind === 'fertile' || sec.kind === 'pasture') && isSectorKnownTo(sec, viewer)) push(sec.x, sec.z, 'sector', sec.r);
@@ -46,6 +47,7 @@ export function lensItems(sim, viewer, res) {
     for (const c of state.convoys || []) if (c.faction === viewer && isConvoyVisibleTo(c, viewer)) push(c.x, c.z, 'depot');
   }
   if (res === 'biomass' || res === 'corpses') {
+    if (res === 'biomass') for (const it of economyViewItems(sim, viewer)) if (it.kind === 'habitat' && it.safe) push(it.x, it.z, it.kind, it.r);
     for (const c of state.corpses) {
       if (!isCorpseKnownTo(c, viewer) || c.biomass <= 0) continue;
       if (res === 'biomass' && c.infected) continue; // infected bodies are for rising, not for eating

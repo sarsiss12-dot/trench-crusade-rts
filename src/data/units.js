@@ -238,16 +238,17 @@ export const UNITS = {
     hp: 92, armor: 0.05, speed: 3.0, vision: 44, radius: 0.42,
     weapon: 'azeb_rifle', melee: 'bayonet', ammoPerSoldier: 16,
     formation: 'line', spacing: 1.65, canGarrison: true, heavy: false, corpseBiomass: 12,
-    model: 'na_yeoman', icon: 'rifle', cost: { manpower: 8, supply: 42 }, trainTime: 24,
+    model: 'is_azeb', icon: 'rifle', cost: { manpower: 8, supply: 42 }, trainTime: 24,
   },
   janissary: {
     id: 'janissary', faction: 'iron_sultanate', nameKey: 'unit.janissary', descKey: 'unit.janissary.desc',
     lore: { status: 'canon', ref: 'Janissary — elite Iron Sultanate infantry (official roster); weapon mix and squad statistics are RTS abstractions' },
     combatUnit: true, roles: ['line', 'elite', 'counterattack'], squadSize: 5,
     hp: 165, armor: 0.25, speed: 2.75, vision: 48, radius: 0.47,
-    weapon: 'janissary_rifle', melee: 'plague_blade', ammoPerSoldier: 22,
+    weapon: 'janissary_rifle', melee: 'janissary_sabre', ammoPerSoldier: 22,
     formation: 'line', spacing: 1.9, canGarrison: true, heavy: false, corpseBiomass: 15,
-    model: 'na_heavy', icon: 'guard', cost: { manpower: 5, supply: 105, material: 55 }, trainTime: 36,
+    model: 'is_janissary', icon: 'guard', cost: { manpower: 5, supply: 105, material: 55 }, trainTime: 36,
+    specCostKey: 'janissaryCost', specTrainKey: 'janissaryTrain',
   },
   sultanate_sapper: {
     id: 'sultanate_sapper', faction: 'iron_sultanate', nameKey: 'unit.sultanate_sapper', descKey: 'unit.sultanate_sapper.desc',
@@ -257,7 +258,7 @@ export const UNITS = {
     weapon: 'auto_shotgun', melee: 'entrenching_tool', ammoPerSoldier: 10,
     buildRate: 1.15, gatherRate: 1.4, carryCapacity: 8, gathers: 'salvage',
     formation: 'cluster', spacing: 1.6, canGarrison: true, heavy: false, corpseBiomass: 12,
-    model: 'na_engineer', icon: 'engineer', cost: { manpower: 5, material: 45 }, trainTime: 25,
+    model: 'is_sapper', icon: 'engineer', cost: { manpower: 5, material: 45 }, trainTime: 25,
   },
   jabirean_alchemist: {
     id: 'jabirean_alchemist', faction: 'iron_sultanate', nameKey: 'unit.jabirean_alchemist', descKey: 'unit.jabirean_alchemist.desc',
@@ -266,7 +267,8 @@ export const UNITS = {
     hp: 115, armor: 0.12, speed: 2.8, vision: 45, radius: 0.44,
     weapon: 'alchemical_projector', melee: 'trench_club', ammoPerSoldier: 12,
     formation: 'line', spacing: 1.8, canGarrison: true, heavy: false, corpseBiomass: 14,
-    model: 'na_flamer', icon: 'flame', cost: { manpower: 3, supply: 95, material: 35 }, trainTime: 31,
+    model: 'is_alchemist', icon: 'flame', cost: { manpower: 3, supply: 95, material: 35 }, trainTime: 31,
+    specCostKey: 'alchemistCost', specTrainKey: 'alchemistTrain',
   },
 };
 
@@ -278,4 +280,9 @@ export function unitDef(id) {
 
 export function hasRole(def, role) {
   return def.roles.indexOf(role) >= 0;
+}
+
+/** Runtime autonomous packs and data-defined civilians never enter direct player control. */
+export function commandable(sq) {
+  return !!sq && !sq.civ && !sq.autonomous && !unitDef(sq.type).autonomous;
 }

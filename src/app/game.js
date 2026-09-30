@@ -13,6 +13,7 @@ import { EV } from '../core/events.js';
 import { createEngineerHighlights } from '../ui/engineer_highlight.js';
 import { createControlGroups } from '../input/control_groups.js';
 import { unitDef } from '../data/units.js';
+import { sideDef } from '../data/factions.js';
 
 function homeView(sim, viewer) {
   const h = factionHome(sim, viewer);
@@ -57,7 +58,7 @@ export function createGame(env, opts) {
 
   const game = {
     env, settings, canvas, renderer, session, sim, viewer, camera,
-    selection: createSelection(),
+    selection: createSelection(sim),
     mode: { kind: 'normal' },
     // Two distinct lifecycles: Area Select is consumed after one box; Multi Select stays on until
     // the player presses its button again.
@@ -184,7 +185,7 @@ export function createGame(env, opts) {
     f.econView = !!game.ui.econView;
     f.showSectors = f.econView;
     const gm = game.mode;
-    f.nodeGlow = gm.kind === 'gather' || (gm.kind === 'area' && gm.area === 'salvage') ? 2 : f.econView || salvagerSelected() ? 1 : 0;
+    f.nodeGlow = gm.kind === 'gather' || (gm.kind === 'area' && gm.area === 'salvage') ? 2 : (f.econView && sideDef(viewer).economyView !== 'hunting') || salvagerSelected() ? 1 : 0;
     renderer.render(camera, f);
     if (game.hud) game.hud.update(dt);
     if (game.minimap) game.minimap.update(dt);

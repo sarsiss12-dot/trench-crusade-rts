@@ -6,6 +6,7 @@ import { hash32 } from '../../core/rng.js';
 import { STRUCTURE_MODELS_P2 } from './structures_p2.js';
 import { STRUCTURE_MODELS_P3 } from './structures_p3.js';
 import { STRUCTURE_MODELS_P4 } from './structures_p4.js';
+import { STRUCTURE_MODELS_SULTANATE } from './structures_sultanate.js';
 
 function rnd(seed, i) {
   return hash32(seed, i, 313) / 4294967296;
@@ -564,6 +565,7 @@ export function buildWorldStatic(world, ground) {
 }
 
 export const STRUCTURE_MODELS = {
+  ...STRUCTURE_MODELS_SULTANATE,
   bastion: (lod) => buildBastion(lod, false),
   bastion_damaged: (lod) => buildBastion(lod, true),
   depot: (lod) => buildDepot(lod),
@@ -579,4 +581,3 @@ export const STRUCTURE_MODELS = {
   // Phase 4: field gun (+ separate recoiling barrel), Viscera Cannon nest, Corruption Belcher nest
   ...STRUCTURE_MODELS_P4,
 };
-

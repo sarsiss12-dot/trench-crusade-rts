@@ -22,6 +22,9 @@ import { matchProgress, unlockedBySpec } from '../sim/specialities.js';
 import { isPointVisibleTo } from '../sim/perception.js';
 import { validatePlacement, heavyDefenseAllowed, structureCost } from '../construction/construction.js';
 import { aiIssue } from './issue.js';
+import { sanitationTarget } from '../units/sanitation.js';
+import { settlementDefenseBuild } from './settlement_defense.js';
+import { policyFor } from './doctrine.js';
 
 const RICH_VALUE = [0.75, 1, 1.35];
 const KIND_VALUE = { fertile: 1.0, pasture: 0.85, hamlet: 1.05, quarry: 0.8, scrap: 0.85, depot: 0.9 };
@@ -129,7 +132,7 @@ export function settlementTarget(sim, fid) {
   if (state.match.phase === 'PREPARATION') return POPULATION.prepSettlementCap; // 1-2 early settlements
   const byTime = 2 + Math.floor(matchProgress(state) * 5);
   const byArmy = 1 + Math.floor(armySize(state, fid) / 14);
-  return Math.max(1, Math.min(5, byTime, byArmy));
+  return Math.max(1, Math.min(5, Math.round(byTime * policyFor(state, fid).expansion), byArmy));
 }
 
 /** Best known free sector to settle (null when none is worth the risk). */
@@ -148,7 +151,7 @@ export function pickSector(sim, fid, ai) {
     if (needFood && (k === 'fertile' || k === 'pasture' || k === 'hamlet')) v += 0.45;
     if (needMat && (k === 'quarry' || k === 'scrap')) v += 0.45;
     if (needSup && (k === 'depot' || k === 'scrap')) v += 0.35;
-    const score = v * (RICH_VALUE[sec.rich] || 1) - exposure(sim, fid, sec.x, sec.z) * 2.2;
+    const score = v * (RICH_VALUE[sec.rich] || 1) - exposure(sim, fid, sec.x, sec.z) * 2.2 / policyFor(state, fid).expansion;
     if (score > bs || (score === bs && best && sec.id < best.id)) { bs = score; best = sec; }
   }
   return best;
@@ -243,10 +246,19 @@ function fortifyFor(sim, fid, ai, st) {
  */
 export function economyBuild(sim, fid, ai) {
   const { state } = sim;
+  const defense = settlementDefenseBuild(sim, fid, ai);
+  if (defense) return defense;
+  if ((state.factions[fid].resources.material || 0) < (ai.defenseReserve || 0)) return null;
   const settlements = ownSettlements(state, fid);
   // one site at a time: an unfinished settlement / economy building is the engineers' job first
   for (const s of state.structures) {
     if (s.faction === fid && !s.built && (STRUCTURES[s.type].settlement || STRUCTURES[s.type].cat === 'economy')) return null;
+  }
+  // Put a new settlement to work before founding the next one. Keeps the defence budget funded.
+  for (const st of settlements) if (st.built && !st.evac && hostilesNear(sim, fid, st.x, st.z, 60) === 0 &&
+    !state.structures.some((s) => s.faction === fid && s.host === st.id)) {
+    const item = econBuildFor(sim, fid, st);
+    if (item) return item;
   }
   if (settlements.length < settlementTarget(sim, fid) && affordable(state, fid, 'settlement', EXPAND_RESERVE)) {
     const sec = pickSector(sim, fid, ai);
@@ -322,20 +334,9 @@ export function economyUpkeep(sim, fid, ai) {
 }
 
 /** Densest known infected-body spot near own structures with no visible enemy close (or null). */
-export function sanitizeSpot(sim, fid) {
-  const { state } = sim;
-  const b = bit(fid);
-  let best = null, bn = 0;
-  for (const c of state.corpses) {
-    if (!c.infected || !(c.seenBy & b)) continue;
-    let near = false;
-    for (const s of state.structures) if (s.faction === fid && dist(s.x, s.z, c.x, c.z) < 70) { near = true; break; }
-    if (!near || hostilesNear(sim, fid, c.x, c.z, 35) > 0) continue;
-    let n = 0;
-    for (const o of state.corpses) if (o.infected && (o.seenBy & b) && dist(o.x, o.z, c.x, c.z) < 14) n++;
-    if (n > bn || (n === bn && best && c.id < best.id)) { bn = n; best = c; }
-  }
-  return best;
+export function sanitizeSpot(sim, fid, engineer) {
+  const h = engineer ? [engineer.cx, engineer.cz] : homeXZ(sim, fid);
+  return sanitationTarget(sim, fid, h[0], h[1], 90);
 }
 
 /** PURGE (Purification): a visible cluster of infected bodies / infected own soldiers. */

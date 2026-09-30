@@ -2,7 +2,7 @@
 // hidden squads, unseen structures and undiscovered resources can never be hit-tested.
 import { projectToScreen } from '../render/camera.js';
 import { STRUCTURES } from '../data/structures.js';
-import { unitDef } from '../data/units.js';
+import { unitDef, commandable } from '../data/units.js';
 import { isSquadVisibleTo, isStructureKnownTo, isNodeKnownTo, isSoldierVisibleTo } from '../sim/perception.js';
 import { isSquadAlive } from '../sim/state.js';
 import { pointSegment } from '../core/dmath.js';
@@ -22,6 +22,7 @@ export function pickSquad(sim, viewer, camera, groundFn, sx, sy, radiusPx, filte
   let best = null, bestD = radiusPx;
   for (const sq of sim.state.squads) {
     if (!isSquadVisibleTo(sq, viewer) || !isSquadAlive(sq)) continue;
+    if (sq.autonomous) continue; // do not occlude player units beneath an autonomous horde
     if (sq.civ && sq.faction === viewer) continue; // own civilians are autonomous (never commanded)
     if (filter && !filter(sq)) continue;
     const gy = groundFn(sq.cx, sq.cz);
@@ -117,7 +118,7 @@ export function boxSelect(sim, viewer, camera, groundFn, x0, y0, x1, y1) {
   const minX = Math.min(x0, x1), maxX = Math.max(x0, x1), minY = Math.min(y0, y1), maxY = Math.max(y0, y1);
   const ids = [];
   for (const sq of sim.state.squads) {
-    if (sq.faction !== viewer || !isSquadAlive(sq) || sq.civ) continue;
+    if (sq.faction !== viewer || !isSquadAlive(sq) || !commandable(sq)) continue;
     let hit = false;
     for (const m of sq.members) {
       if (!memberPresent(m)) continue;
@@ -133,7 +134,7 @@ export function boxSelect(sim, viewer, camera, groundFn, x0, y0, x1, y1) {
 export function squadsOfTypeOnScreen(sim, viewer, camera, groundFn, type) {
   const ids = [];
   for (const sq of sim.state.squads) {
-    if (sq.faction !== viewer || sq.type !== type || !isSquadAlive(sq)) continue;
+    if (sq.faction !== viewer || sq.type !== type || !isSquadAlive(sq) || !commandable(sq)) continue;
     projectToScreen(camera, sq.cx, groundFn(sq.cx, sq.cz) + 1, sq.cz, P);
     if (P[3] && P[0] >= 0 && P[0] <= camera.width && P[1] >= 0 && P[1] <= camera.height) ids.push(sq.id);
   }

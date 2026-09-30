@@ -7,6 +7,7 @@ import { rngFloat } from '../core/rng.js';
 import { CMD } from '../sim/commands.js';
 import { aiIssue } from './issue.js';
 import { baseFaction } from '../data/factions.js';
+import { doctrineProfile } from './doctrine.js';
 
 /**
  * weightsFor(tier, ids) -> { id: weight } (missing / negative = 0). One command per open tier;
@@ -21,6 +22,8 @@ export function aiPickSpeciality(sim, fid, ai, weightsFor) {
   const opts = tiers && tiers[tier];
   if (!opts || !opts.length) return null;
   const w = weightsFor(tier, opts.map((o) => o.id)) || {};
+  const doctrine = doctrineProfile(state, fid);
+  if (doctrine) for (const o of opts) w[o.id] = (w[o.id] || 0) * ((doctrine.weights && doctrine.weights[o.id]) || 1);
   let total = 0;
   for (const o of opts) total += Math.max(0, w[o.id] || 0);
   let pick = opts[0].id;

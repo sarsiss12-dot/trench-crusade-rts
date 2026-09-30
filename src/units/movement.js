@@ -108,6 +108,10 @@ function advanceAnchor(sim, sq, def) {
 function soldierTarget(sim, sq, m, def, aliveIndex, aliveTotal, offs) {
   const { rt } = sim;
   // 1. melee chase (combat sets m.targetId + sq.melee)
+  if (sq.order.t === 'storm') {
+    const gh = garrisonSteer(sim, sq, m, OFF);
+    if (gh !== undefined) return gh;
+  }
   if (sq.melee && m.targetId) {
     const esq = rt.soldierIndex.get(m.targetId);
     if (esq) {

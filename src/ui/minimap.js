@@ -10,6 +10,7 @@ import { isSquadVisibleTo, isStructureKnownTo, isNodeKnownTo, visibleCentroid, i
 import { isSquadAlive } from '../sim/state.js';
 import { viewFootprint } from '../render/camera.js';
 import { EV } from '../core/events.js';
+import { economyViewItems, usesResourceSectors } from '../sim/economy_view.js';
 
 const COL = {
   own: '#d8c48e', ownDim: '#9c8c62', enemy: '#c4402c', enemyDim: '#7a2a20', neutral: '#6c6456',
@@ -139,6 +140,7 @@ export function createMinimap(game) {
     const sx = cw / W;
     // resource sectors the faction knows (economic map: where to expand)
     for (const sec of sim.state.sectors || []) {
+      if (!usesResourceSectors(viewer)) break;
       if (!isSectorKnownTo(sec, viewer)) continue;
       toMini(sec.x, sec.z, P);
       const rr = Math.max(3 * dpr, sec.r * sx);
@@ -153,6 +155,12 @@ export function createMinimap(game) {
       ctx.globalAlpha = 1;
     }
     // structures (known)
+    if (game.ui.econView && !usesResourceSectors(viewer)) for (const it of economyViewItems(sim, viewer)) {
+      toMini(it.x, it.z, P);
+      ctx.strokeStyle = !it.safe ? '#d16b45' : it.kind === 'habitat' ? '#a6c164' : it.kind === 'fortification' ? '#66b8bc' : '#aaa278';
+      ctx.lineWidth = dpr;
+      ctx.beginPath(); ctx.arc(P[0], P[1], Math.max(2 * dpr, it.r * sx), 0, Math.PI * 2); ctx.stroke();
+    }
     const known = game.renderer.knownStructures ? game.renderer.knownStructures() : sim.state.structures.filter((s) => s.faction === viewer || s.faction === 'neutral' || isStructureKnownTo(s, viewer));
     for (const st of known) {
       const def = STRUCTURES[st.type];

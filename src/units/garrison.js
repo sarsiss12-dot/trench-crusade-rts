@@ -11,7 +11,7 @@
 // Deterministic: plain state (st.occ = squad ids, st.holder, m.gslot, m.gexit), fixed iteration.
 import { STRUCTURES } from '../data/structures.js';
 import { unitDef, hasRole } from '../data/units.js';
-import { sideBit } from '../data/factions.js';
+import { sideBit, areHostile } from '../data/factions.js';
 import { EV } from '../core/events.js';
 import { dist } from '../core/dmath.js';
 import { createStructure } from '../sim/state.js';
@@ -58,7 +58,7 @@ export function addRuinGarrisons(sim) {
 /** Squads that may hold a ruin: ranged line infantry (not heavies, crews, civilians). */
 export function canGarrison(sq) {
   const def = unitDef(sq.type);
-  if (sq.civ || !def.combatUnit || !def.weapon || hasRole(def, 'heavy')) return false;
+  if (sq.civ || sq.autonomous || !def.combatUnit || !def.weapon || hasRole(def, 'heavy')) return false;
   return true;
 }
 
@@ -96,6 +96,54 @@ export function startGarrison(sim, sq, st) {
   const e = nearestEntrance(g.entrances, sq.cx, sq.cz);
   setOrder(sim, sq, { t: 'garrison', sid: st.id, phase: 'to_door', door: g.entrances.indexOf(e) });
   requestPath(sim, sq, e.ox, e.oz);
+}
+
+export function hostileGarrison(sim, fid, st) {
+  return isGarrison(st) && !st.collapsed && areHostile(fid, st.holder) && !!visibleOccupant(sim, st, fid);
+}
+export function canStorm(sq) {
+  const d = unitDef(sq.type);
+  return !sq.civ && d.combatUnit && !!d.melee && !d.heavy;
+}
+export function startStorm(sim, sq, st) {
+  const g = garrisonGeom(sim, st);
+  if (!g || st.collapsed || !canStorm(sq)) return false;
+  const e = nearestEntrance(g.entrances, sq.cx, sq.cz);
+  setOrder(sim, sq, { t: 'storm', sid: st.id, phase: 'to_door', door: g.entrances.indexOf(e), start: sim.state.tick });
+  sq.melee = false; sq.engaged = false;
+  for (const m of sq.members) m.targetId = 0;
+  requestPath(sim, sq, e.ox, e.oz);
+  return true;
+}
+
+function stormProgress(sim, sq, st) {
+  const o = sq.order, g = st && garrisonGeom(sim, st);
+  if (!g || st.collapsed || sim.state.tick - o.start > 2400) {
+    for (const m of sq.members) { m.gslot = -1; m.gexit = st ? st.id : 0; }
+    setOrder(sim, sq, { t: 'idle' }); return;
+  }
+  if (!sq.members.some(memberUsable)) return;
+  st.contested = 1;
+  const e = g.entrances[o.door] || g.entrances[0];
+  if (!st.holder || st.holder === sq.faction) {
+    st.contested = 0;
+    if (canGarrison(sq) && st.occ.length < g.cap) startGarrison(sim, sq, st);
+    else {
+      for (const m of sq.members) { m.gslot = -1; m.gexit = st.id; }
+      setOrder(sim, sq, { t: 'move', x: e.ox, z: e.oz, am: 0 });
+    }
+    return;
+  }
+  if (o.phase === 'to_door') {
+    if (dist(sq.x, sq.z, e.ox, e.oz) < 3.5 || (sq.pathState === 'done' && dist(sq.cx, sq.cz, e.ox, e.oz) < 7)) {
+      o.phase = 'inside'; o.enterTick = sim.state.tick; clearPath(sq);
+      sq.x = g.r.x; sq.z = g.r.z;
+    } else if (sq.pathState === 'none' || sq.pathState === 'done') requestPath(sim, sq, e.ox, e.oz);
+    else if (sq.pathState === 'failed' && sim.state.tick - sq.pathReqTick > 30) {
+      if (sq.pathFails > 4) { setOrder(sim, sq, { t: 'idle' }); return; }
+      requestPath(sim, sq, e.ox, e.oz);
+    }
+  }
 }
 
 function memberUsable(m) {
@@ -144,6 +192,7 @@ export function updateGarrisons(sim) {
   for (const st of state.structures) {
     if (!st.occ) continue;
     if (!isGarrison(st)) continue;
+    st.contested = 0;
     for (let i = st.occ.length - 1; i >= 0; i--) {
       const sq = rt.squadById.get(st.occ[i]);
       const o = sq && sq.order;
@@ -155,7 +204,19 @@ export function updateGarrisons(sim) {
     st.holder = st.occ.length ? rt.squadById.get(st.occ[0]).faction : '';
   }
   for (const sq of state.squads) {
-    const o = sq.order;
+    let o = sq.order;
+    // Explicit attacks on an occupant or a hostile neutral ruin use the doorway, not its wall.
+    if (o.t !== 'storm' && canStorm(sq) && state.match.phase === 'WAR' && (state.tick + sq.id) % 10 === 0) {
+      let target = null;
+      if (o.t === 'attack') {
+        const enemy = o.tk === 'squad' ? rt.squadById.get(o.tid) : null;
+        target = o.tk === 'struct' ? rt.structById.get(o.tid) : enemy && enemy.garrison ? rt.structById.get(enemy.garrison) : null;
+      } else if (o.t === 'idle' || (o.t === 'move' && o.am)) {
+        for (const st of state.structures) if (hostileGarrison(sim, sq.faction, st) && dist(sq.cx, sq.cz, st.x, st.z) < 32) { target = st; break; }
+      }
+      if (target && hostileGarrison(sim, sq.faction, target)) { startStorm(sim, sq, target); o = sq.order; }
+    }
+    if (o.t === 'storm') { stormProgress(sim, sq, rt.structById.get(o.sid)); continue; }
     if (o.t !== 'garrison') continue;
     const st = rt.structById.get(o.sid);
     const why = st ? garrisonRefusal(sim, sq, st, false) : 'cmd.invalid_target';
@@ -215,6 +276,30 @@ export const GARRISON_STEER = { free: 0 };
  */
 export function garrisonSteer(sim, sq, m, out) {
   const o = sq.order;
+  if (o.t === 'storm' && o.phase === 'inside') {
+    const st = sim.rt.structById.get(o.sid), g = st && garrisonGeom(sim, st);
+    if (!g) return undefined;
+    const e = g.entrances[o.door] || g.entrances[0];
+    const index = sq.members.indexOf(m);
+    // Two entrants per 1.5s. Waiting members queue OUTSIDE the doorway, not against a wall.
+    if (sim.state.tick - o.enterTick < Math.floor(index / 2) * 30) {
+      out[0] = e.ox + (e.ox - e.cx) * (1 + Math.floor(index / 2));
+      out[1] = e.oz + (e.oz - e.cz) * (1 + Math.floor(index / 2)); return NaN;
+    }
+    if (!insideRuin(g.r, m.x, m.z, 0.15)) { doorStep(e, m, out, true); return NaN; }
+    m.gslot = g.slots.length; m.gexit = st.id;
+    let target = null, best = Infinity;
+    for (const id of st.occ) {
+      const q = sim.rt.squadById.get(id);
+      if (!q || !areHostile(sq.faction, q.faction)) continue;
+      for (const enemy of q.members) if (enemy.state === 'alive') {
+        const d = dist(m.x, m.z, enemy.x, enemy.z);
+        if (d < best) { best = d; target = enemy; }
+      }
+    }
+    out[0] = target ? target.x : g.r.x; out[1] = target ? target.z : g.r.z;
+    GARRISON_STEER.free = 1; return NaN;
+  }
   if (o.t === 'garrison' && o.phase === 'inside' && m.gslot >= 0) {
     const st = sim.rt.structById.get(o.sid);
     const g = st && garrisonGeom(sim, st);

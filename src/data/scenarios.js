@@ -75,9 +75,15 @@ export const SCENARIOS = {
     victory: 'siege', durations: 'all',
     features: [{
       id: 'iron_wall_sector', kind: 'structure_group', owner: 'defender', requiresFaction: 'iron_sultanate', authored: 'south',
+      // Open gate corridor is intentional. No fake wall-top navigation or functional gate.
+      sector: { gate: { x: 160, z: 458, width: 24, state: 'open', futureGate: true }, staging: [160, 488], approach: [160, 426] },
       items: [
-        { type: 'iron_wall_section', x1: 112, z1: 464, x2: 144, z2: 462 },
-        { type: 'iron_wall_section', x1: 176, z1: 462, x2: 208, z2: 464 },
+        { type: 'iron_wall_section', x1: 52, z1: 469, x2: 100, z2: 459 },
+        { type: 'iron_wall_section', x1: 100, z1: 459, x2: 148, z2: 458 },
+        { type: 'iron_wall_section', x1: 172, z1: 458, x2: 220, z2: 459 },
+        { type: 'iron_wall_section', x1: 220, z1: 459, x2: 268, z2: 469 },
+        { type: 'sultanate_redoubt', x: 139, z: 469, rot: 3.141592653589793 },
+        { type: 'sultanate_redoubt', x: 181, z: 469, rot: 3.141592653589793 },
       ],
     }],
     weather: { type: 'overcast', rain: 'auto' }, techEra: null,

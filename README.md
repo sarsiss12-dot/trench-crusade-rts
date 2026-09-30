@@ -7,7 +7,7 @@
 HTML5 + JavaScript (native ES modules) + WebGL2 + Web Audio ile yazılmış, **harici model / doku / ses dosyası
 kullanmayan** (her şey prosedürel), Android öncelikli, masaüstünde de oynanan bir kuşatma RTS'i.
 
-> **Faz 05B:** fraksiyon ≠ saldıran / savunan. Aşağıdaki "savunan / saldıran" etiketleri **Yeni Antakya Kuşatması**
+> **Faz 05C:** fraksiyon ≠ saldıran / savunan. Aşağıdaki "savunan / saldıran" etiketleri **Yeni Antakya Kuşatması**
 > lore ön ayarıdır; Maç Kurulumu'nda (Serbest Kurulum) her fraksiyon her iki rolü oynar, ayna maçlar da mümkündür.
 > Kavramlar: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -31,17 +31,26 @@ Gereksinim yok (sıfır bağımlılık). Node.js ≥ 18 yalnızca geliştirme su
 
 ```bash
 node tools/serve.js            # http://localhost:8080  (aynı ağdaki telefon için LAN adresi de yazdırılır)
-npm test                       # = node tests/run.js      — 294 Node testi
+npm test                       # = node tests/run.js      — tüm Node regresyonları
+node tests/run.js phase5a       # SIDE / ROLE / mirror regresyonları
+node tests/run.js phase5b       # köprü, quick slots ve seçim lifecycle regresyonları
+node tests/run.js phase5c       # specialty / AI / Risen / assault / hunt / sanitation
+node tests/run.js stress        # 160 / 320 / 480 asker ve sunum CPU bütçeleri
 npm run build                  # = node tools/build.js    — dist/index.html (tek dosya, çevrimdışı çalışır)
 npm run balance                # = node tools/balance.js  — AI'ya karşı AI deterministik maçlar + Faz 3 denge ölçümleri
                                #   (--seeds 1,2,…  --minutes 15  --verbose  --json çıktı.json)
 npm run matchups               # = node tools/matchups.js — Faz 05B: klasik / ters rol / ayna eşleşmeleri, AI'ya karşı AI (--setups --seeds --minutes)
-npm run test:browser           # = node tools/browser_smoke.js — (Playwright + Chromium varsa) 15 + build gerçek tarayıcı kontrolü
+npm run test:browser           # = node tools/browser_smoke.js — Playwright + Chromium gerekir
+node tools/model_preview.js    # gerçek prosedürel meshlerden CPU/SVG inceleme; tarayıcı testi değildir
 node tools/showcase.js [ad]    # (Playwright varsa) Faz 2 + Faz 3 görsel sahneleri → test-output/showcase-*.png
                                #   Faz 3: p3_settlement, p3_units, p3_flame, p3_plague, p3_hud, p3_convoy
 ```
 
 Build çıktısı `dist/index.html` tek başına çift tıklanarak (`file://`) veya herhangi bir statik sunucudan açılır.
+`dist/artifact.html` aynı oyunun gömülebilir HTML parçasıdır. Faz 05C doğrulama ayrıntıları
+[`docs/PHASE05C_REPORT.txt`](docs/PHASE05C_REPORT.txt) içindedir. Bu geliştirme ortamında Chromium eksik ve indirme
+başarısız olduğu için gerçek tarayıcı smoke **BLOCKED** durumundadır; Node HUD testleri bunun yerine başarılı
+tarayıcı testi olarak raporlanmaz.
 
 **Doğrudan başlatma (URL parametreleri):**
 `?autostart=1&faction=black_grail&minutes=30&seed=7&quality=high&prep=60` (lore ön ayarı) ·
@@ -312,6 +321,46 @@ Yeni fraksiyon **eklenmedi**; "Yeni Antakya = savunan, Kara Kâse = saldıran" v
 - **Kayıt sürümü 7:** v6 kayıtlarında sis dizileri üç katmana genişletilir ve başlangıç yapı slotları paket
   koordinatlarından göç ettirilir. v5 ve daha eski kayıtlar bütün göç zincirinden geçmeye devam eder.
 
+## 2h. Faz 05C — Sultanlık kimliği, uzmanlıklar ve özerk cephe
+
+- **Uzmanlık düğmesi düzeltildi:** üç fraksiyonun gerçek HUD → panel → seçim → `CHOOSE_SPECIALITY` → kayıt akışı
+  çalışır. Sultanlıkta eksik olan ağaç tamamlandı; boş/uygulanmamış veri paneli çökertmez. Kilit nedeni ve kart
+  açıklaması görünür; panel HUD katmanının üstündedir, kaydırılabilir ve seçim yapılana kadar açık kalır.
+- **Sultanlık uzmanlıkları:** üç kademede dokuz seçim. İstihkâm, disiplinli piyade ve simyasal destek eksenleri;
+  onarım ocağı / laboratuvar / destek bataryası açılımları, maliyet/eğitim/takviye/temizlik etkileri ve gerçek AI
+  üretim, inşa, yedek ve taarruz tercihleri. İsimler ve RTS kuralları **gameplay abstraction** olarak işaretlidir.
+- **Sultanlık yapıları:** 9 inşa seçeneği; İstihkâmcı Ocağı, Tabya, Siper Duvarı, Toplanma Ocağı, Güvenli İkmal
+  Düğümü, Saha Onarım Ocağı, Cabirî Laboratuvar, Hafif Saha Mevzisi, Destek Bataryası. Hisar ve sefer HQ'su başlangıç
+  paketlerindedir. Güvenli düğümler gelir sağlar; Sapper hurda taşır; cephane, onarım ve takviye ortak kaynakları
+  tüketir. Yeni para birimi yoktur.
+- **Sultanlık görselleri:** Azeb hafif başlık/teçhizat; Yeniçeri ağır zırh ve farklı başlık; Sapper alet/çanta;
+  Simyager çift kanister ve aparat taşır. Hisar kalın duvarlı sekizgen kapılı sınır tahkimatı olarak yeniden
+  modellendi. Hepsi koddan üretilir, harici asset yoktur; birebir resmî minyatür kopyası iddiası yoktur.
+- **Demir Duvar:** yalnız uygun savunan senaryosunda yaklaşık 194 m toplam uzunlukta dört bağlantılı kesim,
+  ağır payandalar, iki tabya ve 24 m merkezi geçit. Yaklaşım/staging/gelecek kapı metadatası var; duvar üstü
+  gezinme, kapı savaşı ve zincirleme yıkım bu fazın kapsamı dışındadır. Saldıran pakette duvar yoktur.
+- **AI katmanları:** ROLE stratejik yükümlülüğü, tohumlu doktrin tercihleri, uzmanlık maç içindeki değişimi
+  belirler. NA Fortress/Logistics/Firepower; IS Engineers/Counterguard/Alchemists; BG Horde/Pestilence/Devourers.
+  Yerleşim riskine göre %10–40 sanal malzeme rezervi ve düşman yönüne bakan savunma yayı; Sapper/engineer bütçesi,
+  destek/elit oranı, dalga büyüklüğü, rezerv, arınma ve sally eşiği uyarlanır. Bütün AI eylemleri komut hattındadır.
+- **Autonomous Risen:** enfekte ölüler en fazla 16 üyeli yakın sürü paketlerine katılır. Oyuncu seçimi, asker
+  kartları, kontrol grubu, doğrudan emir ve takviyeden dışlanırlar. Kendi görünür hedeflerini arar ve savaşırlar.
+  Sunakta satın alınan normal Grail Thrall mangaları kontrol edilebilir kalır.
+- **Bina hücumu:** nötr harabenin düşman `holder`'ı gerçek hedef sayılır. Yakın dövüş mangası kapıya yol bulur,
+  küçük gruplarla girer, iç çatışmada kayıp verir/verdirir. ÇATIŞMALI işareti ve yakın dövüş efektleri vardır;
+  uygun birlik işgal eder, işgal edemeyenler kapıdan çıkar. Risen aynı sistemi kendisi kullanır.
+- **Otomatik sanitasyon:** boş engineer yaklaşan dirilişi önce temizler; inşa/onarım veya çatışmayı bırakmaz,
+  bilinen tehdide koşmaz. Alevci yalnız yakın cephede ceset yakar; rahibin pasif arınması korunur. Manuel ALANI
+  TEMİZLE önceliklidir; AI ve oyuncu otomasyonu aynı hedef/güvenlik yardımcılarını kullanır.
+- **AUTO HUNT** kalıcı iş döngüsüdür: görünen av → keşfedilmiş habitat → avla → hasat → teslim → yeni av.
+  **SAFE HUNT** ayrı risk düğmesidir. Hayvan küçük alanı aşınca takip hemen kesilmez; 65 sn, 150 m, yol başarısızlığı
+  ve tehdit sınırları vardır. ALAN AVLA ayrıca belirli bir alan emri olarak kalır.
+- **Economy View:** BG habitat, ceset, biyokütle, enfekte zemin, kaynak ve teslim noktalarını; NA kaynak
+  sektörleri/yerleşimleri; IS ikmal/tahkimat düğümleri ve hurdayı gösterir. Hamlet bir BG kaynak noktası gibi çizilmez.
+- **Kayıt v8:** v5→v6→v7→v8 zinciri korunur; doktrin, uzmanlıklar, av düğmeleri/hafızası, Risen ve hücum durumu
+  saklanır. Eski küçük diriliş mangaları v7 yaratım sözleşmesiyle özerkleştirilir; kayıp vermiş satın alınan sürüler
+  yanlışlıkla dönüştürülmez. SIDE sahipliği, hızlı slotlar, köprü vebası ve 05B seçim davranışları korunur.
+
 ## 3. Mimari
 
 Tek kaynak ağacı, alan (domain) bazlı modüller, **döngüsel bağımlılık yok** (test ile zorunlu), dev `game.js` yok.
@@ -408,7 +457,10 @@ src/
 
 ## 5. Testler
 
-`npm test` — 294 test (Node, sıfır bağımlılık; Faz 05B: `tests/phase5b.test.js` 15 — kompakt Kara Kâse üssü,
+`npm test` — 314 test (Node, sıfır bağımlılık; Faz 05C: `tests/phase5c.test.js` 20 — gerçek HUD callback/komut
+akışı, üç fraksiyonda uzmanlık, doktrin/inşa/üretim, model sözleşmeleri, otonom Risen seçim ve emir filtreleri,
+garnizon hücumu/çıkışı, sanitasyon, av döngüsü ve ayrı düğmeler, ekonomi overlay, v7→v8 ve dokuz eşleşmede
+deterministik devam. Faz 05B: `tests/phase5b.test.js` 15 — kompakt Kara Kâse üssü,
 A/B/C + HQ kamera değişmezliği, one-shot Alan Seçimi, sticky Çoklu Seçim, arazi bağlantılı köprü vebası + purge +
 SIDE sahipliği, Demir Sultanlık eşleşme / üretim / AI / deterministik kayıt matrisi ve 480 asker stresi; Faz 05A:
 `tests/phase5a.test.js` 23 — test matrisi A–O: klasik,
@@ -436,11 +488,13 @@ dönüş, çok mangalı siper kapasitesi + kart verisi, sis filtresi (yerleşim,
 yayılması, AI yiyecek araması, determinizm (yaşayan dünya + iki AI + kayıt/yükleme), v2→v3 göçü. Düzeltilen her hata
 için bir regresyon testi eklendi.
 
-`npm run test:browser` — başsız Chromium (GPU yoksa SwiftShader) ile 15 kontrol + build mevcutsa tek dosya kontrolü:
+`npm run test:browser` — başsız Chromium (GPU yoksa SwiftShader) senaryoları; Faz 05C'de üç fraksiyon ×
+portrait/landscape dokunmatik uzmanlık, kilit açıklaması, seçim state'leri ve quick-slot kamera kontrolü eklendi:
 menü, Yeni Antakya, dikey telefonda Kara Kâse ve Demir Sultanlık, yapı hızlı seçiminde kamera değişmezliği,
 dokunmatik seç + ilerle, **GPU bağlamı kaybından dönüş**, **başlatma hatasından kurtarma paneli**, mobil maç kurulumu,
 ters rol, ayna maçlar, açık muharebe, stres 160, model galerisi ve tek dosya build'i; hiçbir konsol hatası olmamalı.
-Ekran görüntüleri `test-output/`.
+Ekran görüntüleri `test-output/`. **05C ortam sonucu: BLOCKED**, Chromium başlatılamadı. Fake DOM testleri gerçek
+HUD kodunun callback/komut akışını doğrular; CSS yerleşimini ve dokunmatik tarayıcı davranışını doğrulamaz.
 
 ## 6. Performans önlemleri
 
@@ -481,6 +535,13 @@ katmanının yeniden kurulması — Faz 1'den bilinen). Faz 3 için de gerçek c
 
 ## 7. Bilinen sınırlamalar
 
+- **Güncel Faz 05C:** Chromium kurulumu başarısız olduğu için portrait/landscape WebGL ve gerçek touch smoke
+  çalıştırılamadı. Prosedürel model geometri testleri ve CPU mesh önizlemesi kontrol edildi; GPU ekran görüntüsü
+  olarak sunulmaz. Android FPS / sürücü / fiziksel touch ölçümü yoktur.
+- Garnizon iç çatışması tek katlı harabe geometrisi, kapı akışı ve sınırlı yakın dövüş çözümüdür; ayrıntılı oda/kat
+  simülasyonu değildir. Iron Wall kapısı şu anda açık geçittir; tam kapı/merdiven/duvar üstü savaş sonraki kapsamdır.
+- Aşağıdaki eski faz denge/sunum ölçümleri **tarihsel** kayıtlardır; 05C dengesi veya tarayıcı sonucu sayılmaz.
+
 - **Faz 05A eşleşmeleri yalnızca AI'ya karşı AI ile ölçüldü, insan testi yok.** Klasik (16 tohum, aynı makinede
   Faz 04.1 kodu ile yan yana): 15 dk Yeni Antakya 8 / Kara Kâse 8 (04.1: 9 / 7); 30 dk 2 / 14 (04.1: 4 / 12) — yeni
   sektörlerin RNG tüketimi tüm maçları kaydırdığı için tohum bazında karşılaştırma yok. Ters rol (8 tohum): 15 ve 30
@@ -516,8 +577,9 @@ katmanının yeniden kurulması — Faz 1'den bilinen). Faz 3 için de gerçek c
   kodu var ama AI nadiren fırsat buluyor. Yeni Antakya AI'sı yerleşimlerin yaklaşık yarısını kaybediyor (38 kuruldu,
   17 düştü, 20 tahliye).
 - Ağ kodu yok (mimari lockstep'e hazır: deterministik sim + tick'li düz komutlar + komut günlüğü).
-- Tek harita / tek senaryo (siege). Tank, topçu birimleri, hava durumu etkileri, kampanya yok (alev takımı Faz 3'te
-  geldi). Sivil ihtiyaç yapay zekâsı, şehir yönetimi, hayvan üretme simülasyonu bilinçli olarak yok.
+- Tek fiziksel harita üzerinde kuşatma, açık muharebe ve yerel Iron Wall senaryosu vardır. Tank, hareketli topçu
+  birimleri ve kampanya yoktur; sabit topçu, yağmur/çamur ve alev takımı önceki fazlarda eklendi. Sivil ihtiyaç
+  yapay zekâsı, şehir yönetimi ve ayrıntılı hayvan yetiştirme simülasyonu bilinçli olarak yoktur.
 - Animasyonlar prosedürel (keyframe dosyası yok); yüz ve parmak ayrıntısı yok.
 - Ses ve müzik tamamen sentez; gerçek telefon hoparlöründe dinleme testi yapılmadı (frekans bandı buna göre seçildi).
 - Vahşet görselleri yalnızca yazılım rasterleyicide (SwiftShader) ekran görüntüsüyle kontrol edildi.

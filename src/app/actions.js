@@ -2,7 +2,7 @@
 // through the session (INPUT -> COMMAND -> SIMULATION). Pre-validation here only reads state
 // (same validators the simulation uses) to give instant feedback; the simulation stays the
 // authority and reports rejections as COMMAND_REJECTED events.
-import { canGarrison } from '../units/garrison.js';
+import { canGarrison, canStorm, hostileGarrison } from '../units/garrison.js';
 import { CMD } from '../sim/commands.js';
 import { unitDef } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
@@ -84,6 +84,13 @@ export function createActions(game) {
       return true;
     },
 
+    safeHunt(on) {
+      const gangs = own().filter((sq) => unitDef(sq.type).gathers === 'corpse');
+      if (!gangs.length) return false;
+      session.issue(CMD.SET_SAFE_HUNT, { squadIds: gangs.map((s) => s.id), on: on ? 1 : 0 });
+      return true;
+    },
+
     /** Positional auto reinforcement ON / OFF for the given (or selected) squads in positions. */
     autoReinforce(on, ids) {
       const squads = ids ? ids.map((id) => sim.rt.squadById.get(id)).filter(Boolean) : own();
@@ -159,6 +166,12 @@ export function createActions(game) {
 
     /** Occupy a ruin garrison with the selected line squads (nearest entrance, then slots). */
     garrison(st) {
+      if (hostileGarrison(sim, game.viewer, st)) {
+        const assault = own().filter(canStorm);
+        if (!assault.length) return false;
+        session.issue(CMD.ATTACK, { squadIds: assault.map((s) => s.id), tk: 'struct', tid: st.id });
+        feedback('attack', st.x, st.z); return true;
+      }
       const squads = own().filter((sq) => canGarrison(sq));
       if (!squads.length) return false;
       session.issue(CMD.GARRISON, { squadIds: squads.map((s) => s.id), sid: st.id });

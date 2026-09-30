@@ -81,6 +81,7 @@ export function pickSource(sim, sq) {
 
 /** Validate + register a reinforcement request. Returns null or a reject reason key. */
 export function requestReinforcement(sim, sq, auto = false) {
+  if (sq.autonomous || sq.civ) return 'reinf.not_available';
   const conf = sideDef(sq.faction).reinforcements;
   if (!conf) return 'reinf.not_available';
   if (!unitDef(sq.type).combatUnit && !unitDef(sq.type).reinforceable) return 'reinf.not_available';

@@ -34,6 +34,8 @@ import {
 } from './new_antioch_econ.js';
 import { isLull } from '../sim/lull.js';
 import { canGarrison } from '../units/garrison.js';
+import { policyFor, aggressionScore } from './doctrine.js';
+import { settlementDefenseBuild, settlementRisk } from './settlement_defense.js';
 
 function squadsOf(sim, fid) {
   return sim.state.squads.filter((sq) => sq.faction === fid && sq.members.some((m) => m.state === 'alive' || m.state === 'joining'));
@@ -100,10 +102,11 @@ export const newAntiochAI = {
     const { state } = sim;
     let infected = 0;
     for (const sq of state.squads) if (sq.faction === fid) for (const m of sq.members) if (m.state === 'alive' && m.infection > 0) infected++;
+    for (const c of state.corpses) if (c.infected && (c.seenBy & sideBit(fid))) infected += c.riseAt ? 3 : 1;
     const settl = ownSettlements(state, fid).length;
     if (tier === 0) return { na_fortification: 4, na_logistics: 3.5, na_faith: 2.5 + (infected > 3 ? 2 : 0) };
     if (tier === 1) return settl >= 2 ? { na_fortified_settlements: 5, na_artillery: 3, na_mechanised: 2 } : { na_artillery: 4.5, na_mechanised: 3.5, na_fortified_settlements: 2 };
-    return { na_purification: 3 + (infected > 4 ? 4 : 0), na_elite: 3.5, na_adv_logistics: 3.5 };
+    return { na_purification: 3 + (infected > 4 ? 18 : 0), na_elite: 3.5, na_adv_logistics: 3.5 };
   },
 
   engineers(sim, fid, ai, squads) {
@@ -140,10 +143,10 @@ export const newAntiochAI = {
         }
       }
       // 1b) infected dead near our lines: burn them before they rise (one crew at a time)
-      if (state.match.phase === 'WAR' && state.tick - ai.lastSanitize > 20 * 12 && (f.resources.supply || 0) > 60 && o.t !== 'sanitize') {
+      if (state.match.phase === 'WAR' && state.tick - ai.lastSanitize > 20 * 12 / policyFor(state, fid).sanitation && (f.resources.supply || 0) > 20 && o.t !== 'sanitize') {
         let sanitizing = false;
         for (const x of engineers) if (x.order.t === 'sanitize') sanitizing = true;
-        const spot = sanitizing ? null : sanitizeSpot(sim, fid);
+        const spot = sanitizing ? null : sanitizeSpot(sim, fid, e);
         ai.lastSanitize = state.tick;
         if (spot) { aiIssue(sim, { type: CMD.SANITIZE, faction: fid, squadIds: [e.id], x: spot.x, z: spot.z }); continue; }
       }
@@ -181,6 +184,10 @@ export const newAntiochAI = {
       }
       // 3) economy and the defence plan take turns (the first settlement goes up early in the
       //    preparation, right after the first line of trenches)
+      if (!placedEco) {
+        const defense = settlementDefenseBuild(sim, fid, ai);
+        if (defense) { aiIssue(sim, { type: CMD.BUILD, faction: fid, squadIds: [e.id], ...defense }); placedEco = true; continue; }
+      }
       const plan = planFor(sim, fid, 'fortify');
       let planLeft = 0, planDoneN = 0;
       for (const item of plan) { if (planDone(sim, fid, item)) planDoneN++; else planLeft++; }
@@ -315,7 +322,8 @@ export const newAntiochAI = {
    */
   placeElites(sim, fid, ai, squads) {
     const { state } = sim;
-    if ((state.tick + 13) % 40 !== 0) return;
+    if (state.tick - (ai.eliteCheck || -10000) < 40) return;
+    ai.eliteCheck = state.tick;
     const bastion = homeStructure(state, fid);
     const fw = sideForward(sim, fid);
     const face = sideFacing(sim, fid);
@@ -349,15 +357,16 @@ export const newAntiochAI = {
       const st = rt.structById.get(ai.guards[id]);
       if (!sq || !st || st.hp <= 0 || !sq.members.some((m) => m.state === 'alive')) delete ai.guards[id];
     }
-    const guarded = new Set(Object.values(ai.guards));
+    const guarded = new Map();
+    for (const id of Object.values(ai.guards)) guarded.set(id, (guarded.get(id) || 0) + 1);
     const want = ownSettlements(state, fid)
-      .filter((st) => st.built && !guarded.has(st.id) && exposure(sim, fid, st.x, st.z) > 0.22)
-      .sort((a, b) => exposure(sim, fid, b.x, b.z) - exposure(sim, fid, a.x, a.z) || a.id - b.id);
+      .filter((st) => st.built && (guarded.get(st.id) || 0) < settlementRisk(sim, fid, st, ai).guardSquads)
+      .sort((a, b) => settlementRisk(sim, fid, b, ai).score - settlementRisk(sim, fid, a, ai).score || a.id - b.id);
     if (!want.length) return;
     const spare = squads.filter((sq) => {
       const d = unitDef(sq.type);
       return d.combatUnit && d.canGarrison && !d.heavy && !d.aura && !ai.guards[sq.id] && ai.reserveIds.indexOf(sq.id) < 0 &&
-        sq.order.t === 'idle' && !sq.engaged && state.tick - sq.spawnTick > 20 * 8;
+        (sq.order.t === 'idle' || sq.order.t === 'hold_trench') && !sq.engaged && state.tick - sq.spawnTick > 20 * 8;
     });
     for (const st of want) {
       const sq = spare.shift();
@@ -374,6 +383,8 @@ export const newAntiochAI = {
     const bit = sideBit(fid);
     // heavies are the reserve
     ai.reserveIds = squads.filter((sq) => unitDef(sq.type).heavy).map((sq) => sq.id);
+    const wantReserve = Math.ceil(2 * policyFor(state, fid).reserve);
+    for (const q of squads) if (ai.reserveIds.length < wantReserve && unitDef(q.type).combatUnit && !unitDef(q.type).aura && !ai.guards[q.id] && ai.reserveIds.indexOf(q.id) < 0 && q.order.t === 'idle') ai.reserveIds.push(q.id);
     const objective = homeStructure(state, fid);
     if (!objective) return;
     // threat: nearest visible hostile squad close to the line/objective
@@ -432,7 +443,10 @@ export const newAntiochAI = {
     const face = sideFacing(sim, fid);
     // STRATEGIC ROLE layer (data/ai.js): the defender strikes out late and small, the attacker
     // early and in force — same doctrine, same pipeline
-    const S = strategyFor(baseFaction(fid), state.factions[fid].role);
+    const P = policyFor(state, fid), base = strategyFor(baseFaction(fid), state.factions[fid].role);
+    const S = { ...base, group: Math.max(2, Math.min(base.pressOn ? 12 : base.group, Math.round(base.group * P.wave))), firstStrikeMin: base.firstStrikeMin * P.cadence, cooldownMin: base.cooldownMin * P.cadence };
+    const aggression = aggressionScore(sim, fid, ai);
+    if (aggression >= 2.25) S.firstStrikeMin = Math.min(S.firstStrikeMin, base.firstStrikeMin);
     if (ai.caNext === undefined) ai.caNext = state.match.prepEndTick + Math.round(20 * 60 * S.firstStrikeMin);
     // walls threatened? (any visible hostile fighting squad close to the objective)
     let threat = false;
@@ -466,7 +480,7 @@ export const newAntiochAI = {
       if (idle.length && target) aiIssue(sim, { type: CMD.ATTACK, faction: fid, squadIds: idle.map((q) => q.id), tk: 'struct', tid: target.id });
       return;
     }
-    if (threat || state.tick < ai.caNext) return;
+    if (threat || state.tick < ai.caNext || aggression < (state.factions[fid].role === 'attacker' ? 0.8 : 1.25)) return;
     // strength check: the line must stay manned
     const combat = squads.filter((q) => unitDef(q.type).combatUnit && alive(q) > 0);
     if (combat.length < S.minCombat) return;
@@ -547,7 +561,8 @@ export const newAntiochAI = {
     const engineers = squads.filter((sq) => hasRole(unitDef(sq.type), 'builder')).length;
     const heavies = squads.filter((sq) => unitDef(sq.type).heavy).length;
     const r = f.resources;
-    const artilleryReserve = 60;
+    const P = policyFor(state, fid);
+    const artilleryReserve = Math.round(60 * P.artillery);
     const can = (type, reserve = artilleryReserve) => {
       const u = UNITS[type];
       if (!unlockedBySpec(state, fid, u)) return false;
@@ -571,12 +586,12 @@ export const newAntiochAI = {
     const wantLt = lineSquads >= 3 ? Math.max(1, Math.floor(lineSquads / 5)) : 0;
     const wantCleric = lineSquads >= 3 ? (infectedDead >= 6 ? 2 : 1) : 0;
     let unit = null;
-    if (engineers < (settlements >= 2 ? 3 : 2) && r.manpower >= 5 && r.material >= 40) unit = 'combat_engineer';
-    else if (heavies < 2 && can('mech_heavy')) unit = 'mech_heavy';
+    if (engineers < Math.min(5, Math.ceil((settlements >= 2 ? 3 : 2) * P.engineers)) && r.manpower >= 5 && r.material >= 40) unit = 'combat_engineer';
+    else if (heavies < Math.ceil(2 * P.elite) && can('mech_heavy') && r.material > (ai.defenseReserve || 0) + 60) unit = 'mech_heavy';
     else if (count('trench_cleric') < wantCleric && can('trench_cleric')) unit = 'trench_cleric';
     else if (count('na_lieutenant') < wantLt && can('na_lieutenant')) unit = 'na_lieutenant';
     else if (count('sniper_priest') < 1 && lineSquads >= 6 && can('sniper_priest')) unit = 'sniper_priest';
-    else if (count('combat_medic') < 1 && matchProgress(state) > 0.08 && can('combat_medic')) unit = 'combat_medic';
+    else if (count('combat_medic') < Math.ceil(P.support) && matchProgress(state) > 0.08 && can('combat_medic')) unit = 'combat_medic';
     else if (count('shock_flamer') < (specHas(state, fid, 'na_purification') ? 2 : 1) && (horde >= 24 || infectedDead >= 4) && can('shock_flamer')) unit = 'shock_flamer';
     else if (r.manpower >= 8 && r.supply >= 50 + artilleryReserve) unit = 'yeoman_rifle';
     if (!unit) return;
@@ -596,7 +611,7 @@ export const newAntiochAI = {
     if (state.tick - ai.lastArtillery < 40) return;
     ai.lastArtillery = state.tick;
     const bit = sideBit(fid);
-    let best = null, bestN = 11;
+    let best = null, bestN = Math.max(5, Math.round(11 / policyFor(state, fid).artillery));
     for (const e of state.squads) {
       if (!areHostile(fid, e.faction) || !(e.visibleTo & bit)) continue;
       // danger-close check: never shell our own squads

@@ -89,7 +89,7 @@ export function createHud(game) {
 
   // ------------------------------------------------------------------ quick stack (right)
   const quick = el('div.quick');
-  const qAll = button('q', icon('all') + `<i>${t('hud.all')}</i>`, () => selectIds(allCombatSquadIds(sim, viewer)), t('hud.all'));
+  const qAll = button('q all-military', icon('all') + `<i>${t('hud.all')}</i>`, () => selectIds(allCombatSquadIds(sim, viewer)), t('hud.all'));
   const bg = isOrganic(viewer);
   const qEng = fdef.buildList.length ? button('q', icon(bg ? 'gang' : 'engineer') + `<i>${t(bg ? 'hud.gangs' : 'hud.engineers')}</i>`, () => selectIds(squadIdsWithRole(sim, viewer, 'builder')), t(bg ? 'hud.gangs' : 'hud.engineers')) : null;
   // box / multi-select modes carry a label and an explicit ON state (Phase 4: the old multi-select

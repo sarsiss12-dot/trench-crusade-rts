@@ -330,7 +330,7 @@ export function updateConstruction(sim) {
     } else if (w.repair && s.hp < s.maxHp) {
       const f = state.factions[s.faction] || state.factions[w.faction]; // a neutral ruin: the repairing side pays
       if (s.collapsed) continue;
-      const hp = Math.min(s.maxHp - s.hp, eff * 14);
+      const hp = Math.min(s.maxHp - s.hp, eff * 14 * specValue(state, w.faction, 'repairSpeed', 1));
       const cost = hp * 0.05;
       if ((f.resources.material || 0) >= cost) {
         f.resources.material -= cost;

@@ -2,7 +2,7 @@
 // Commands never hold DOM/WebGL objects, functions or class instances. Every command carries
 // the issuing faction; the simulation validates ownership, phase, costs and targets.
 import { EV } from '../core/events.js';
-import { unitDef, hasRole } from '../data/units.js';
+import { unitDef, hasRole, commandable } from '../data/units.js';
 import { STRUCTURES } from '../data/structures.js';
 import { areHostile, sideDef, sideBit } from '../data/factions.js';
 import { dist, headingOf, rotateOffset, clamp, wrapAngle } from '../core/dmath.js';
@@ -14,7 +14,7 @@ import { canTrain, queueTraining, cancelTraining } from './production.js';
 import { validateAbility, castAbility } from './abilities.js';
 import { requestReinforcement, positionOf, trackPosition } from '../factions/reinforcement.js';
 import { pickBuilder, assignSite, startSanitize } from '../units/engineers.js';
-import { isGarrison, canGarrison, garrisonGeom, garrisonRefusal, startGarrison } from '../units/garrison.js';
+import { isGarrison, canGarrison, garrisonGeom, garrisonRefusal, startGarrison, hostileGarrison, startStorm, canStorm } from '../units/garrison.js';
 import { validateSpec, chooseSpec, specValue } from './specialities.js';
 import { evacuateSettlement } from '../factions/civilians.js';
 import { slaughterPen, pennedCount } from './wildlife.js';
@@ -37,6 +37,7 @@ export const CMD = Object.freeze({
   ENTER_TRENCH: 'ENTER_TRENCH',
   REINFORCE: 'REINFORCE',
   SET_AUTO_HUNT: 'SET_AUTO_HUNT', // { squadIds, on: 0 | 1 } work gangs: automatic SAFE hunting when idle
+  SET_SAFE_HUNT: 'SET_SAFE_HUNT', // independent risk preference; does not enable/disable AUTO HUNT
   SET_AUTO_REINFORCE: 'SET_AUTO_REINFORCE', // { squadIds, on: 0 | 1 } positional auto reinforcement of squads IN a position
   // Phase 3
   EVACUATE: 'EVACUATE', // { sid } settlement
@@ -82,7 +83,7 @@ function ownSquads(sim, cmd) {
   for (const id of cmd.squadIds) {
     const sq = sim.rt.squadById.get(id);
     // civilians are autonomous: they are never commanded directly
-    if (sq && sq.faction === cmd.faction && !unitDef(sq.type).autonomous && sq.members.some((m) => m.state === 'alive' || m.state === 'joining' || m.state === 'rising')) res.push(sq);
+    if (commandable(sq) && sq.faction === cmd.faction && sq.members.some((m) => m.state === 'alive' || m.state === 'joining' || m.state === 'rising')) res.push(sq);
   }
   return res;
 }
@@ -194,10 +195,13 @@ export function applyCommand(sim, cmd) {
         if (!tgt || !areHostile(cmd.faction, tgt.faction) || !(tgt.visibleTo & bit)) return reject(sim, cmd, 'cmd.invalid_target');
       } else if (cmd.tk === 'struct') {
         tgt = rt.structById.get(cmd.tid);
-        if (!tgt || !areHostile(cmd.faction, tgt.faction) || !((tgt.visibleTo | tgt.seenBy) & bit)) return reject(sim, cmd, 'cmd.invalid_target');
+        if (!tgt || !(areHostile(cmd.faction, tgt.faction) || hostileGarrison(sim, cmd.faction, tgt)) || !((tgt.visibleTo | tgt.seenBy) & bit)) return reject(sim, cmd, 'cmd.invalid_target');
       } else return reject(sim, cmd, 'cmd.invalid_target');
       const lx = cmd.tk === 'squad' ? tgt.cx : tgt.x, lz = cmd.tk === 'squad' ? tgt.cz : tgt.z;
-      for (const sq of squads) setOrder(sim, sq, { t: 'attack', tk: cmd.tk, tid: cmd.tid, lx, lz });
+      for (const sq of squads) {
+        if (cmd.tk === 'struct' && hostileGarrison(sim, cmd.faction, tgt) && canStorm(sq)) startStorm(sim, sq, tgt);
+        else setOrder(sim, sq, { t: 'attack', tk: cmd.tk, tid: cmd.tid, lx, lz });
+      }
       ack(sim, cmd, squads, tgt.x, tgt.z, { tk: cmd.tk, tid: cmd.tid });
       return { ok: true };
     }
@@ -343,7 +347,13 @@ export function applyCommand(sim, cmd) {
     case CMD.SET_AUTO_HUNT: {
       const gangs = ownSquads(sim, cmd).filter((sq) => unitDef(sq.type).gathers === 'corpse');
       if (!gangs.length) return reject(sim, cmd, 'cmd.no_gatherers');
-      for (const sq of gangs) { sq.autoHunt = cmd.on ? 1 : 0; if (!cmd.on && sq.order.t === 'gather' && sq.order.auto) sq.order = { t: 'idle' }; }
+      for (const sq of gangs) { sq.autoHunt = cmd.on ? 1 : 0; if (!cmd.on && sq.order.t === 'gather' && sq.order.auto) setOrder(sim, sq, { t: 'idle' }); }
+      return { ok: true };
+    }
+    case CMD.SET_SAFE_HUNT: {
+      const gangs = ownSquads(sim, cmd).filter((sq) => unitDef(sq.type).gathers === 'corpse');
+      if (!gangs.length) return reject(sim, cmd, 'cmd.no_gatherers');
+      for (const sq of gangs) sq.safeHunt = cmd.on ? 1 : 0;
       return { ok: true };
     }
     case CMD.SET_AUTO_REINFORCE: {
@@ -392,7 +402,8 @@ export function applyCommand(sim, cmd) {
       const gangs = ownSquads(sim, cmd).filter((sq) => unitDef(sq.type).gathers === 'corpse');
       if (!gangs.length) return reject(sim, cmd, 'cmd.no_gatherers');
       const r = FORAGE_R * specValue(state, cmd.faction, 'forageRadius', 1);
-      for (const sq of gangs) setOrder(sim, sq, { t: 'gather', mode: 'forage', fx: cmd.x, fz: cmd.z, fr: r, phase: 'seek', cid: 0, aid: 0 });
+      for (const sq of gangs) setOrder(sim, sq, { t: 'gather', mode: 'forage', fx: cmd.x, fz: cmd.z, fr: r,
+        phase: cmd.auto && dist(sq.cx, sq.cz, cmd.x, cmd.z) > r / 2 ? 'travel' : 'seek', cid: 0, aid: 0, auto: cmd.auto ? 1 : 0 });
       ack(sim, cmd, gangs, cmd.x, cmd.z, { forage: 1, r });
       return { ok: true };
     }
@@ -482,4 +493,3 @@ export function applyCommand(sim, cmd) {
       return reject(sim, cmd, 'cmd.invalid');
   }
 }
-

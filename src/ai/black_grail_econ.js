@@ -13,6 +13,7 @@ import { SPECIES } from '../data/animals.js';
 import { areHostile, sideBit, sideIndex } from '../data/factions.js';
 import { dist } from '../core/dmath.js';
 import { isExploredAt } from '../world/fog.js';
+import { forageSpot as sharedForageSpot, habitatSpot as sharedHabitatSpot } from '../units/hunt_targets.js';
 
 export const FORAGE_RANGE = 240; // how far a gang goes for animals (it still has to haul back)
 export const HAUL_RANGE = 380;
@@ -39,31 +40,7 @@ export function visibleHostiles(sim, fid, x, z, r) {
 
 /** Where a work gang should forage now: { x, z, kind } or null. */
 export function forageSpot(sim, fid, gang) {
-  const { state } = sim;
-  const b = bit(fid);
-  let best = null, bs = Infinity;
-  for (const a of state.animals) {
-    if (!(a.visibleTo & b)) continue;
-    const d = dist(gang.cx, gang.cz, a.x, a.z);
-    if (d > FORAGE_RANGE) continue;
-    const s = d - SPECIES[a.sp].biomass * 6;
-    if (s >= bs || visibleHostiles(sim, fid, a.x, a.z, 40) > 0) continue;
-    bs = s; best = { x: a.x, z: a.z, kind: 'animal' };
-  }
-  let own = null;
-  for (const c of state.corpses) {
-    if (c.infected || c.riseAt || c.biomass <= 0.5 || !(c.seenBy & b)) continue;
-    const d = dist(gang.cx, gang.cz, c.x, c.z);
-    if (d > HAUL_RANGE) continue;
-    const s = d - c.biomass * 2;
-    if (s >= bs) continue;
-    if (!own) own = state.squads.filter((q) => q.faction === fid && unitDef(q.type).combatUnit);
-    let covered = !!c.old || !!c.sp; // old battlefield dead / carcasses lie in open country
-    if (!covered) for (const q of own) if (dist(q.cx, q.cz, c.x, c.z) < 45) { covered = true; break; }
-    if (!covered || visibleHostiles(sim, fid, c.x, c.z, 45) > 0) continue;
-    bs = s; best = { x: c.x, z: c.z, kind: 'corpse' };
-  }
-  return best;
+  return sharedForageSpot(sim, fid, gang);
 }
 
 /**
@@ -72,18 +49,7 @@ export function forageSpot(sim, fid, gang) {
  * habitat id -> tick). The FORAGE order then hunts whatever the gang itself finds there.
  */
 export function habitatSpot(sim, fid, gang, memo) {
-  const { state, world } = sim;
-  const fIdx = sideIndex(fid);
-  let best = null, bd = Infinity;
-  for (const h of world.habitats || []) {
-    if ((memo[h.id] || 0) > state.tick) continue;
-    if (!isExploredAt(state.fog, fIdx, h.x, h.z)) continue;
-    const d = dist(gang.cx, gang.cz, h.x, h.z);
-    if (d > FORAGE_RANGE) continue;
-    if (visibleHostiles(sim, fid, h.x, h.z, 50) > 0) continue;
-    if (d < bd || (d === bd && best && h.id < best.id)) { bd = d; best = h; }
-  }
-  return best;
+  return sharedHabitatSpot(sim, fid, gang, memo);
 }
 
 const RAID_VALUE = { settlement: 70, livestock_pen: 45, farm: 35, quarry: 30, supply_depot: 55 };

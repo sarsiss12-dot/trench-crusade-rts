@@ -256,7 +256,7 @@ test('05B Iron Wall is a gated scenario feature with future segment metadata, no
   assert.ok(sc.features.some((f) => f.requiresFaction === IS));
   assert.ok(STRUCTURES.iron_wall_section.scenarioFeature.gateReady && STRUCTURES.iron_wall_section.scenarioFeature.destructible);
   const lore = createSimulation({ scenarioId: 'iron_wall_sector', seed: 2, settings: { prepSeconds: 0, controllers: { [IS]: 'player', [BG]: 'player' } } });
-  assert.equal(lore.state.structures.filter((s) => s.type === 'iron_wall_section' && s.faction === IS).length, 2);
+  assert.equal(lore.state.structures.filter((s) => s.type === 'iron_wall_section' && s.faction === IS).length, 4); // 05C: connected local sector, two wings.
   const free = makeMatch(NA, IS);
   assert.equal(free.state.structures.filter((s) => s.type === 'iron_wall_section').length, 0, 'IS attacker has no Iron Wall');
   finiteTree(lore.state);

@@ -8,6 +8,7 @@ import { planDeath, createLimbPool, stepLimb, CHAINS, GORE_QUALITY } from './gor
 import { INFECTION_MAX } from '../sim/constants.js';
 import { UNIT_MODELS } from './models/humans.js';
 import { UNIT_MODELS_P3 } from './models/humans_p3.js';
+import { UNIT_MODELS_SULTANATE } from './models/humans_sultanate.js';
 import { ANIMAL_MODELS } from './models/animals.js';
 import { SPECIES } from '../data/animals.js';
 import { UNITS } from '../data/units.js';
@@ -75,7 +76,7 @@ function newVisual(id, modelId, model, seed) {
   };
 }
 
-const ALL_MODELS = { ...UNIT_MODELS, ...UNIT_MODELS_P3, ...ANIMAL_MODELS };
+const ALL_MODELS = { ...UNIT_MODELS, ...UNIT_MODELS_P3, ...UNIT_MODELS_SULTANATE, ...ANIMAL_MODELS };
 const CIV_MODELS = ['na_civilian', 'na_civilian_b', 'na_civilian_c', 'na_civilian_d'];
 const NEUTRAL_ACCENT = [0.32, 0.29, 0.24];
 

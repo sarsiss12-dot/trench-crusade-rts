@@ -180,7 +180,23 @@ export function buildBoneBarricade(mb, s, ground) {
   }
 }
 
+// A visible slice of a massive frontier: 8m high, 5m thick, connected buttressed segments.
+export function buildIronWall(mb, s, ground) {
+  const f = frame(s), n = Math.max(1, Math.ceil(f.len / 6));
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n, x = s.x1 + f.dx * t, z = s.z1 + f.dz * t;
+    const h = keep(s, i) ? 8 : 4.5;
+    mb.push(x, ground(x, z), z, 0, f.yaw, 0);
+    mb.col([0.22, 0.25, 0.23], MAT.STONE).push(0, h / 2, 0).box(5, h, f.len / n + 0.08, { taper: [0.84, 1] }).pop();
+    mb.col(C.steelDark, MAT.DARKMETAL).push(0, h * 0.58, 0).box(5.1, 0.6, f.len / n + 0.08).pop();
+    mb.col(C.stoneDark, MAT.STONE).push(0, h / 2, -f.len / n / 2).box(6.2, h + 1.5, 1.1, { taper: [0.8, 1] }).pop();
+    for (const dz of [-1.5, 1.5]) mb.push(f.nx ? 1.8 : -1.8, h + 0.5, dz).box(0.9, 1, 1.4).pop();
+    mb.pop();
+  }
+}
+
 export const WALL_BUILDERS = {
+  iron_wall_section: buildIronWall,
   low_sandbags: buildLowSandbags,
   breastwork: buildBreastwork,
   timber_wall: buildTimberWall,

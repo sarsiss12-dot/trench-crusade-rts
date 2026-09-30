@@ -59,6 +59,7 @@ function hasAlive(sq) {
 function acquireTarget(sim, sq) {
   const { state, rt } = sim;
   const def = unitDef(sq.type);
+  if (sq.order.t === 'storm') { sq.target = null; sq.engaged = false; sq.melee = false; return; }
   if (!hasAlive(sq)) { sq.target = null; sq.engaged = false; sq.melee = false; return; }
   const myBit = fbit(sq.faction);
   const ranged = def.weapon ? WEAPONS[def.weapon] : null;
@@ -875,7 +876,7 @@ export function updateCombat(sim) {
   }
   if (state.tick % 10 === 0) updateStatus(sim);
   if (state.match.phase !== 'WAR') return; // PREPARATION: no attacks, no damage
-  for (const sq of state.squads) squadFire(sim, sq);
+  for (const sq of state.squads) if (sq.order.t !== 'storm') squadFire(sim, sq);
   for (const st of state.structures) {
     if (!st.built) continue;
     const d = STRUCTURES[st.type];

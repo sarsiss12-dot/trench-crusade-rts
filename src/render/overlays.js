@@ -12,6 +12,7 @@ import { sideDef, isPlagueImmune } from '../data/factions.js';
 import { exitPoint } from '../sim/production.js';
 import { TICK_RATE } from '../sim/constants.js';
 import { createRangeViz } from './range_viz.js';
+import { economyViewItems, usesResourceSectors } from '../sim/economy_view.js';
 
 const DS = { DOT: 0, RING: 1, MARKER: 5, ATTACK: 7, AREA: 8, BOX: 9 };
 const MAX_MARKS = 1600;
@@ -37,6 +38,7 @@ const SHELTER_COL = [0.95, 0.7, 0.3];
 const HERD_COL = [0.7, 0.62, 0.42];
 const ENG_COL = [1.0, 0.82, 0.4];
 const LENS_COL = {
+  habitat: [0.55, 0.75, 0.28], dropoff: [0.75, 0.8, 0.55], plague: [0.65, 0.35, 0.65], infection: [0.45, 0.63, 0.22], fortification: [0.35, 0.72, 0.78],
   depot: [0.98, 0.82, 0.4], heap: [0.8, 0.74, 0.6], sector: [0.66, 0.65, 0.55], settlement: [0.9, 0.72, 0.46],
   field: [0.62, 0.72, 0.3], altar: [0.62, 0.78, 0.25], mound: [0.72, 0.6, 0.4], corpse: [0.62, 0.86, 0.4], animal: [0.8, 0.62, 0.4],
 };
@@ -177,7 +179,7 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     const econPlacing = !!(pdef && (pdef.requiresSector || pdef.requiresSettlement || pdef.requiresSectorKind));
     const settlementSel = !!(sst && STRUCTURES[sst.type] && STRUCTURES[sst.type].settlement);
     const prepEcon = state.match.phase === 'PREPARATION' && sideDef(viewer) && sideDef(viewer).population;
-    if (econPlacing || settlementSel || prepEcon || frame.showSectors) {
+    if (usesResourceSectors(viewer) && (econPlacing || settlementSel || prepEcon || frame.showSectors)) {
       for (const sec of state.sectors || []) {
         if (!isSectorKnownTo(sec, viewer)) continue;
         const col = SECTOR_COL[sec.kind] || OWN_RING;
@@ -227,6 +229,10 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
     }
     // ECONOMY VIEW: drop-off hubs and every own settlement's working reach
     if (frame.econView) {
+      if (!usesResourceSectors(viewer)) for (const it of economyViewItems(sim, viewer)) {
+        const c = it.safe ? LENS_COL[it.kind] || HUB_COL : ALARM_COL;
+        mark(it.x, it.z, ground(it.x, it.z), Math.max(1.2, it.r), 0, c[0], c[1], c[2], 0.5, it.kind === 'habitat' ? DS.AREA : DS.RING);
+      }
       for (const st of state.structures) {
         if (st.faction !== viewer || !st.built) continue;
         const d = STRUCTURES[st.type];
@@ -578,6 +584,9 @@ export function createOverlays(gl, overlayProgram, lineProgram, decalProgram) {
       }
     }
     economyOverlays(sim, frame, viewer, t, sst);
+    for (const st of state.structures) if (st.contested && isStructureVisibleTo(st, viewer)) {
+      mark(st.x, st.z, ground(st.x, st.z), 5, 0, 1, 0.3, 0.1, 0.6 + 0.3 * Math.sin(t * 7), DS.ATTACK);
+    }
     // Phase 4.1: RESOURCE LENS — where the tapped resource comes from (items are fog-safe, ui/lens.js)
     const lens = frame.lens;
     if (lens && lens.items) {

@@ -1,11 +1,12 @@
 // Player selection model (DOM-free). Holds squad ids (own squads; or a single visible enemy squad
 // for inspection) and at most one structure. Pruned every frame against the simulation and the
 // viewer's perception so a selection can never keep tracking something hidden by the fog.
-import { unitDef } from '../data/units.js';
+import { unitDef, commandable } from '../data/units.js';
 import { isSquadVisibleTo, isStructureKnownTo } from '../sim/perception.js';
 import { isSquadAlive } from '../sim/state.js';
 
-export function createSelection() {
+export function createSelection(boundSim) {
+  const allowed = (id) => !boundSim || commandable(boundSim.rt.squadById.get(id));
   const sel = {
     squads: new Set(),
     struct: 0,
@@ -25,18 +26,19 @@ export function createSelection() {
 
   sel.set = (ids) => {
     sel.squads.clear();
-    for (const id of ids) sel.squads.add(id);
+    for (const id of ids) if (allowed(id)) sel.squads.add(id);
     sel.struct = 0;
     changed();
   };
 
   sel.add = (ids) => {
-    for (const id of ids) sel.squads.add(id);
+    for (const id of ids) if (allowed(id)) sel.squads.add(id);
     sel.struct = 0;
     changed();
   };
 
   sel.toggle = (id) => {
+    if (!allowed(id)) return;
     if (sel.squads.has(id)) sel.squads.delete(id);
     else sel.squads.add(id);
     sel.struct = 0;
@@ -73,7 +75,7 @@ export function createSelection() {
     let dirty = false;
     for (const id of sel.squads) {
       const sq = rt.squadById.get(id);
-      if (!sq || !isSquadAlive(sq) || !isSquadVisibleTo(sq, viewer)) { sel.squads.delete(id); dirty = true; }
+      if (!commandable(sq) || !isSquadAlive(sq) || !isSquadVisibleTo(sq, viewer)) { sel.squads.delete(id); dirty = true; }
     }
     // an enemy squad may only be inspected alone
     if (sel.squads.size > 1) {
@@ -94,7 +96,7 @@ export function createSelection() {
     const res = [];
     for (const id of sel.squads) {
       const sq = sim.rt.squadById.get(id);
-      if (sq && sq.faction === viewer) res.push(sq);
+      if (commandable(sq) && sq.faction === viewer) res.push(sq);
     }
     res.sort((a, b) => a.id - b.id);
     return res;
@@ -109,7 +111,7 @@ export function createSelection() {
 export function allCombatSquadIds(sim, viewer) {
   const ids = [];
   for (const sq of sim.state.squads) {
-    if (sq.faction !== viewer || !isSquadAlive(sq)) continue;
+    if (sq.faction !== viewer || !isSquadAlive(sq) || !commandable(sq)) continue;
     if (unitDef(sq.type).combatUnit !== true) continue;
     ids.push(sq.id);
   }
@@ -120,7 +122,7 @@ export function allCombatSquadIds(sim, viewer) {
 export function squadIdsWithRole(sim, viewer, role) {
   const ids = [];
   for (const sq of sim.state.squads) {
-    if (sq.faction !== viewer || !isSquadAlive(sq)) continue;
+    if (sq.faction !== viewer || !isSquadAlive(sq) || !commandable(sq)) continue;
     if (unitDef(sq.type).roles.indexOf(role) < 0) continue;
     ids.push(sq.id);
   }

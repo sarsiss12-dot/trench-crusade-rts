@@ -28,6 +28,9 @@ import { updateWildlife, setupWildlife } from './wildlife.js';
 import { setupSectors } from '../economy/sectors.js';
 import { rebuildAuras } from './auras.js';
 import { updateWeather } from './weather.js';
+import { updateAutonomousRisen } from '../units/autonomous_risen.js';
+import { updateGarrisonAssaults } from '../combat/garrison_assault.js';
+import { updateAutomaticSanitation } from '../units/sanitation.js';
 
 const worldCache = new Map();
 
@@ -129,14 +132,17 @@ export function stepSimulation(sim) {
   updateMatch(sim);
   if (state.match.phase !== 'ENDED') {
     runAI(sim);
+    updateAutonomousRisen(sim);
     updateWeather(sim);
     processPathRequests(sim);
     updateOrders(sim);
     updateGarrisons(sim);
+    updateAutomaticSanitation(sim);
     updateEngineers(sim);
     updateMovement(sim);
     updateWildlife(sim);
     updateCombat(sim);
+    updateGarrisonAssaults(sim);
     updateEmplacements(sim);
     updateConstruction(sim);
     updateProduction(sim);

@@ -4,6 +4,8 @@
 // squad ids (serializable: saved with the match in the save meta); dead / lost squads drop out on
 // every read and an emptied slot is cleared.
 
+import { commandable } from '../data/units.js';
+
 export const GROUP_SLOTS_UI = 3;
 export const GROUP_COUNT = 9;
 export const DOUBLE_TAP_MS = 350;
@@ -11,7 +13,7 @@ export const LONG_PRESS_MS = 450;
 
 function usable(sim, viewer, id) {
   const sq = sim.rt.squadById.get(id);
-  if (!sq || sq.faction !== viewer || sq.civ) return false;
+  if (!commandable(sq) || sq.faction !== viewer) return false;
   for (const m of sq.members) if (m.state === 'alive' || m.state === 'rising' || m.state === 'joining') return true;
   return false;
 }

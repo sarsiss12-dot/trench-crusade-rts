@@ -20,10 +20,47 @@ export const SPEC_ADDITIVE = ['artilleryShells', 'artilleryRadius', 'flamerCap',
 export const SPEC_MIN = ['buildOnInfection', 'greatCost'];
 
 export const SPECIALITIES = {
+  // All nine titles are RTS doctrines, NOT names claimed from the tabletop rules.
+  iron_sultanate: [
+    [
+      { id: 'is_engineering', icon: 'engineer', lore: { status: 'abstraction' },
+        mods: { repairSpeed: 1.5, builderSpeed: 1.2 }, rules: {}, unlocks: { structures: ['sultanate_arsenal'] },
+        ai: { defense: 1.4, engineers: 1.5, reserve: 1.15, expansion: 0.8 } },
+      { id: 'is_discipline', icon: 'guard', lore: { status: 'abstraction' },
+        mods: { janissaryTrain: 0.8, janissaryCost: 0.9 }, rules: {}, unlocks: {},
+        ai: { elite: 1.8, reserve: 1.4, wave: 1.15, cadence: 1.2 } },
+      { id: 'is_alchemy', icon: 'flame', lore: { status: 'abstraction' },
+        mods: { alchemistCost: 0.8, sanitizeSpeed: 1.5 }, rules: {}, unlocks: { structures: ['jabirean_laboratory'] },
+        ai: { support: 2, sanitation: 1.8, defense: 1.1 } },
+    ],
+    [
+      { id: 'is_layered_defense', icon: 'fortified_wall', lore: { status: 'abstraction' },
+        mods: { repairSpeed: 1.3 }, rules: {}, unlocks: { structures: ['sultanate_battery'] },
+        ai: { defense: 1.35, reserve: 1.25, artillery: 1.5, expansion: 0.8 } },
+      { id: 'is_counterguard', icon: 'guard', lore: { status: 'abstraction' },
+        mods: { reinfInterval: 0.7 }, rules: {}, unlocks: {},
+        ai: { elite: 1.5, sally: 0.8, wave: 1.3, reserve: 1.2 } },
+      { id: 'is_fire_cordon', icon: 'flame', lore: { status: 'abstraction' },
+        mods: { sanitizeSpeed: 1.5, alchemistTrain: 0.75 }, rules: {}, unlocks: { structures: ['jabirean_laboratory', 'sultanate_battery'] },
+        ai: { support: 1.5, sanitation: 1.5, artillery: 1.4 } },
+    ],
+    [
+      { id: 'is_preservation', icon: 'engineer', lore: { status: 'abstraction' },
+        mods: { repairSpeed: 1.5, reinfSupply: 0.7 }, rules: {}, unlocks: { structures: ['sultanate_arsenal'] },
+        ai: { engineers: 1.4, defense: 1.25, reserve: 1.25 } },
+      { id: 'is_measured_advance', icon: 'guard', lore: { status: 'abstraction' },
+        mods: { janissaryCost: 0.85, janissaryTrain: 0.85 }, rules: {}, unlocks: {},
+        ai: { wave: 1.4, cadence: 0.8, expansion: 1.4, sally: 0.85 } },
+      { id: 'is_purifying_fire', icon: 'flame', lore: { status: 'abstraction' },
+        mods: { infectResist: 0.7, sanitizeSpeed: 2 }, rules: {}, unlocks: { structures: ['jabirean_laboratory'] },
+        ai: { support: 1.6, sanitation: 2, defense: 1.15 } },
+    ],
+  ],
   new_antioch: [
     [
       {
         id: 'na_fortification', icon: 'fortified_wall',
+        ai: { defense: 1.5, reserve: 1.3, expansion: 0.8 },
         lore: { status: 'abstraction', ref: 'Trench warfare doctrine; New Antioch is a walled fortress-city (official lore)' },
         mods: { trenchWork: 0.65, wallWork: 0.7, wireCost: 0.7 },
         unlocks: { structures: ['pillbox'] },
@@ -31,6 +68,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'na_logistics', icon: 'supply',
+        ai: { expansion: 1.5, engineers: 1.5, cadence: 0.9 },
         lore: { status: 'abstraction' },
         mods: { convoyCap: 2, convoySpeed: 1.3, reinfSupply: 0.5, reinfInterval: 0.6, builderSpeed: 1.15, builderQueue: 1.5 },
         unlocks: {},
@@ -38,6 +76,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'na_faith', icon: 'aid_station',
+        ai: { sanitation: 1.6, support: 1.4 },
         lore: { status: 'canon-inspired', ref: 'Trench Clerics and Combat Medics are part of the official New Antioch roster' },
         mods: { medicCost: 0.6, aidCure: 2, infectResist: 0.75 },
         unlocks: { units: ['trench_cleric'] },
@@ -47,6 +86,7 @@ export const SPECIALITIES = {
     [
       {
         id: 'na_artillery', icon: 'artillery_barrage',
+        ai: { artillery: 1.8, support: 1.4, cadence: 0.85 },
         lore: { status: 'canon-inspired', ref: '"Artillery battalions, the pride and joy of New Antioch" (official lore)' },
         mods: { artilleryShells: 3, artilleryRadius: 3, artilleryCooldown: 0.7 },
         unlocks: {},
@@ -54,6 +94,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'na_mechanised', icon: 'heavy',
+        ai: { elite: 1.8, reserve: 1.25, wave: 1.25 },
         lore: { status: 'canon-inspired', ref: 'Mechanised Heavy Infantry (official roster); reserve doctrine is an abstraction' },
         mods: { heavyCost: 0.75, heavySize: 1 },
         unlocks: {},
@@ -61,6 +102,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'na_fortified_settlements', icon: 'settlement',
+        ai: { defense: 1.6, reserve: 1.3, expansion: 0.85 },
         lore: { status: 'abstraction' },
         mods: { settlementHp: 2 },
         unlocks: {},
@@ -70,6 +112,7 @@ export const SPECIALITIES = {
     [
       {
         id: 'na_adv_logistics', icon: 'depot',
+        ai: { expansion: 1.4, engineers: 1.2, wave: 1.2 },
         lore: { status: 'abstraction' },
         mods: { manpowerRegen: 1.4, ammoCost: 0.5 },
         unlocks: { structures: ['supply_depot'] },
@@ -77,6 +120,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'na_purification', icon: 'flame',
+        ai: { sanitation: 2, support: 1.8 },
         lore: { status: 'canon-inspired', ref: 'Flamethrowers are part of the New Antioch armoury (official rules); the purification rite is an abstraction' },
         mods: { flamerCost: 0.7, flamerCap: 1, sanitizeSpeed: 2 },
         unlocks: { abilities: ['purge'], units: ['trench_cleric'] },
@@ -84,6 +128,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'na_elite', icon: 'officer',
+        ai: { elite: 1.5, reserve: 1.2, wave: 1.2 },
         lore: { status: 'canon-inspired', ref: 'Sniper Priest — New Antioch elite (official roster); the doctrine itself is a gameplay abstraction' },
         mods: { eliteCost: 0.8 },
         unlocks: { units: ['sniper_priest'] },
@@ -95,6 +140,7 @@ export const SPECIALITIES = {
     [
       {
         id: 'bg_horde', icon: 'thrall',
+        ai: { wave: 0.8, cadence: 0.65, elite: 0.75 },
         lore: { status: 'canon-inspired', ref: '"Overwhelming Horde" is an official Black Grail rule (more dice per nearby Black Grail model)' },
         mods: { thrallCost: 0.7, thrallTrain: 0.6, thrallSize: 2, thrallDamage: 0.9 },
         unlocks: {},
@@ -102,6 +148,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'bg_touch', icon: 'infection',
+        ai: { plague: 1.5, expansion: 1.2 },
         lore: { status: 'canon-inspired', ref: '"Beelzebub\'s Touch" is an official Black Grail rule (extra infection)' },
         mods: { infectSpread: 1.5, pestGain: 1.4, plagueClaim: 1.5, swarmCooldown: 0.8 },
         unlocks: {},
@@ -109,6 +156,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'bg_hunger', icon: 'corpse_mound',
+        ai: { engineers: 1.5, expansion: 1.3 },
         lore: { status: 'canon-inspired', ref: '"Great Hunger" is the name of an official Black Grail warband variant; the corpse economy is an abstraction' },
         mods: { corpseBiomass: 1.5, gangCap: 2, forageRadius: 1.5, moundHarvest: 1.6 },
         unlocks: {},
@@ -118,6 +166,7 @@ export const SPECIALITIES = {
     [
       {
         id: 'bg_heralds', icon: 'fly_swarm',
+        ai: { support: 1.8, reserve: 1.15 },
         lore: { status: 'canon-inspired', ref: 'Herald of Beelzebub — Black Grail elite (official roster)' },
         mods: { swarmRadius: 3, swarmDuration: 3 },
         unlocks: { units: ['herald'] },
@@ -125,6 +174,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'bg_amalgam', icon: 'amalgam',
+        ai: { breach: 2, wave: 1.2 },
         lore: { status: 'canon-inspired', ref: 'Amalgam — Black Grail troop type (official roster)' },
         mods: {},
         unlocks: { units: ['amalgam'] },
@@ -132,6 +182,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'bg_dominion', icon: 'plague_pit',
+        ai: { plague: 1.8, defense: 1.3 },
         lore: { status: 'abstraction' },
         mods: { buildOnInfection: 60, pitRadius: 1.4, grailRegen: 2, infectedSlow: 0.8 },
         unlocks: {},
@@ -141,6 +192,7 @@ export const SPECIALITIES = {
     [
       {
         id: 'bg_black_tide', icon: 'black_tide',
+        ai: { cadence: 0.8, plague: 1.4 },
         lore: { status: 'abstraction' },
         mods: { reanimDelay: 0.5 },
         unlocks: { abilities: ['black_tide'] },
@@ -148,6 +200,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'bg_great_pestilence', icon: 'great_pestilence',
+        ai: { plague: 2, expansion: 1.3 },
         lore: { status: 'abstraction' },
         mods: { pestGain: 1.5, greatCost: 45, greatRadius: 6, pestDecay: 0.5 },
         unlocks: {},
@@ -155,6 +208,7 @@ export const SPECIALITIES = {
       },
       {
         id: 'bg_lord', icon: 'lord',
+        ai: { wave: 1.3, reserve: 1.3, support: 1.4 },
         lore: { status: 'canon-inspired', ref: 'Lord of Tumours — Black Grail leader (official roster)' },
         mods: {},
         unlocks: { units: ['lord_of_tumours'] },

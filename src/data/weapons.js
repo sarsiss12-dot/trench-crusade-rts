@@ -47,6 +47,11 @@ export const WEAPONS = {
     acc: 0.72, infect: 1, structureMult: 0.55, sound: 'claw', impact: 'claw',
     lore: { status: 'canon', note: 'Grail Thralls make melee attacks without weapons' },
   },
+  janissary_sabre: {
+    id: 'janissary_sabre', kind: 'melee', range: 1.9, damage: 38, reload: 1.4, reloadJitter: 0.25,
+    acc: 0.75, structureMult: 0.8, sound: 'blade', impact: 'blade',
+    lore: { status: 'abstraction', note: 'Elite infantry sidearm; RTS loadout, no plague property' },
+  },
   plague_blade: {
     id: 'plague_blade', kind: 'melee', range: 1.9, damage: 38, reload: 1.4, reloadJitter: 0.25,
     acc: 0.75, infect: 1, structureMult: 0.8, sound: 'blade', impact: 'blade',

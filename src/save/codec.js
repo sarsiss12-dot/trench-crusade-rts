@@ -9,7 +9,7 @@ import { createWeatherState } from '../sim/weather.js';
 import { mapDef } from '../data/maps.js';
 import { startingPackage } from '../data/packages.js';
 import { placeInRegion } from '../sim/sides.js';
-import { FOG_LAYERS } from '../data/factions.js';
+import { FOG_LAYERS, sideDef } from '../data/factions.js';
 import { dist } from '../core/dmath.js';
 
 export const SAVE_FORMAT = 'trench-crusade-rts-save';
@@ -355,6 +355,27 @@ export const MIGRATIONS = {
     }
     s.version = 7;
     return { ...save, version: 7 };
+  },
+  // v7 -> v8: independent hunting preferences, autonomous pack/assault order fields are plain data.
+  // Older trained and risen Thralls have no provenance marker: never guess from their squad size.
+  7: (save) => {
+    const s = save.state;
+    for (const sq of s.squads || []) {
+      if (sq.safeHunt === undefined) sq.safeHunt = 1;
+      if (sq.huntMemo === undefined) sq.huntMemo = null;
+      if (sq.autoHunt === undefined) sq.autoHunt = 1;
+      // v3-v7 reanimations were the only campaign-created squads of the reanimation unit
+      // whose ORIGINAL cap was <= maxBodies (8), instead of its trained cap (12+).
+      // Never classify by surviving member count: a depleted trained squad keeps its cap.
+      const r = sideDef(sq.faction)?.reanimation;
+      if (!sq.autonomous && r && sq.type === r.unit && sq.spawnTick > 0 && sq.cap > 0 && sq.cap <= r.maxBodies) {
+        sq.autonomous = 'risen'; sq.risenState = sq.members.some((m) => m.state === 'rising') ? 'RISE' : 'SEEK'; sq.risenNext = s.tick;
+        sq.order = { t: 'idle' }; sq.path = null; sq.pathIndex = 0; sq.pathState = 'none'; sq.target = null;
+        sq.aiGroup = 0; sq.reinf = null; sq.posAuto = 0;
+      }
+    }
+    s.version = 8;
+    return { ...save, version: 8 };
   },
 };
 

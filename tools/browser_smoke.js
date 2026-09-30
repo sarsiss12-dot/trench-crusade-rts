@@ -25,7 +25,7 @@ function loadPlaywright() {
 const pw = loadPlaywright();
 if (!pw) {
   console.log('Playwright not found — skipping browser smoke test. Install with: npm i -D playwright && npx playwright install chromium');
-  process.exit(0);
+  process.exit(2);
 }
 
 mkdirSync(out, { recursive: true });
@@ -33,7 +33,13 @@ const server = createStaticServer(root);
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 const base = `http://127.0.0.1:${port}/index.html`;
-const browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+let browser;
+try {
+  browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+} catch (e) {
+  console.error('BLOCKED: browser smoke could not launch Chromium. No browser checks passed.\n' + e.message);
+  server.close(); process.exit(2);
+}
 
 let failures = 0;
 const only = process.argv[2] || '';
@@ -68,6 +74,39 @@ await check('menu', base, { wait: 2500 });
 await check('new-antioch', base + '?autostart=1&seed=3&prep=20', { expectGame: true });
 await check('black-grail-portrait', base + '?autostart=1&faction=black_grail&seed=3&prep=20', { expectGame: true, viewport: { width: 390, height: 844 }, dpr: 2, touch: true });
 await check('iron-sultanate-portrait', base + '?autostart=1&setup=free&pf=iron_sultanate&ef=black_grail&role=defender&seed=3&prep=20', { expectGame: true, viewport: { width: 390, height: 844 }, dpr: 2, touch: true });
+// Phase 05C: real touch activation, modal hit testing, choice command and locked-tier feedback.
+for (const fid of ['new_antioch', 'black_grail', 'iron_sultanate']) for (const portrait of [true, false]) {
+  await check('05c-speciality-' + fid + (portrait ? '-portrait' : '-landscape'),
+    base + `?autostart=1&setup=free&pf=${fid}&ef=${fid === 'black_grail' ? 'new_antioch' : 'black_grail'}&role=defender&seed=3&prep=600`, {
+      expectGame: true, touch: true, dpr: 2, viewport: portrait ? { width: 390, height: 844 } : { width: 844, height: 390 },
+      act: async (page) => {
+        await page.tap('[data-action="speciality"]');
+        await page.waitForSelector('.specmodal.open .speccard');
+        if (await page.locator('.speccard').count() !== 3) throw new Error('missing speciality cards');
+        const hit = await page.locator('.speccard').first().evaluate((el) => {
+          const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = Math.min(r.bottom - 4, r.top + 20);
+          return el.contains(document.elementFromPoint(x, y));
+        });
+        if (!hit) throw new Error('card touch is covered by an overlay');
+        await page.locator('.speccard').first().tap();
+        await page.locator('.specmodal .ok').tap();
+        await page.waitForFunction(() => TC.game.sim.state.factions[TC.game.viewer].spec[0]);
+        await page.tap('[data-action="speciality"]');
+        if (!(await page.locator('.specmodal .specnote').textContent()).trim()) throw new Error('missing lock reason');
+        if (await page.locator('.specmodal .speccard').count()) throw new Error('locked tier selectable');
+        await page.screenshot({ path: join(out, '05c-speciality-locked-' + fid + (portrait ? '-portrait' : '-landscape') + '.png') });
+        await page.locator('.specmodal .spechead .cmd').tap();
+        const slot = fid === 'black_grail' ? 'A' : 'HQ';
+        const before = await page.evaluate(() => { const c = TC.game.camera; return [c.x, c.z, c.tx, c.tz, c.yaw, c.pitch, c.dist]; });
+        await page.tap(`.structure-slot[data-slot="${slot}"]`);
+        const after = await page.evaluate(() => { const c = TC.game.camera; return [c.x, c.z, c.tx, c.tz, c.yaw, c.pitch, c.dist]; });
+        if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('quick selection moved camera');
+        await page.tap('.multi-select'); await page.tap('.area-select');
+        if (!await page.evaluate(() => TC.game.ui.multiSelect && TC.game.ui.areaSelect)) throw new Error('independent mode buttons failed');
+        await page.tap('.area-select'); await page.tap('.multi-select');
+      },
+    });
+}
 await check('structure-quick-camera-invariant', base + '?autostart=1&faction=black_grail&seed=3&prep=60', {
   expectGame: true, touch: true, viewport: { width: 844, height: 390 }, dpr: 2,
   act: async (page) => {
@@ -83,7 +122,7 @@ await check('touch-select-move', base + '?autostart=1&seed=3&prep=60', {
   expectGame: true, touch: true, viewport: { width: 844, height: 390 }, dpr: 2,
   act: async (page) => {
     // tap the "All" quick button then tap the ground: squads must receive a move order
-    await page.tap('.quick .q');
+    await page.tap('.quick .q.all-military');
     await page.waitForTimeout(300);
     const box = await page.evaluate(() => { const r = TC.game.canvas.getBoundingClientRect(); return [r.left + r.width * 0.5, r.top + r.height * 0.42]; });
     await page.touchscreen.tap(box[0], box[1]);

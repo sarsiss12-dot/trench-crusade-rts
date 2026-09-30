@@ -70,7 +70,8 @@ export function tierUnlocked(state, tier) {
 /** Next tier this faction may choose now (unlocked and not chosen, previous chosen), else -1. */
 export function availableTier(state, fid) {
   const list = specList(state, fid);
-  for (let t = 0; t < SPEC_TIERS.length; t++) {
+  const tiers = SPECIALITIES[baseFaction(fid)] || EMPTY;
+  for (let t = 0; t < Math.min(tiers.length, SPEC_TIERS.length); t++) {
     if (list[t]) continue;
     return tierUnlocked(state, t) ? t : -1;
   }

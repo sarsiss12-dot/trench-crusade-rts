@@ -129,12 +129,32 @@ olarak işaretlidir; kuralın kendisi (bonuslar, açtıkları) yine oyun soyutla
 | Köprü veba sürünmesi | abstraction | Kara Kâse'nin veba ve çürüme kimliği kanon | Hücre eşikleri, 30–90 sn hedefi, purge ile zincir kesme oynanış kuralı |
 | Salt Tank / özel araçlar | uygulanmadı | Bu fazda doğrulanmış kaynak bulunmadı | Kanon diye eklenmedi; TODO olarak kaldı |
 
-## Bilinçli olarak eklenmeyenler
+## Faz 05C — lore sınırı
+
+| İçerik | Statü | Bu fazın kapsamı |
+|---|---|---|
+| Azeb, Janissary, Sapper, Jabirean Alchemist adları | CANON (05B kaynak kaydı korunur) | Yeni kanon birim eklenmedi; RTS ekipman ve sayılar soyutlama |
+| Dört Sultanlık asker silueti, sekizgen sınır hisarı | CANON-INSPIRED görsel yön | Koddan üretilen özgün tasarımlar; resmî minyatürün birebir veya tarihsel rekonstrüksiyonu değil |
+| Great Iron Wall motifi | CANON (05B kaynak kaydı korunur) | Dört yerel duvar kesimi, ölçüler, geçit/staging konumları GAMEPLAY ABSTRACTION |
+| İstihkâm Okulu / Disiplinli Hat / Simyasal Destek | GAMEPLAY ABSTRACTION | Sultanlık kademe I uzmanlık adları ve kuralları |
+| Katmanlı Savunma / Karşı Taarruz Muhafızı / Ateş Kordonu | GAMEPLAY ABSTRACTION | Sultanlık kademe II uzmanlık adları ve kuralları |
+| Tahkimatı Koru / Ölçülü İlerleme / Arındırıcı Ateş | GAMEPLAY ABSTRACTION | Sultanlık kademe III uzmanlık adları ve kuralları |
+| Toplanma Ocağı, Güvenli İkmal, Onarım Ocağı, Cabirî Laboratuvar, Hafif Mevzi, Destek Bataryası | GAMEPLAY ABSTRACTION | Yeni altı RTS yapı; resmî yapı/özel top adı iddiası yok |
+| Janissary Sabre donanım girdisi | GAMEPLAY ABSTRACTION | Önceki veba kılıcı paylaşımı kaldırıldı; Sultanlık yakın dövüşü enfeksiyon üretmez |
+| Doktrin profilleri, yerleşim risk bütçesi, Auto/Safe Hunt | GAMEPLAY ABSTRACTION | AI/ekonomi kullanım kuralları; tabletop kanon kuralı diye sunulmaz |
+| Autonomous Risen paketleri ve kapıdan bina hücumu | GAMEPLAY ABSTRACTION | Enfekte ölülerin kalkması kanon motif; özerklik, 16 üye, süre/mesafe ve iç çatışma kuralları bu RTS'ye aittir |
+| Engineer / flamer / cleric sanitasyon rolleri | CANON-INSPIRED / GAMEPLAY ABSTRACTION | Mevcut birimler üzerinden otomatik tehdit/ceset kontrolü; yeni kanon özel birlik yok |
+
+05C kaynak kontrolü notu: bu ortamdan resmî lore sayfası ve Warbands PDF'si alınmaya çalışıldı; HTTP 402 erişim
+yanıtı nedeniyle içerikleri yeniden doğrulanamadı. Yukarıdaki CANON adları 05B kaynak kaydından devralındı;
+05C'de yeni doğrulanmış kanon iddiası yapılmadı. Fan/wiki bilgisi yeni canon girdisine dönüştürülmedi.
+
+## Bilinçli olarak eklenmeyenler (güncel)
 
 Tanklar, alev makineli tanklar, Communicant'lar, Hounds / Fly Thrall gibi birimler resmî kaynaklarda var ancak henüz
 uygulanmadı (bkz. `ROADMAP.md`). Amalgam, Herald of Beelzebub, Lord of Tumours, Combat Medic, Trench Cleric ve
-Lieutenant Faz 3'te, Sniper Priest Faz 4.1'de, Demir Sultanlık temeli Faz 05B'de eklendi. Heretic Legion Faz 05C'de
-kalır. `scenario.techEra` alanı ileride yıl/teknoloji ön ayarları için
+Lieutenant Faz 3'te, Sniper Priest Faz 4.1'de, Demir Sultanlık temeli Faz 05B'de eklendi. Heretic Legion ve yeraltı
+Faz 05C'ye eklenmedi; ayrı sonraki faza ayrıldı. `scenario.techEra` alanı ileride yıl/teknoloji ön ayarları için
 ayrıldı; kaynakla doğrulanmadan içerik eklenmeyecek.
 
 ## Kaynaklar

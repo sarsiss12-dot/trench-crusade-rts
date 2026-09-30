@@ -97,6 +97,10 @@ export const PACKAGES = {
       structures: [
         { type: 'sultanate_citadel', x: 160, z: 526, rot: PI, primary: true, quickSlot: 'HQ' },
         { type: 'sapper_post', x: 122, z: 536, rot: PI },
+        { type: 'sultanate_muster', x: 195, z: 533, rot: PI },
+        { type: 'sultanate_supply', x: 192, z: 509, rot: PI },
+        { type: 'sultanate_fieldworks', x1: 110, z1: 489, x2: 129, z2: 485 },
+        { type: 'sultanate_fieldworks', x1: 191, z1: 485, x2: 210, z2: 489 },
         { type: 'sultanate_redoubt', x: 160, z: 482, rot: PI },
         { type: 'sultanate_bulwark', x1: 132, z1: 474, x2: 150, z2: 472 },
         { type: 'sultanate_bulwark', x1: 170, z1: 472, x2: 188, z2: 474 },
@@ -114,6 +118,8 @@ export const PACKAGES = {
       structures: [
         { type: 'sultanate_field_hq', x: 160, z: 514, rot: PI, primary: true, quickSlot: 'HQ' },
         { type: 'sapper_post', x: 126, z: 530, rot: PI },
+        { type: 'sultanate_muster', x: 190, z: 530, rot: PI },
+        { type: 'sultanate_fieldworks', x1: 117, z1: 503, x2: 134, z2: 499 },
         { type: 'sultanate_bulwark', x1: 146, z1: 490, x2: 160, z2: 488 },
         { type: 'sultanate_bulwark', x1: 160, z1: 488, x2: 174, z2: 490 },
       ],

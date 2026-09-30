@@ -66,13 +66,30 @@ korunur, kayıt sürümü gerekiyorsa artırılır ve göç yazılır.
 - Veri odaklı `HQ/A/B/C` yapı seçimi (kamera invariant); tek kullanımlı Alan Seçimi ve kalıcı Çoklu Seçim ayrı state.
 - Sis/runtime 3 katmana genellendi; kayıt sürümü 7 + v6 göçü; 05B eşleşme / köprü / seçim / stres regresyon matrisi.
 
-## Faz 05C — Heretic Legion
+## Faz 05C — Iron Sultanate polish + özerk cephe / AI kalite geçişi
+- Uygulandı: üç fraksiyonda çalışan Uzmanlık paneli, Sultanlığın 3×3 ağacı, doktrinden ve rolden ayrı uzmanlık AI politikası.
+- Uygulandı: 4 ayrı prosedürel asker modeli, kilise formundan ayrılan hisar/sefer HQ'su, 9 seçenekli bina kataloğu,
+  onarım / ikmal / laboratuvar / destek topu, zengin attacker/defender paketleri.
+- Uygulandı: yaklaşık 194 m dört kesimli yerel Iron Wall, tabya bağlantıları, 24 m açık geçit ve geleceğe ait
+  kapı/staging verisi. Tam sur kuşatması değildir; yalnız uygun savunan senaryosundadır.
+- Uygulandı: seçilemeyen, doğrudan emir alamayan 16 üyeye kadar Autonomous Risen; kapıdan girişli düşman holder
+  garnizon hücumu, iç çatışma ve occupation/exit çözümü.
+- Uygulandı: güvenli otomatik engineer sanitasyonu, kısa menzilli alevci corpse denial, rahip pasif arınmasının korunması.
+- Uygulandı: bağımsız AUTO HUNT / SAFE HUNT, ortak oyuncu/AI av helpers, takip sınırları ve gerçek taşıma-teslim döngüsü.
+- Uygulandı: faction'a özgü Economy View; NA risk puanlı savunma yayı ve %10–40 sanal bütçe; tohumlu AI doktrinleri,
+  uzmanlığa göre üretim / elit / rezerv / sally / yayılma / veba öncelikleri.
+- Korundu: HQ/A/B/C kamera invariant, 1/2/3 asker grupları, one-shot Area ve sticky Multi bağımsızlığı,
+  köprü vebası / SIDE sahipliği; kayıt v8 ve v5→v6→v7→v8 göç zinciri.
+- Doğrulama: Node faz testleri ve stress/build kayıtları `PHASE05C_REPORT.txt` içindedir. Tarayıcı smoke için
+  Chromium kurulamadı: BLOCKED. CPU mesh önizlemesi tarayıcı veya gerçek Android testi değildir.
+
+## Sonraki ayrı faz — Heretic Legion
 - Taraf verisi ve çekirdek birimler (resmî liste), savaş kampları (HQ etiketi), Heretic tankı ancak doğrulanırsa;
   mevcut seçkin / aura / takviye sistemleriyle uyum; üç taraflı eşleşmelerde sis katmanı ve AI rol ataması.
 - Demir Duvar için tam kapı, merdiven, duvar üstü gezinme / çatışma ve kuşatma silahları; doğrulanmamış Salt Tank ve
   benzeri araçlar kaynak bulunana dek yalnız TODO.
 
-## Faz 05D — Yeraltı
+## Sonraki ayrı faz — Yeraltı ve tam sur kuşatması
 - Yeraltı katmanı (tüneller: çamurdan etkilenmez), Burrower / Countermine. Çok oyunculu (lockstep: komutlar zaten
   tick + seq taşıyor, stateHash ile desenkron tespiti) ayrı bir faz.
 - Önceki fazlardan kalanlar: gerçek Android ölçümü, insanla denge testi (AI'ya karşı AI'da 30 dk'da Kara Kâse ağır
@@ -87,7 +104,7 @@ korunur, kayıt sürümü gerekiyorsa artırılır ve göç yazılır.
 - Faz 2 vahşet / VFX / müziğin ve Faz 3 yaşayan dünyanın (hayvanlar, siviller, konvoylar, alev / veba efektleri)
   gerçek Android'de ölçümü (480 asker HIGH taban çizgisi: ≈40 FPS).
 - İnsan oyuncuyla denge testi (Faz 3: yerleşim kaybı oranı, hayvan / sunak biyokütle payı, Büyük Veba gücü).
-- AI: konvoy yağması ve yerleşim savunması (AI'ya karşı AI'da konvoy hiç düşmedi), tahliye / yeniden yerleşim ritmi.
+- AI: konvoy yağması, tahliye / yeniden yerleşim ritmi; 05C yerleşim savunma planının uzun maç denge ayarı.
 - Duvar aralıkları için açılır/kapanır geçit; mangaların duvar arkasına otomatik dizilmesi.
 
 ## Faz 5 — İçerik (kaynakla doğrulanarak)

@@ -82,12 +82,15 @@ export function createP4Hud(game, H) {
   }
 
   // ------------------------------------------------------------------ ECONOMY VIEW toggle
+  const econLegend = el('div.econlegend', { text: t('hud.econ.' + (fdef.economyView || 'sectors')) });
+  H.root.appendChild(econLegend);
   const qEcon = button('q tog', icon('economy') + `<i>${t('hud.econ_short')}</i>`, () => {
     game.ui.econView = !game.ui.econView;
     refreshEcon();
     if (game.audio) game.audio.ui('select');
   }, t('hud.econ_tip'));
   function refreshEcon() {
+    toggleClass(econLegend, 'open', !!game.ui.econView);
     toggleClass(qEcon, 'on', !!game.ui.econView);
     setText(qEcon.querySelector('i'), game.ui.econView ? t('hud.econ_on') : t('hud.econ_short'));
   }
@@ -104,6 +107,8 @@ export function createP4Hud(game, H) {
     if (gangs.length) {
       const on = gangs.every((sq) => sq.autoHunt !== 0);
       out.push(H.cmd('forage', t(on ? 'hud.autohunt_on' : 'hud.autohunt_off'), () => { game.actions.autoHunt(on ? 0 : 1); setTimeout(() => H.markDirty(), 120); }, { on, title: t('hud.autohunt_tip') }));
+      const safe = gangs.every((sq) => sq.safeHunt !== 0);
+      out.push(H.cmd('guard', t(safe ? 'hud.safehunt_on' : 'hud.safehunt_off'), () => { game.actions.safeHunt(safe ? 0 : 1); setTimeout(() => H.markDirty(), 120); }, { on: safe, title: t('hud.safehunt_tip') }));
     }
     // garrisoned squads: leave the ruin through the nearest doorway
     if (own.some((sq) => sq.order.t === 'garrison')) out.push(H.cmd('garrison', t('hud.ungarrison'), () => game.actions.ungarrison(), { title: t('hud.ungarrison_tip') }));

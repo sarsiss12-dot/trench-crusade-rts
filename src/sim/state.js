@@ -183,7 +183,7 @@ export function createSquad(state, factionId, unitType, x, z, rot, opts = {}) {
     // civilian crew state (settlement id + behaviour), tide / fear timers
     cap: opts.cap || n, bq: null, civ: null, tideUntil: 0, fearUntil: 0,
     // biomass source attribution of what a gang carries; next idle auto-forage check (Grail gangs)
-    carryBy: null, autoT: 0, autoHunt: 1, // Phase 4.1: work gangs' AUTO SAFE HUNT toggle
+    carryBy: null, autoT: 0, autoHunt: 1, safeHunt: 1, huntMemo: null,
     posId: 0, posAuto: 0, garrison: 0, // Phase 4.1 positional auto reinforcement (factions/reinforcement.js)
   };
   const offs = formationOffsets(sq.formation, n, def.spacing);

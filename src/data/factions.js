@@ -20,6 +20,7 @@ export const FACTIONS = {
     // Muted accent colors for UI / banners / rings (never full-body team paint).
     accent: [0.79, 0.7, 0.5], uiColor: '#c8b07a',
     economy: 'logistics', logic: 'new_antioch', ai: 'new_antioch',
+    economyView: 'sectors',
     resources: ['material', 'supply', 'manpower', 'food'],
     buildList: [
       'trench', 'low_sandbags', 'sandbags', 'breastwork', 'timber_wall', 'fortified_wall', 'wire', 'fire_post', 'pillbox', 'field_gun',
@@ -52,6 +53,7 @@ export const FACTIONS = {
     lore: { status: 'canon', ref: 'Cult of the Black Grail — Beelzebub, plague, flies, reanimated infected dead' },
     accent: [0.6, 0.63, 0.35], uiColor: '#9aa15c',
     economy: 'plague', logic: 'black_grail', ai: 'black_grail',
+    economyView: 'hunting',
     resources: ['biomass'],
     // organic growth raised by Thrall work-gangs (never a human building chain)
     buildList: ['corpse_mound', 'plague_pit', 'fly_nest', 'bone_barricade', 'viscera_nest', 'belcher_nest', 'grail_altar'],
@@ -80,9 +82,10 @@ export const FACTIONS = {
     lore: { status: 'canon', ref: 'The Iron Sultanate — an independent power protected by the Great Iron Wall; Azebs, Janissaries, Sappers and Jabirean Alchemists are official roster names' },
     accent: [0.66, 0.38, 0.2], uiColor: '#a86134',
     economy: 'compact_fortress', logic: 'iron_sultanate', ai: 'iron_sultanate',
+    economyView: 'nodes',
     resources: ['material', 'supply', 'manpower'],
-    buildList: ['sultanate_bulwark', 'sultanate_redoubt', 'sapper_post'],
-    buildTabs: ['defense', 'support'],
+    buildList: ['sultanate_fieldworks', 'sultanate_bulwark', 'sultanate_redoubt', 'sultanate_battery', 'sapper_post', 'sultanate_muster', 'sultanate_supply', 'sultanate_arsenal', 'jabirean_laboratory'],
+    buildTabs: ['defense', 'economy', 'support'],
     abilities: [],
     usesAmmo: true,
     reinforcements: { manpower: 1, supply: 5, intervalTicks: 34, autoReserve: { supply: 40 } },
@@ -98,7 +101,7 @@ export const FACTIONS = {
 // Factions that are PLANNED but not implemented: shown locked ("coming soon") in Match Setup.
 // No data, no fake implementation — adding one means adding its full FACTIONS entry + content.
 export const PLANNED_FACTIONS = [
-  { id: 'heretic_legion', nameKey: 'faction.heretic_legion', icon: 'lock', phase: '05C' },
+  { id: 'heretic_legion', nameKey: 'faction.heretic_legion', icon: 'lock', phase: '06+' },
 ];
 
 // ------------------------------------------------------------------ side helpers (pure)

@@ -1,0 +1,320 @@
+GELİŞTİRİCİ RAPORU — TRENCH CRUSADE 3D RTS FAZ 05C
+Tarih: 30 Eylül 2026
+
+TESLİM DURUMU
+Kod, headless regresyonlar, build ve proje paketi hazırdır.
+Gerçek tarayıcı smoke: BLOCKED. Chromium çalıştırılabilir dosyası yoktur;
+kurulum indirmesi geçerli arşiv sağlayamadı. Bu rapor browser smoke veya
+fiziksel Android testini başarılı olarak sunmaz. Kullanıcı testi beklenmedi.
+
+REFERANS
+Aktif repo: sarsiss12-dot/trench-crusade-rts
+Başlangıç branch: main
+Gerçek main HEAD başlangıçta doğrulandı:
+f924232bfc1a6e9dd9fd17eb9a6efc925369f476
+Yerel HEAD aynı referansta; bu teslim için final commit oluşturulmadı.
+GitHub'a push/deploy yapılmadı. Eski Trenchy-crusade reposuna dokunulmadı.
+
+MİMARİ
+FACTION içerik, SIDE sahiplik, ROLE stratejik rol, SCENARIO savaş kuralları
+olarak korundu. Vanilla JS / native ESM / WebGL2, 20 Hz fixed tick, seeded
+gameplay RNG, command pipeline, mirror sahipliği ve fog güvenliği korundu.
+Runtime bağımlılık veya harici görsel/ses asset'i eklenmedi.
+
+SPECIALTY BUTTON — ROOT CAUSE VE DÜZELTME
+HUD callback'i zaten bağlıydı. Iron Sultanate için SPECIALITIES kaydı yoktu;
+availableTier açık ilk kademeyi döndürüyordu. renderSpec boş dizinin
+tiers[0] değerini iterate etmeye çalışıyor, modal .open sınıfı eklenmeden
+TypeError oluşuyordu. Kullanıcıya düğme tepkisiz görünüyordu.
+Sultanlık 3x3 ağacı eklendi; tier aralığı gerçek ağaç uzunluğuna bağlandı;
+eksik veri için panel koruması eklendi. Bu root cause Sultanlıkta doğrulandı;
+diğer fraksiyonlar için aynı hatanın var olduğu iddia edilmez.
+Mobil güvenilirlik: modal z-index 30, pointer-events auto, dikey kaydırma,
+ARIA expanded/dialog state; Uzmanlık hızlı HUD'da ilk sıraya alındı.
+Portrait/landscape kontrol grubu konumu için CSS sıralama çakışması düzeltildi.
+Gerçek HUD builder/callback -> action -> CHOOSE_SPECIALITY -> validateSpec
+-> chooseSpec -> state -> save akışı üç fraksiyonda otomatik test edildi.
+Kilitli kademe kart seçtirmez; açılma yüzdesi ve açıklama görünür. Panelin
+açıkken dirty güncellemesi tarafından kapanmaması test edildi. Fake DOM
+testi browser layout veya gerçek touch hit-testing testi olarak sunulmaz.
+
+IRON SULTANATE SPECIALTY TREE
+Kademe I:
+  is_engineering / İstihkâm Okulu: onarım x1.5, inşa x1.2, Onarım Ocağı;
+    daha fazla Sapper, savunma bütçesi ve yedek.
+  is_discipline / Disiplinli Hat: Yeniçeri süre -%20, bedel -%10;
+    elit oranı ve kontrollü rezerv artar.
+  is_alchemy / Simyasal Destek: Simyager bedel -%20, temizlik x1.5,
+    Laboratuvar; destek ve veba karşıtı öncelik.
+Kademe II:
+  is_layered_defense: onarım x1.3, Batarya; daha güçlü katmanlı savunma.
+  is_counterguard: takviye aralığı -%30; elit, rezerv, karşı taarruz eşiği.
+  is_fire_cordon: temizlik x1.5, Simyager süre -%25; Lab/Batarya, destek.
+Kademe III:
+  is_preservation: onarım x1.5, takviye ikmali -%30; Onarım Ocağı/Sapper.
+  is_measured_advance: Yeniçeri bedel/süre -%15; ileri düğüm ve büyük dalga.
+  is_purifying_fire: enfeksiyon alımı -%30, temizlik x2; Lab/destek.
+Bütün yeni uzmanlık isimleri ve sayıları GAMEPLAY ABSTRACTION'dır.
+Her kartın somut politika değişimi ve açtığı yapılar testlidir; üç farklı
+IS profilinin gerçek inşa komutları ve ordu kompozisyonu ayrıca ölçüldü.
+
+SULTANLIK GÖRSEL KİMLİĞİ VE HQ
+Azeb: hafif kıyafet, başlık ve tüfek silueti.
+Janissary: ağır gövde, belirgin seçkin başlık, farklı donanım oranları.
+Sapper: alet/çanta, çalışma önlüğü, mühendis teçhizatı.
+Jabirean Alchemist: çift kanister ve alchemical aparat.
+Hepsi mevcut 14 kemikli rig/animasyon ve iki LOD altyapısını kullanır.
+Hisar: kalın duvarlı sekizgen bileşik form, büyük kapı, köşe savunmaları;
+New Antioch kilise modelinin renk değişimi değildir. Sefer HQ'su daha küçük
+tahkim edilmiş kamp formudur. Mesh sonluluğu, kayıtları ve birbirinden
+farklı buffer'lar test edildi. Gerçek meshlerden CPU/SVG önizleme incelendi;
+test-output/phase5c-models.png bir WebGL/browser screenshot değildir.
+Janissary yakın dövüş silahı artık plague_blade paylaşmaz; enfeksiyon
+üretmeyen janissary_sabre verisi eklendi. Yeni kanon silah iddiası yoktur.
+
+BİNA ROSTER'I VE EKONOMİ
+9 inşa seçeneği:
+  sapper_post, sultanate_bulwark, sultanate_redoubt,
+  sultanate_muster, sultanate_supply, sultanate_arsenal,
+  jabirean_laboratory, sultanate_fieldworks, sultanate_battery.
+Citadel/Field HQ başlangıç ana yapılarıdır; 9 seçenek sayısına dahil değil.
+Muster Azeb/Janissary üretir ve takviye sağlar. Güvenli Supply düğümü ikmal
+ve insan gücü üretir, tehlikede gelir kesilir. Sapper gerçek hurda toplar.
+Arsenal yakındaki yapıları malzeme ödeyerek onarır; Lab Simyager üretir ve
+zemin enfeksiyonunu temizler. Batarya mevcut mürettebat/ikmal/yay/minimum
+menzil kurallarını kullanarak ateş eder. Yeni currency yoktur.
+Her build-list yapısı placement, maliyet ve tamamlanma komut akışıyla
+test edildi; gelir/onarım/lab ve batarya ateşi ayrıca test edildi.
+Savunan: Hisar, Sapper ve Muster altyapısı, Supply, Tabya, katmanlı ağır
+ve hafif savunma hattı; Azeb perdesi, sınırlı Yeniçeri rezervi ve Simyager.
+Saldıran: sefer HQ'su, Sapper/Muster, daha hafif mevzi; dört çekirdek rol.
+
+IRON WALL
+Yalnız iron_wall_sector senaryosu + uygun IS defender koşulunda oluşur.
+4 kesim, yaklaşık 194 m toplam duvar, 8 m ana gövde, ağır payandalar,
+bağlı iki Tabya, ortada 24 m açık geçit. Approach/staging ve futureGate
+metadata'sı var. Saldıran Sultanlık ve normal build listesi duvar almaz.
+Tam kapı savaşı, merdiven, duvar üstü gezinme ve zincirleme segment yıkımı
+uygulanmadı; bu foundation bunları tamamlanmış gibi sunmaz.
+
+AI DOCTRINE / SPECIALTY
+ROLE yükümlülüğü, seeded doktrin tercihi ve uzmanlık politikası ayrıdır.
+NA: Fortress, Logistics, Firepower.
+IS: Engineers, Counterguard, Alchemists.
+BG: Horde, Pestilence, Devourers.
+Doktrin bir kez rng.ai ile seçilip SIDE AI hafızasında saklanır. Kartların
+policy çarpanları üretim, mühendis/elit/destek oranı, rezerv, dalga boyutu,
+sally eşiği, dalga sıklığı, yayılma ve sanitasyon önceliğini değiştirir.
+Doktrin uzmanlık ağırlığını değiştirir; veba karşıtı seçeneği kilitlemez.
+Görünür düşman, hatırlanan tepe güç, yakın kayıplar, üs hasarı, ekonomi,
+süre baskısı ve role göre saldırganlık hesaplanır. Gizli ordu okunmaz.
+BG Herald/Lord dalga arkasında; Amalgam yapı/strongpoint öncelikli;
+Pestilence köprü kaynağı ve organik cephe planını sıklaştırır. Defender
+sally kontrollüdür. IS Azeb perdesi/Yeniçeri rezervi/Simyager desteği kurar;
+düşük malzemede Sapper SALVAGE_AREA kullanır. Komutların tamamı normal
+AI command pipeline üzerinden geçer. Geçersiz p.type -> BUILD ezilmesi
+regresyon sırasında bulundu ve düzeltildi.
+
+NEW ANTIOCH DEFENSE PLANNER
+Yerleşim riskinde görünür düşman yakınlığı/baskısı, HQ uzaklığı, yakın
+hasar, enfekte ceset, guard ve supply erişimi değerlendirilir.
+LOW/MEDIUM/HIGH/CRITICAL: tel -> kum torbası -> mevzi/ikmal -> siper/top
+ve rezerv desteği. Savunmalar düşman geliş yönüne yay olarak yerleştirilir.
+Sanal malzeme rezervi %10/%20/%30/%35; doktrin/uzmanlıkla en çok %40.
+Kaynak türü eklenmedi. Yerleşimler 1-2 guard manga alabilir. Geçersiz inşa
+planı ekonomiyi kilitlemez; güvenli yeni yerleşimde ilk telden sonra gelir
+yapısı kurulur. İlk av döngüsü veya taşınan biyokütle BG inşaatına feda
+edilmez. Operational Lull ilerleyen dalgayı zorla geri çağırmaz.
+
+AUTONOMOUS RISEN
+Enfekte ölüler autonomous='risen' sınıfıdır. Yakın doğmuş, aynı SIDE,
+18 m içindeki paketler kararlı sırayla birleşir; paket üst sınırı 16.
+RISE -> SEEK -> SWARM -> ATTACK -> DIE; karar aralığı 20 tick.
+Görünür savaşçı -> savunmasız hedef -> düşman garnizonu -> yapı -> cephe.
+Click/box/multi/all/control group seçiminden ve direkt MOVE/ATTACK/STOP/
+REINFORCE/formation emirlerinden dışlanır. Picking normal birlikleri
+engellemez. Normal ücretli Thrall manga kontrolü korunur.
+8 enfekte asker testi: 8 seçilebilir tek kişilik manga yerine 1 özerk
+paket; hedef seçimi ve save/load devam hash'i testlidir.
+
+GARRISON ASSAULT
+Nötr structure + düşman holder doğru tanınır. Görünür occupant bilgisi
+hedeflemeyi mümkün kılar; sis arkasındaki garnizon açığa çıkarılmaz.
+Melee saldırı -> geçerli en yakın kapı -> to_door -> inside -> 30 tick'te
+iki asker girişi -> sınırlı iç yakın dövüş -> kayıplar -> capture/exit.
+ÇATIŞMALI marker/HUD ve MELEE efektleri vardır. Savunucu ateşi korunur.
+120 sn/path failure sınırı vardır; wall jitter ile sonsuza kadar beklemez.
+Risen aynı sistemi otomatik kullanır. İki tarafın kayıp vermesi, savaşın
+çözülmesi ve kazanmış Thrall/Risen'in kapıdan çıkması testlidir.
+
+AUTOMATIC SANITATION
+Engineer için yaklaşan riseAt > infected corpse > görünür yoğun infection
+ground. HQ/yerleşim/savunma yakını daha değerlidir. 40 tick kademeli arama,
+72 m engineer / 18 m flamer sınırı; manuel build/repair/sanitize kesilmez.
+Görünür tehlike veya çatışma görevi engeller; yeni tehdit geri döndürür.
+Flamer kısa menzilde mühimmat/ikmal tüketerek corpse denial uygular.
+Cleric pasif purification korunur. AI ve oyuncu aynı helper'ı kullanır.
+
+AUTO HUNT / SAFE HUNT
+AUTO HUNT kalıcı iş döngüsü; SAFE HUNT bağımsız risk ayarıdır.
+Görülen av yoksa keşfedilmiş habitat seçilir; gidilir, avlanır, gerçek
+carcass hasadı ve biyokütle taşıması yapılır, Mound/Altar'a teslim edilir,
+yeniden aranır. AREA FORAGE ayrı explicit alan emridir.
+Oyuncu ve AI ortak forageSpot/habitatSpot/huntThreat helpers kullanır.
+Safe ON görünür düşman, bilinen savunma menzili, kaba rota koridoru ve
+cephe sınırını gözetir. OFF daha geniş/riskli arar, yakın ciddi tehditte
+intihara gitmez. Kovalamaca küçük forage çemberiyle hemen kesilmez;
+65 sn, 150 m ve yol başarısızlığı sınırları vardır. Arama/habitat hafızası
+throttle edilir. Tam avla-hasat-taşı-teslim-tekrarla döngüsü testlidir.
+
+ECONOMY VIEW
+BG: habitat/safe habitat, ceset, hayvan biyokütlesi, enfekte zemin,
+veba kaynağı coverage, Mound/Altar drop-off.
+NA: kaynak sektörleri, hurda ve yerleşim ekonomisi.
+IS: ikmal/fortification erişimi ve hurda.
+BG'ye Hamlet ikonu kullanılabilir NA ekonomi noktası gibi gösterilmez.
+SIDE/FOW güvenli veri; 20 tick cache, en çok 128 marker; per-frame DOM
+rebuild yoktur. Kaynak sektörü ile av habitatı ayrı kavramlardır.
+
+SAVE MIGRATION
+STATE_VERSION=8. v5 -> v6 -> v7 -> v8 zinciri korunur. quickSlot, spec,
+doctrine, autoHunt, safeHunt, huntMemo, autonomous state, storm order,
+infection ownership ve mirror SIDE verileri saklanır.
+v7 küçük diriliş mangası spawnTick>0 ve orijinal cap<=maxBodies sözleşmesi
+ile özerkleştirilir; kayıp vermiş ücretli cap=12 Thrall yanlış çevrilmez.
+Eski küçük paketler yüklemede zorla birleştirilmez; sonraki dirilişler
+normal bounded grouping kurallarına tabidir. Yeni runtime cache'ler kayıt
+dışıdır. Save -> Load -> Continue eşitliği dokuz eşleşmede testlidir.
+
+05B REGRESYONLARI
+HQ/A/B/C kamera x/z, hedef x/z, yaw, pitch ve mesafeyi değiştirmez.
+1/2/3 asker control groups kalır. Area Select tek kullanımlı; release
+sonrası OFF, sonraki drag kamera pan. Sticky Multi kendi düğmesine tekrar
+basılana kadar ON; Area tamamlanınca kapanmaz. BG kompakt altar/mound,
+Viscera defense, bridge plague/purge/SIDE ownership ve Thrall 3.35 korunur.
+
+TEST SONUÇLARI
+npm test:                         314 geçti, 0 hata (84.9 sn).
+node tests/run.js phase5a:          23 geçti, 0 hata (17.1 sn).
+node tests/run.js phase5b:          15 geçti, 0 hata (6.8 sn).
+node tests/run.js phase5c:          20 geçti, 0 hata (20.3 sn).
+node tests/run.js stress:           11 geçti, 0 hata (5.0 sn).
+npm run build:                     BAŞARILI; 152 modül, yaklaşık 1717 KB.
+dist/index.html + artifact.html:   gömülü JS parse ve offline kaynak kontrolü geçti.
+git diff --check:                  geçti.
+npm run test:browser:              BLOCKED, exit 2; Chromium eksik.
+9 matchup: NA/BG, NA/IS, BG/IS iki rol yönü + NA/NA, BG/BG, IS/IS.
+Ekonomi, üretim, inşa, FOW, pathfinding, objective/victory, sonlu state,
+tick ilerlemesi ve kayıt devam hash eşitliği kontrol edildi.
+Eski test silinmedi. v7 literal beklentisi v8'e, eski 2 duvar beklentisi
+istenen yeni 4 duvar sözleşmesine güncellendi; doğrulama gevşetilmedi.
+
+PERFORMANS
+Node headless, aynı mevcut bütçe testleri; cihaz FPS ölçümü değildir.
+Tam suite: 480 asker ortalama 0.772 ms/tick; sunum CPU 2.54 ms/frame;
+488 asker + yaşayan dünya ortalama 0.866 ms/tick, en kötü 3.3 ms.
+Ayrı stress turu: 480 asker 0.855 ms/tick; yaşayan dünya 1.560 ms/tick;
+sunum CPU 3.87 ms/frame. Aynalı 480 en kötü 20.5 ms, IS mirror 11.7 ms.
+Ayrı turun 160 asker ölçümünde 177.0 ms tekil sıçrama, yaşayan dünyada
+58.9 ms en kötü tick görüldü; bu sıçramalar gizlenmedi. Ortalama bütçe
+kapıları geçti; nedeninin GPU/Android veya kesin GC olduğu iddia edilmez.
+Yeni sistemler throttle/bounded state kullanır; Risen başına sınırsız
+pathfinding, her kare DOM rebuild veya yeni full-world her-tick scan yok.
+
+LORE VE SINIRLAMALAR
+CANON: mevcut 05B kaynak kaydındaki dört birim adı ve Great Iron Wall motifi.
+CANON-INSPIRED: özgün prosedürel Sultanlık asker/mimari yönü ve veba teması.
+GAMEPLAY ABSTRACTION: bütün yeni specialty/doctrine/yapı adları, sayılar,
+özerk grouping, iç çatışma, ekonomi ve otomasyon kuralları.
+Resmî lore/PDF fetch denemeleri HTTP 402 nedeniyle bu ortamda doğrulanamadı;
+05C'de yeni kanon iddiası eklenmedi. Salt Tank, Heretic Legion veya tünel yok.
+Gerçek browser portrait/landscape, GPU shading ve fiziksel touch doğrulaması
+BLOCKED. CPU mesh önizlemesi ve Fake DOM bunun yerine geçirilmedi.
+Tam Iron Wall siege, ağ/multiplayer, yeni araçlar bu fazın kapsamı dışında.
+İç çatışma tek katlı harabe ve bounded melee soyutlamasıdır.
+Uzun 15/30 dk insan dengesi bu fazda yeniden ölçülmedi; kısa deterministik
+AI matrisi ve mevcut tam regresyonlar uzun maç denge garantisi değildir.
+
+SONRAKİ FAZ İÇİN
+Çalışan Chromium ortamında kayıtlı mobile smoke senaryolarını çalıştırma;
+uzun savaş doctrine/ekonomi dengesi; kapı/segment/duvar üstü mimarisinin
+ayrı kapsamda geliştirilmesi; Heretic Legion ve tunnel layer ayrı faz.
+Doğrulanmamış future vehicle'lar ve multiplayer/network play planlıdır.
+
+DOSYA LİSTESİ
+Yeni modüller ve değişen dosyaların tam listesi aşağıdadır.
+README.md
+dist/artifact.html
+dist/index.html
+docs/ARCHITECTURE.md
+docs/LORE.md
+docs/PHASE05C_REPORT.txt
+docs/ROADMAP.md
+src/ai/ai.js
+src/ai/black_grail_ai.js
+src/ai/black_grail_econ.js
+src/ai/doctrine.js
+src/ai/iron_sultanate_ai.js
+src/ai/new_antioch_ai.js
+src/ai/new_antioch_econ.js
+src/ai/settlement_defense.js
+src/ai/spec_pick.js
+src/app/actions.js
+src/app/game.js
+src/combat/combat.js
+src/combat/garrison_assault.js
+src/construction/construction.js
+src/data/doctrines.js
+src/data/factions.js
+src/data/packages.js
+src/data/scenarios.js
+src/data/specialities.js
+src/data/structures.js
+src/data/units.js
+src/data/weapons.js
+src/factions/black_grail.js
+src/factions/iron_sultanate.js
+src/factions/reinforcement.js
+src/input/control_groups.js
+src/input/pick.js
+src/input/selection.js
+src/render/models/humans_sultanate.js
+src/render/models/structures.js
+src/render/models/structures_sultanate.js
+src/render/models/walls.js
+src/render/overlays.js
+src/render/units_renderer.js
+src/save/codec.js
+src/sim/commands.js
+src/sim/constants.js
+src/sim/economy_view.js
+src/sim/simulation.js
+src/sim/specialities.js
+src/sim/state.js
+src/ui/hud.js
+src/ui/hud_p3.js
+src/ui/hud_p4.js
+src/ui/i18n.js
+src/ui/i18n_p5c.js
+src/ui/lens.js
+src/ui/minimap.js
+src/ui/style.css
+src/ui/trench_panel.js
+src/units/autonomous_risen.js
+src/units/engineers.js
+src/units/garrison.js
+src/units/hunt_targets.js
+src/units/movement.js
+src/units/orders.js
+src/units/sanitation.js
+tests/fake_dom.js
+tests/phase5a.test.js
+tests/phase5b.test.js
+tests/phase5c.test.js
+tools/browser_smoke.js
+tools/model_preview.js
+
+Dağıtımda ayrıca test-output/ doğrulama kayıtları ve CPU model önizlemesi
+bulunur. Git veritabanı, node_modules ve geçici indirmeler ZIP'e alınmaz.
+ZIP CRC doğrulaması (unzip -t) ve SHA-256 teslim sırasında ayrıca üretilir;
+arşivin kendi hash'i arşivin içine yazılmaz.

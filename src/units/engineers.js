@@ -12,7 +12,8 @@
 import { STRUCTURES } from '../data/structures.js';
 import { unitDef, hasRole } from '../data/units.js';
 import { ENGINEERING } from '../data/economy.js';
-import { sideBit } from '../data/factions.js';
+import { sideBit, sideIndex } from '../data/factions.js';
+import { isVisibleAt } from '../world/fog.js';
 import { EV } from '../core/events.js';
 import { dist } from '../core/dmath.js';
 import { TICK_RATE } from '../sim/constants.js';
@@ -135,15 +136,16 @@ function corpseInArea(sim, sq, o) {
   const bit = sideBit(sq.faction);
   let best = null, bd = Infinity;
   for (const c of sim.state.corpses) {
+    if (o.autoSanitize && !c.infected) continue;
     if (!(c.seenBy & bit)) continue;
     if (dist(c.x, c.z, o.x, o.z) > o.r) continue;
-    const d = dist(c.x, c.z, sq.cx, sq.cz) - (c.infected ? 6 : 0) - (c.riseAt ? 10 : 0);
+    const d = dist(c.x, c.z, sq.cx, sq.cz) - (c.infected ? 100 : 0) - (c.riseAt ? 10000 : 0);
     if (d < bd || (d === bd && best && c.id < best.id)) { bd = d; best = c; }
   }
   return best;
 }
 
-function dirtiestCell(sim, o) {
+function dirtiestCell(sim, sq, o) {
   const inf = sim.state.infection;
   let best = -1, bv = 39;
   const R = Math.ceil(o.r / inf.cs);
@@ -153,6 +155,7 @@ function dirtiestCell(sim, o) {
       const gx = cx + dx, gz = cz + dz;
       if (gx < 0 || gz < 0 || gx >= inf.cols || gz >= inf.rows) continue;
       if (dist((gx + 0.5) * inf.cs, (gz + 0.5) * inf.cs, o.x, o.z) > o.r) continue;
+      if (o.autoSanitize && !isVisibleAt(sim.state.fog, sideIndex(sq.faction), (gx + 0.5) * inf.cs, (gz + 0.5) * inf.cs)) continue;
       const v = inf.v[gz * inf.cols + gx];
       if (v > bv) { bv = v; best = gz * inf.cols + gx; }
     }
@@ -171,7 +174,7 @@ function updateSanitize(sim, sq, o) {
       requestPath(sim, sq, c.x, c.z);
       return;
     }
-    const cell = dirtiestCell(sim, o);
+    const cell = o.emergency ? -1 : dirtiestCell(sim, sq, o);
     if (cell >= 0) {
       const inf = state.infection;
       o.cx = ((cell % inf.cols) + 0.5) * inf.cs; o.cz = (Math.floor(cell / inf.cols) + 0.5) * inf.cs;
@@ -180,7 +183,7 @@ function updateSanitize(sim, sq, o) {
       return;
     }
     // the area is clean
-    sq.order = { t: 'idle', done: 1 };
+    sq.order = o.emergency ? { t: 'move', x: o.returnX, z: o.returnZ, am: 0 } : { t: 'idle', done: 1 };
     clearPath(sq);
     sim.events.push({ type: EV.NOTICE, faction: sq.faction, key: 'sanitize.done', squadId: sq.id, x: o.x, z: o.z });
     return;
@@ -188,7 +191,7 @@ function updateSanitize(sim, sq, o) {
   if (o.phase === 'to') {
     const c = rt.corpseById.get(o.cid);
     if (!c) { o.phase = 'seek'; clearPath(sq); return; }
-    if (dist(sq.cx, sq.cz, c.x, c.z) < 3.2) { o.phase = 'burn'; o.until = tick + Math.round((3 / speed) * TICK_RATE); clearPath(sq); return; }
+    if (dist(sq.cx, sq.cz, c.x, c.z) < (o.emergency ? 6 : 3.2)) { o.phase = 'burn'; o.until = tick + Math.round(((o.emergency ? 1 : 3) / speed) * TICK_RATE); clearPath(sq); return; }
     if (sq.pathState === 'none' || sq.pathState === 'done') requestPath(sim, sq, c.x, c.z);
     else if (sq.pathState === 'failed' && tick - sq.pathReqTick > 30) {
       if (sq.pathFails > 4) { o.phase = 'seek'; o.skip = (o.skip || 0) + 1; if (o.skip > 6) { sq.order = { t: 'idle', done: 1 }; } clearPath(sq); }
@@ -203,6 +206,8 @@ function updateSanitize(sim, sq, o) {
     const f = state.factions[sq.faction];
     if ((f.resources.supply || 0) >= 1) f.resources.supply -= 1; // lamp oil / fuel
     cremateCorpse(sim, c, sq.faction);
+    if (o.emergency) sq.ammo = Math.max(0, sq.ammo - 1);
+    cleanseInfection(sim, c.x, c.z, 4, 70);
     o.phase = 'seek';
     return;
   }
@@ -295,6 +300,7 @@ export function builderStatus(sim, sq) {
     if (unitDef(sq.type).gathers !== 'corpse') return 'salvaging';
     // work gang (Phase 4.1): what it is doing right now
     if (o.phase === 'seek') return 'searching';
+    if (o.phase === 'travel') return 'moving';
     if (o.phase === 'hunt') return 'hunting';
     if (o.phase === 'to_drop') return sq.pathState === 'none' || sq.pathState === 'done' ? 'delivering' : 'carrying';
     return 'collecting';

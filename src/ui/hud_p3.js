@@ -56,6 +56,8 @@ export function createP3Hud(game, H) {
   // speciality button (quick stack, top of it)
   const specBadge = el('span.cd');
   const specBtn = button('q spec', icon('doctrine') + `<i>${t('spec.title')}</i>`, () => openSpec(), t('spec.title'));
+  specBtn.dataset.action = 'speciality';
+  specBtn.setAttribute('aria-haspopup', 'dialog');
   specBtn.appendChild(specBadge);
   H.quick.append(specBtn);
 
@@ -114,6 +116,9 @@ export function createP3Hud(game, H) {
 
   // ------------------------------------------------------------------ speciality modal
   const modal = el('div.specmodal');
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', t('spec.title'));
   root.appendChild(modal);
   let picked = null;
   function specName(id) {
@@ -130,10 +135,12 @@ export function createP3Hud(game, H) {
     picked = null;
     renderSpec();
     modal.classList.add('open');
+    specBtn.setAttribute('aria-expanded', 'true');
     if (game.audio) game.audio.ui('click');
   }
   function closeSpec() {
     modal.classList.remove('open');
+    specBtn.setAttribute('aria-expanded', 'false');
   }
   function renderSpec() {
     clear(modal);
@@ -150,11 +157,11 @@ export function createP3Hud(game, H) {
       path.appendChild(el('span.tierchip' + (id ? '.done' : i === open ? '.open' : ''), { html: `<b>${t('spec.tier.' + i)}</b> ${txt}` }));
     });
     box.appendChild(path);
-    if (open < 0) {
+    if (open < 0 || !tiers[open]) {
       box.appendChild(el('div.specnote', { text: chosen.every((x) => x) ? '' : t('spec.locked') }));
     } else {
       const cards = el('div.speccards');
-      for (const o of tiers[open]) {
+      for (const o of tiers[open] || []) {
         const pts = t('spec.' + o.id + '.p').split('|').map((p) => `<li>${p}</li>`).join('');
         const un = unlockNames(o);
         const lore = o.lore && o.lore.status ? `<span class="lore ${o.lore.status}">${o.lore.status}</span>` : '';
@@ -199,7 +206,7 @@ export function createP3Hud(game, H) {
     // Phase 4.1: positional auto reinforcement of everyone in this position ("AUTO REINFORCE ALL")
     const reinfIds = sideDef(viewer).reinforcements ? d.cards.map((c) => sim.rt.squadById.get(c.id)).filter((q) => q && unitDef(q.type).combatUnit && positionOf(q)) : [];
     const allOn = reinfIds.length > 0 && reinfIds.every((q) => autoReinforceOn(q) || !q.posId);
-    const key = d.cards.map((c) => c.id).join(',') + '|' + reinfIds.length + (allOn ? 'A' : 'a');
+    const key = d.cards.map((c) => c.id).join(',') + '|' + reinfIds.length + (allOn ? 'A' : 'a') + d.titleKey;
     if (force || key !== tpKey) {
       tpKey = key;
       clear(tpanel);

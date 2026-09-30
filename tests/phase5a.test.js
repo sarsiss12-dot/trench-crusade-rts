@@ -401,7 +401,7 @@ function canon(v) {
 }
 
 test('5A I/5B: save v5 -> current: a classic Phase 4.1 save becomes NA defender / BG attacker, nothing lost', () => {
-  assert.equal(STATE_VERSION, 7);
+  assert.equal(STATE_VERSION, 8); // 05C adds independent safe-hunt and autonomous orders.
   const sim = createSimulation({ scenarioId: 'siege_default', seed: 21, settings: { playerFaction: NA, prepSeconds: 20, warMinutes: 30, controllers: { [NA]: 'ai', [BG]: 'ai' } } });
   run(sim, 20 + 200);
   const v5 = downgradeToV5(sim.state);

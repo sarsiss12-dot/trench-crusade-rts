@@ -32,6 +32,7 @@ import {
 } from './pestilence.js';
 import { enemyTarget } from '../sim/sides.js';
 import { TERRAIN } from '../data/terrain_types.js';
+import { forageSpot, habitatSpot, huntThreat } from '../units/hunt_targets.js';
 
 let scratch = null;
 const PLAGUE = { kind: 'plague', infect: 0 };
@@ -204,16 +205,25 @@ function reanimate(sim, fid) {
     // face toward the enemy's objective / headquarters (whatever the side's role)
     const obj = enemyTarget(sim, fid);
     const rot = obj ? datan2(obj.x - cx, obj.z - cz) : 0;
-    const sq = createSquad(state, fid, R.unit, cx, cz, rot, { size: cluster.length, positions, soldierState: 'rising' });
-    for (let k = 0; k < cluster.length; k++) sq.members[k].rot = cluster[k].rot;
-    state.squads.push(sq);
-    rt.squadById.set(sq.id, sq);
-    for (const m of sq.members) rt.soldierIndex.set(m.id, sq);
+    const raised = createSquad(state, fid, R.unit, cx, cz, rot, { size: cluster.length, positions, soldierState: 'rising' });
+    // Append to the first stable-id nearby young pack; never grow past 16 members.
+    let sq = state.squads.find((q) => q.autonomous === 'risen' && q.faction === fid && state.tick - q.spawnTick < 480 &&
+      q.order.t !== 'storm' && q.members.length + cluster.length <= 16 && dist(q.cx, q.cz, cx, cz) <= 18);
+    const members = raised.members;
+    if (!sq) {
+      sq = raised; sq.autonomous = 'risen'; sq.risenState = 'RISE'; sq.risenNext = state.tick;
+      state.squads.push(sq); rt.squadById.set(sq.id, sq);
+    } else {
+      const offset = sq.members.length;
+      for (const m of members) { m.slot += offset; sq.members.push(m); }
+      sq.cap = sq.members.length;
+    }
+    for (let k = 0; k < members.length; k++) { members[k].rot = cluster[k].rot; rt.soldierIndex.set(members[k].id, sq); }
     state.factions[fid].stats.raised += cluster.length;
     pestGain(sim, PESTILENCE.gain.rise * cluster.length, 'risen', fid);
     for (let k = 0; k < cluster.length; k++) {
       const c = cluster[k];
-      sim.events.push({ type: EV.SOLDIER_RISING, id: sq.members[k].id, sq: sq.id, corpseId: c.id, faction: fid, x: c.x, z: c.z, fromFaction: c.faction, fromUnit: c.unit, turned: c.turn ? 1 : 0 });
+      sim.events.push({ type: EV.SOLDIER_RISING, id: members[k].id, sq: sq.id, corpseId: c.id, faction: fid, x: c.x, z: c.z, fromFaction: c.faction, fromUnit: c.unit, turned: c.turn ? 1 : 0 });
       removeCorpse(sim, c, 'raised');
     }
     sim.events.push({ type: EV.SQUAD_SPAWNED, id: sq.id, faction: fid, unit: R.unit, x: cx, z: cz, risen: true });
@@ -438,33 +448,10 @@ export const AUTO_FORAGE_R = 28;
  * drop-off) when an enemy shows up close; the player's own FORAGE order goes anywhere.
  */
 export function threatAt(sim, fid, x, z, r) {
-  const bit = sideBit(fid);
-  for (const e of sim.state.squads) {
-    if (e.faction === fid || !sideDef(e.faction) || !(e.visibleTo & bit) || !unitDef(e.type).combatUnit) continue;
-    if (dist(e.cx, e.cz, x, z) <= r) return true;
-  }
-  for (const st of sim.state.structures) {
-    if (st.faction === fid || st.faction === 'neutral' || !((st.visibleTo | st.seenBy) & bit)) continue;
-    const d = STRUCTURES[st.type];
-    const w = d.weapon ? 55 : d.emplacement ? 70 : 0;
-    if (w && dist(st.x, st.z, x, z) <= w + 5) return true;
-  }
-  return false;
+  return huntThreat(sim, fid, x, z, r);
 }
 
 const SAFE_R = 40;
-
-function safeForage(sim, sq, r) {
-  const fid = sq.faction;
-  if (threatAt(sim, fid, sq.cx, sq.cz, SAFE_R)) return false;
-  const bit = sideBit(fid);
-  for (const c of sim.state.corpses) {
-    if (c.infected || c.riseAt || c.biomass <= 0.01 || !(c.seenBy & bit)) continue;
-    if (dist(c.x, c.z, sq.cx, sq.cz) <= r && !threatAt(sim, fid, c.x, c.z, SAFE_R)) return true;
-  }
-  const a = forageAnimal(sim, fid, sq.cx, sq.cz, r);
-  return !!a && !threatAt(sim, fid, a.x, a.z, SAFE_R);
-}
 
 function autoForage(sim, fid) {
   const { state } = sim;
@@ -474,20 +461,25 @@ function autoForage(sim, fid) {
     if (sq.faction !== fid || unitDef(sq.type).gathers !== 'corpse') continue;
     const o = sq.order;
     // an automatic hunt breaks off when an enemy appears close (no suicide runs at MG lines)
-    if (o.t === 'gather' && o.auto && (tick + sq.id) % 20 === 0 && threatAt(sim, fid, sq.cx, sq.cz, 30)) {
+    if ((o.t === 'gather' || o.t === 'move') && o.auto && o.phase !== 'to_drop' && huntThreat(sim, fid, sq.cx, sq.cz, sq.safeHunt === 0 ? 15 : 40, sq.safeHunt !== 0)) {
       const home = nearestDrop(sim, fid, sq.cx, sq.cz);
-      if (home) setOrder(sim, sq, { t: 'move', x: home.x, z: home.z + 10, am: 0, trench: 0 });
+      if (home) setOrder(sim, sq, { t: 'gather', mode: 'forage', fx: home.x, fz: home.z, fr: r, phase: 'to_drop', cid: 0, aid: 0, auto: 1 });
       else sq.order = { t: 'idle' };
       sq.autoT = tick + 20 * TICK_RATE;
       sim.events.push({ type: EV.NOTICE, faction: fid, key: 'gang.fled', squadId: sq.id, x: sq.cx, z: sq.cz });
       continue;
     }
-    if (o.t !== 'idle' || sq.autoHunt === 0) { if (o.t !== 'idle') sq.autoT = 0; continue; }
+    if (o.t !== 'idle' || sq.autoHunt === 0) continue;
     if (sq.autoT === 0) { sq.autoT = tick + AUTO_IDLE; continue; }
     if (tick < sq.autoT) continue;
     sq.autoT = tick + AUTO_RETRY;
-    if (!sq.members.some((m) => m.state === 'alive') || !safeForage(sim, sq, r)) continue;
-    setOrder(sim, sq, { t: 'gather', mode: 'forage', fx: sq.cx, fz: sq.cz, fr: r, phase: 'seek', cid: 0, aid: 0, auto: 1 });
+    if (!sq.members.some((m) => m.state === 'alive')) continue;
+    if (!sq.huntMemo) sq.huntMemo = {};
+    const prey = forageSpot(sim, fid, sq), target = prey || habitatSpot(sim, fid, sq, sq.huntMemo);
+    if (!target) continue;
+    if (!prey) sq.huntMemo[target.id] = tick + 20 * 90;
+    setOrder(sim, sq, { t: 'gather', mode: 'forage', fx: target.x, fz: target.z, fr: r,
+      phase: dist(sq.cx, sq.cz, target.x, target.z) > r * 0.5 ? 'travel' : 'seek', cid: prey && prey.kind === 'corpse' ? prey.id : 0, aid: 0, auto: 1 });
     sq.autoT = 0;
   }
 }

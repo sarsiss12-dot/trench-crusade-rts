@@ -3,7 +3,7 @@
 // network with the card data the HUD draws: icon, name, alive / max, aggregate HP, ammunition,
 // infection. On a phone this panel is the main way to pick squads out of a crowded trench line.
 // Enemy trenches reveal nothing about who is inside.
-import { unitDef } from '../data/units.js';
+import { unitDef, commandable } from '../data/units.js';
 import { INFECTION_MAX } from '../sim/constants.js';
 import { trenchNetwork, networkCapacity, squadsInNetwork } from '../construction/trench.js';
 import { iconForUnit } from './icons.js';
@@ -37,12 +37,13 @@ export function garrisonPanelData(sim, viewer, st) {
   const g = garrisonGeom(sim, st);
   if (!g) return null;
   const base = { segId: st.id, kind: 'garrison', titleKey: 'hud.garrison_squads', segments: 1, total: g.cap, collapsed: st.collapsed ? 1 : 0, hp: st.maxHp ? Math.max(0, st.hp) / st.maxHp : 0 };
+  if (st.contested && (st.holder === viewer || visibleOccupant(sim, st, viewer))) base.titleKey = 'garrison.contested';
   if (st.holder !== viewer) {
     // empty and enemy-held look the same unless an occupant is SEEN right now (fog)
     return { ...base, used: -1, free: -1, count: 0, cards: [], enemySeen: st.holder && visibleOccupant(sim, st, viewer) ? 1 : 0 };
   }
   const cards = [];
-  for (const id of st.occ) { const sq = sim.rt.squadById.get(id); if (sq && sq.faction === viewer) cards.push(cardOf(sq)); }
+  for (const id of st.occ) { const sq = sim.rt.squadById.get(id); if (commandable(sq) && sq.faction === viewer) cards.push(cardOf(sq)); }
   // own squads on their way in
   let coming = 0;
   for (const sq of sim.state.squads) if (sq.faction === viewer && sq.order.t === 'garrison' && sq.order.sid === st.id && sq.order.phase === 'to_door') coming++;

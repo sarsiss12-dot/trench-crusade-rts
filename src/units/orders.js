@@ -13,6 +13,7 @@ import { factionBit, isPointVisibleTo, visibleCentroid } from '../sim/perception
 import { removeCorpse } from '../sim/corpses.js';
 import { forageAnimal, damageAnimal, animalById } from '../sim/wildlife.js';
 import { specRule } from '../sim/specialities.js';
+import { huntThreat } from './hunt_targets.js';
 import {
   trenchSlot, ensureOccupancy, trenchSlotCount, trenchFrame, trenchNetwork, networkCapacity,
 } from '../construction/trench.js';
@@ -523,6 +524,15 @@ const CORPSE_FIELD_R = 16;
 function updateHunt(sim, sq, def, o, cap) {
   const { state } = sim;
   const tick = state.tick;
+  if (o.phase === 'travel') {
+    if (dist(sq.cx, sq.cz, o.fx, o.fz) < o.fr * 0.5) { o.phase = 'seek'; clearPath(sq); return; }
+    if (sq.pathState === 'none' || sq.pathState === 'done') requestPath(sim, sq, o.fx, o.fz);
+    else if (sq.pathState === 'failed' && tick - sq.pathReqTick > 30) {
+      if (sq.pathFails > 3) { sq.order = { t: 'idle' }; clearPath(sq); }
+      else requestPath(sim, sq, o.fx, o.fz);
+    }
+    return;
+  }
   if (o.phase === 'seek') {
     if (sq.carry >= cap - 0.001 && sq.carry > 0) { o.phase = 'to_drop'; clearPath(sq); return; }
     const c = corpseTarget(sim, sq, o);
@@ -530,7 +540,7 @@ function updateHunt(sim, sq, def, o, cap) {
     const dc = c ? dist(sq.cx, sq.cz, c.x, c.z) - c.biomass * 1.5 : Infinity;
     const da = a ? dist(sq.cx, sq.cz, a.x, a.z) : Infinity;
     if (c && dc <= da) { o.phase = 'to_node'; clearPath(sq); return; }
-    if (a) { o.aid = a.id; o.cid = 0; o.phase = 'hunt'; o.t2 = tick; requestPath(sim, sq, a.x, a.z); return; }
+    if (a) { o.aid = a.id; o.cid = 0; o.phase = 'hunt'; o.huntStart = tick; o.t2 = tick; requestPath(sim, sq, a.x, a.z); return; }
     // nothing left here
     if (sq.carry > 0) { o.phase = 'to_drop'; clearPath(sq); return; }
     if (o.auto) { sq.order = { t: 'idle', ready: 1 }; clearPath(sq); return; }
@@ -540,6 +550,13 @@ function updateHunt(sim, sq, def, o, cap) {
   // hunt
   const an = animalById(state, o.aid);
   if (!an) { o.phase = 'seek'; o.aid = 0; clearPath(sq); return; }
+  if (o.auto && (tick + sq.id) % 20 === 0 && huntThreat(sim, sq.faction, an.x, an.z, sq.safeHunt === 0 ? 15 : 40, sq.safeHunt !== 0)) {
+    o.phase = 'to_drop'; o.aid = 0; clearPath(sq); return;
+  }
+  // A selected prey may leave the forage circle. Chase has its own time/distance/failure limits.
+  if (tick - (o.huntStart || tick) > 20 * 65 || dist(o.fx, o.fz, an.x, an.z) > (o.auto ? 150 : o.fr * 3) || sq.pathFails > 3) {
+    o.phase = sq.carry > 0 ? 'to_drop' : 'seek'; o.aid = 0; clearPath(sq); return;
+  }
   const reach = specRule(state, sq.faction, 'pounce') ? 5 : 3.2;
   if (dist(sq.cx, sq.cz, an.x, an.z) <= reach) {
     if ((tick + sq.id) % 10 === 0) {
@@ -588,7 +605,7 @@ function updateGather(sim, sq, def, o) {
   let alive = 0;
   for (const m of sq.members) if (m.state === 'alive') alive++;
   const cap = alive * (def.carryCapacity || 0);
-  if (corpseMode && o.mode === 'forage' && (o.phase === 'seek' || o.phase === 'hunt')) { updateHunt(sim, sq, def, o, cap); return; }
+  if (corpseMode && o.mode === 'forage' && (o.phase === 'seek' || o.phase === 'hunt' || o.phase === 'travel')) { updateHunt(sim, sq, def, o, cap); return; }
   let node = corpseMode ? corpseTarget(sim, sq, o) : rt.nodeById.get(o.nid);
   // SALVAGE AREA (engineers, Phase 4): an emptied heap hands over to the next known heap inside
   // the area; when the area is empty the crew delivers and heads home to a hub (engineer queue)
@@ -666,7 +683,8 @@ function updateGather(sim, sq, def, o) {
       sim.events.push({ type: EV.RESOURCE_DELIVERED, faction: sq.faction, squadId: sq.id, resource: res, amount, x: sq.x, z: sq.z });
       sq.carry = 0;
       clearPath(sq);
-      if (forage) o.phase = 'seek';
+      if (forage && o.auto) finished();
+      else if (forage) o.phase = 'seek';
       else if (node && amountOf(node) > 0) o.phase = 'to_node';
       else if (o.area && nextAreaNode(sim, sq, o)) o.phase = 'to_node';
       else finished();
